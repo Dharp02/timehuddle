@@ -2518,26 +2518,3 @@ export const redmineApi = {
       wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
   },
 };
-
-// ─── TimeHarbor Share ─────────────────────────────────────────────────────────
-
-/**
- * Flag a single ticket as shared with TimeHarbor.
- * One-way: this only sets the flag on the TimeHuddle record; TimeHarbor pulls it.
- */
-export const shareTicketWithTimeharbor = (id: string, shared: boolean): Promise<void> =>
-  wormholeCall<{ ok: boolean }>('tickets.shareWithTimeharbor', { ticketId: id, shared }).then(
-    () => undefined,
-  );
-
-/**
- * Flag multiple tickets as shared with (or unshared from) TimeHarbor in one request.
- */
-export const bulkShareTicketsWithTimeharbor = (
-  ticketIds: string[],
-  shared: boolean,
-): Promise<void> =>
-  wormholeCall<{ modifiedCount: number }>('tickets.bulkShareWithTimeharbor', {
-    ticketIds,
-    shared,
-  }).then(() => undefined);

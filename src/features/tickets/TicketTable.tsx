@@ -23,6 +23,8 @@ import {
 } from '@mieweb/ui';
 import React from 'react';
 
+import { MINIMAL_SCROLLBAR_CLASS } from '../../ui/scrollbar';
+
 import { TicketColumnHeader, type TicketColumnFilter } from './TicketColumnHeader';
 import { TicketTableRow } from './TicketTableRow';
 import { SOURCE_LABELS, TICKET_SOURCES, type TicketSourceId, type UnifiedTicket } from './sources';
@@ -67,11 +69,8 @@ const FIXED_COLUMN_WIDTH = Object.entries(COLUMN_WIDTH)
   .reduce((sum, [, w]) => sum + w, 0);
 const TABLE_MIN_WIDTH = FIXED_COLUMN_WIDTH + 220;
 
-// Overrides ScrollArea's default `bg-border` thumb (too heavy in dark mode) with
-// a thin, theme-aware bar matching the app's `.scrollbar-mieweb` palette. Same
-// arbitrary variants as the component, so tailwind-merge replaces them cleanly.
-const SCROLLBAR_CLASS =
-  'w-full [scrollbar-color:#d4d4d4_transparent] dark:[scrollbar-color:#404040_transparent] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-neutral-300 hover:[&::-webkit-scrollbar-thumb]:bg-neutral-400 dark:[&::-webkit-scrollbar-thumb]:bg-neutral-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-neutral-600';
+// The app's minimal scrollbar, as a thin horizontal bar.
+const SCROLLBAR_CLASS = `w-full [&::-webkit-scrollbar]:h-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
 
 export interface TicketTableProps {
   /** One page of rows, already filtered and sorted. */
@@ -108,7 +107,6 @@ export interface TicketTableProps {
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
-  onShareWithTimeharbor: (ticket: UnifiedTicket, shared: boolean) => void;
 }
 
 const SkeletonRow: React.FC<{ colSpan: number }> = ({ colSpan }) => (
@@ -145,7 +143,6 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
-  onShareWithTimeharbor,
 }) => {
   const selectedOnPage = tickets.filter((t) => selectedKeys.has(t.key)).length;
   const allSelected = tickets.length > 0 && selectedOnPage === tickets.length;
@@ -325,7 +322,6 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       onEditRequest={onEditRequest}
                       onDeleteRequest={onDeleteRequest}
                       onChangeStatusRequest={onChangeStatusRequest}
-                      onShareWithTimeharbor={onShareWithTimeharbor}
                     />
                   ))}
             </TableBody>

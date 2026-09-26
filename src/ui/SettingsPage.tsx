@@ -56,6 +56,7 @@ import {
   type RedmineActivityList,
 } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
+import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
@@ -868,6 +869,8 @@ const RedmineConnection: React.FC = () => {
             </Text>
           )}
         </div>
+
+        <RedmineHiddenSuggestions />
 
         {error && (
           <Text size="xs" variant="destructive" role="alert">

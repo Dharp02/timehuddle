@@ -14,6 +14,7 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
@@ -38,6 +39,7 @@ import { OrganizationPage } from '../features/org/OrganizationPage';
 import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY } from '../lib/constants';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
+import { AppToasts } from './AppToasts';
 import { useBrand } from '../lib/useBrand';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSession } from '../lib/useSession';
@@ -525,7 +527,10 @@ const AppLayoutContent: React.FC = () => {
 export const AppLayout: React.FC = () => {
   return (
     <TeamProvider>
-      <AppLayoutContent />
+      <ToastProvider>
+        <AppLayoutContent />
+        <AppToasts />
+      </ToastProvider>
     </TeamProvider>
   );
 };

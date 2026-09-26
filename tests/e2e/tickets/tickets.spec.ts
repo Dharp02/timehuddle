@@ -38,7 +38,9 @@ test.describe('Tickets', () => {
     // Verify page components
     await expect(page.getByRole('heading', { level: 1, name: 'Tickets' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'New Ticket' })).toBeVisible();
-    await expect(page.getByPlaceholder('Search tickets…')).toBeVisible();
+    await expect(
+      page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }),
+    ).toBeVisible();
     await expect(page.getByRole('switch', { name: /Closed/i })).toBeVisible();
     // Sorting and filtering live on the column headers, not a chip bar.
     for (const header of ['Title', 'Issue #', 'Source', 'Status', 'Priority', 'Updated']) {
@@ -82,14 +84,16 @@ test.describe('Tickets', () => {
     await expect(page.getByText(TICKET_TITLE_2)).toBeVisible({ timeout: 10000 });
 
     // Search for the ticket
-    await page.getByPlaceholder('Search tickets…').fill(TICKET_TITLE_2.slice(0, 15));
+    await page
+      .getByRole('combobox', { name: 'Search tickets and Redmine issues' })
+      .fill(TICKET_TITLE_2.slice(0, 15));
     await page.waitForTimeout(500);
 
     // Ticket should still be visible
     await expect(page.getByText(TICKET_TITLE_2)).toBeVisible();
 
     // Clear search and verify all tickets show again
-    await page.getByPlaceholder('Search tickets…').clear();
+    await page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }).clear();
     await page.waitForTimeout(500);
   });
 
@@ -323,13 +327,7 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(500);
 
     // Verify all dropdown items are visible and text is not cut off
-    const dropdownItems = [
-      'Ticket Details',
-      'Edit Ticket',
-      'Change Status',
-      'Send to TimeHarbor',
-      'Delete Ticket',
-    ];
+    const dropdownItems = ['Ticket Details', 'Edit Ticket', 'Change Status', 'Delete Ticket'];
 
     // Get the dropdown content container
     const dropdownContent = page
@@ -349,6 +347,8 @@ test.describe('Tickets', () => {
       const item = page.getByText(itemText, { exact: true });
       await expect(item).toBeVisible({ timeout: 2000 });
     }
+    // "Send to TimeHarbor" was removed from the row menu.
+    await expect(page.getByText('Send to TimeHarbor', { exact: true })).toHaveCount(0);
 
     // Click Ticket Details to verify interaction works
     await page.getByText('Ticket Details', { exact: true }).click();

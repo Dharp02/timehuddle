@@ -44,7 +44,7 @@ import {
   teamApi,
   ticketApi,
   timerApi,
-  shareTicketWithTimeharbor,
+  type RedmineIssue,
   type Team,
   type TeamMember,
   type Ticket,
@@ -67,9 +67,11 @@ import { TicketTable } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
 import { RedmineIssueCreateModal } from './redmine/RedmineIssueCreateModal';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
+import { RedmineSuggestions, type SuggestionTimerOutcome } from './redmine/RedmineSuggestions';
 import {
   huddleSource,
   invalidateRedmineCache,
+  redmineSource,
   useUnifiedTickets,
   type UnifiedTicket,
 } from './sources';
@@ -362,7 +364,7 @@ export const TicketsPage: React.FC = () => {
 
   // ── Handlers ──
 
-  // ── Ticket timers (started only from My Board — M3 D1) ──
+  // ── Ticket timers (started from My Board — M3 D1 — and Redmine suggestions) ──
 
   /**
    * Turn a rejected timer start into something the user can act on. The shift
@@ -379,31 +381,65 @@ export const TicketsPage: React.FC = () => {
     return 'Could not start the timer. Please try again.';
   };
 
-  const startTimerForTicket = useCallback(async (ticket: UnifiedTicket) => {
-    setTimerLoadingKey(ticket.key);
-    setTimerError(null);
-    try {
-      const result = await timerApi.createEntry({
-        ticketId: ticket.id,
-        source: ticket.sourceId,
-        date: toLocalDateStr(new Date()),
-        startNow: true,
-        notifyAdmins: false,
-      });
+  // Read inside the timer start below without making it depend on every board change.
+  const boardKeysRef = React.useRef(boardKeys);
+  useEffect(() => {
+    boardKeysRef.current = boardKeys;
+  }, [boardKeys]);
 
-      if (result.session) {
+  /**
+   * A ticket being timed belongs on My Board. Starts from the board are already
+   * there; a start from a Redmine suggestion (or after its clock-in prompt) is
+   * not, so it is added. Best-effort: the timer is running either way.
+   */
+  const ensureOnBoard = useCallback(
+    async (ticket: UnifiedTicket): Promise<'added' | 'already' | 'failed'> => {
+      if (boardKeysRef.current.has(ticket.key)) return 'already';
+      try {
+        await myBoardApi.addMany([{ sourceId: ticket.sourceId, ticketId: ticket.id }]);
+        setBoardKeys((prev) => new Set([...prev, ticket.key]));
+        return 'added';
+      } catch {
+        return 'failed';
+      }
+    },
+    [],
+  );
+
+  const startTimerForTicket = useCallback(
+    async (ticket: UnifiedTicket): Promise<SuggestionTimerOutcome> => {
+      setTimerLoadingKey(ticket.key);
+      setTimerError(null);
+      try {
+        const result = await timerApi.createEntry({
+          ticketId: ticket.id,
+          source: ticket.sourceId,
+          date: toLocalDateStr(new Date()),
+          startNow: true,
+          notifyAdmins: false,
+        });
+
+        if (!result.session) return 'failed';
         // Hook refreshes via DDP / tickets:refetch once the open timer lands.
         window.dispatchEvent(new CustomEvent('tickets:refetch'));
+        const board = await ensureOnBoard(ticket);
+        return board === 'added'
+          ? 'started-and-added'
+          : board === 'already'
+            ? 'started-on-board'
+            : 'started';
+      } catch (err) {
+        setTimerError(timerErrorMessage(err));
+        return 'failed';
+      } finally {
+        setTimerLoadingKey(null);
       }
-    } catch (err) {
-      setTimerError(timerErrorMessage(err));
-    } finally {
-      setTimerLoadingKey(null);
-    }
-  }, []);
+    },
+    [ensureOnBoard],
+  );
 
   const handleToggleTimer = useCallback(
-    async (ticket: UnifiedTicket) => {
+    async (ticket: UnifiedTicket): Promise<SuggestionTimerOutcome> => {
       // Starting a second ticket's timer auto-stops the first (M3 D5) — that is
       // `closeRunningSession` server-side, and needs no confirmation here.
       if (runningTicket?.key === ticket.key && runningTicket.sessionId) {
@@ -412,12 +448,13 @@ export const TicketsPage: React.FC = () => {
         try {
           await timerApi.stopSession(runningTicket.sessionId);
           window.dispatchEvent(new CustomEvent('tickets:refetch'));
+          return 'stopped';
         } catch {
           setTimerError('Could not stop the timer. Please try again.');
+          return 'failed';
         } finally {
           setTimerLoadingKey(null);
         }
-        return;
       }
 
       // A ticket timer requires an active shift (M3 D3). Offer to clock in
@@ -426,13 +463,29 @@ export const TicketsPage: React.FC = () => {
         setPendingStartTicket(ticket);
         setClockInPromptError(null);
         setShowClockInPrompt(true);
-        return;
+        return 'clock-in';
       }
 
-      await startTimerForTicket(ticket);
+      return startTimerForTicket(ticket);
     },
     [runningTicket, isClockedIn, startTimerForTicket],
   );
+
+  // A suggestion is a Redmine issue, not yet a table row: shape it the way the
+  // table would, so it goes through the same start/stop and clock-in path.
+  const handleSuggestionTimer = useCallback(
+    (issue: RedmineIssue) =>
+      handleToggleTimer(redmineSource.toUnified({ issue, baseUrl: redmineBaseUrl }, sourceCtx)),
+    [handleToggleTimer, redmineBaseUrl, sourceCtx],
+  );
+
+  // Redmine issues already in the table, so "More from Redmine" offers only new ones.
+  const tableRedmineIssueIds = useMemo(
+    () => new Set(allTickets.filter((t) => t.sourceId === 'redmine').map((t) => Number(t.id))),
+    [allTickets],
+  );
+  const runningRedmineIssueId =
+    runningTicket?.source === 'redmine' ? Number(runningTicket.id) : null;
 
   const handleClockInAndStart = useCallback(async () => {
     if (!pendingStartTicket) return;
@@ -683,21 +736,15 @@ export const TicketsPage: React.FC = () => {
                   newTicketButton
                 )}
 
-                <div className="relative min-w-0 flex-1">
-                  <FontAwesomeIcon
-                    icon={faSearch}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
-                  />
-                  <Input
-                    label="Search"
-                    hideLabel
-                    placeholder="Search tickets…"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`pl-8 rounded-lg ${noFocusRingClass}`}
-                    size="sm"
-                  />
-                </div>
+                <RedmineSuggestions
+                  userId={userId}
+                  query={searchQuery}
+                  onQueryChange={setSearchQuery}
+                  tableIssueIds={tableRedmineIssueIds}
+                  runningIssueId={runningRedmineIssueId}
+                  onToggleTimer={handleSuggestionTimer}
+                  inputClassName={`pl-8 rounded-lg ${noFocusRingClass}`}
+                />
 
                 <div className="flex shrink-0 items-center gap-3">
                   <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
@@ -788,14 +835,6 @@ export const TicketsPage: React.FC = () => {
                   onEditRequest={(t) => void openEditModal(t)}
                   onDeleteRequest={(t) => setDeleteIds([t.id])}
                   onChangeStatusRequest={handleChangeStatusRequest}
-                  onShareWithTimeharbor={async (t, shared) => {
-                    try {
-                      await shareTicketWithTimeharbor(t.id, shared);
-                      refetch();
-                    } catch {
-                      // Silently ignore — user can retry
-                    }
-                  }}
                   emptyState={
                     <EmptyState
                       title={
@@ -938,14 +977,6 @@ export const TicketsPage: React.FC = () => {
                   onEditRequest={(t) => void openEditModal(t)}
                   onDeleteRequest={(t) => setDeleteIds([t.id])}
                   onChangeStatusRequest={handleChangeStatusRequest}
-                  onShareWithTimeharbor={async (t, shared) => {
-                    try {
-                      await shareTicketWithTimeharbor(t.id, shared);
-                      refetch();
-                    } catch {
-                      // Silently ignore — user can retry
-                    }
-                  }}
                   emptyState={
                     <EmptyState
                       title={

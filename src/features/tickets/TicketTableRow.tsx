@@ -18,7 +18,6 @@ import {
   faCircleDot,
   faCircleXmark,
   faRightLeft,
-  faShareFromSquare,
   faTrash,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -54,14 +53,13 @@ export interface TicketTableRowProps {
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /**
    * My Board only. Renders the ▶/⏸ column between the checkbox and Title
-   * cells. My Board is the *only* place a ticket timer is started (M3 D1), so
-   * no other table passes this.
+   * cells. My Board is the only *table* that starts a ticket timer (M3 D1), so
+   * no other table passes this. (Redmine search suggestions start one too.)
    */
   showTimerColumn?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
-  onShareWithTimeharbor: (ticket: UnifiedTicket, shared: boolean) => void;
 }
 
 function statusIconFor(status: UnifiedTicket['status']): {
@@ -97,7 +95,6 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
-  onShareWithTimeharbor,
 }) => {
   const { navigate } = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -377,17 +374,6 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
                     }}
                   >
                     Change Status
-                  </DropdownItem>
-                )}
-                {ticket.sourceId === 'huddle' && (
-                  <DropdownItem
-                    icon={<FontAwesomeIcon icon={faShareFromSquare} />}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor);
-                    }}
-                  >
-                    {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
                   </DropdownItem>
                 )}
                 {capabilities.delete && isCreator && (

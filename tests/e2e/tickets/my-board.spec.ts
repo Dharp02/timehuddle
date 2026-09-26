@@ -2,9 +2,10 @@
  * "My Board" personal priority view (Milestone 2.2) and the ticket timers it
  * starts (Milestone 3).
  *
- * My Board's ▶/⏸ is the *only* place in the app a ticket timer starts (M3 D1).
+ * My Board's ▶/⏸ is the only table control that starts a ticket timer (M3 D1).
  * The main Tickets table has no timer control at all — `unified-table.spec.ts`
- * asserts its absence from the row menu.
+ * asserts its absence from the row menu. Redmine search suggestions can start
+ * one too (`redmine/search-suggestions.spec.ts`).
  */
 import { test, expect } from '@playwright/test';
 
