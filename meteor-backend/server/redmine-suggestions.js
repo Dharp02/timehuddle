@@ -28,6 +28,7 @@ import { createRateLimiter } from './rate-limit';
 import {
   getCurrentUser,
   getIssue,
+  isIssueAssignedToMe,
   listIssuesAssignedTo,
   listIssuesByIds,
   listProjectMemberships,
@@ -83,9 +84,10 @@ const MEMBERSHIP_CONCURRENCY = 5;
  * What one user may ask of Redmine through these methods.
  *
  * Search is generous because it is keystroke-driven and already waits for a pause
- * in typing; the relevant list is tight because its own 90-second cache absorbs
- * ordinary use, so anything past this rate is a client looping, not a person
- * working. Applied in the method rather than through `DDPRateLimiter` — see
+ * in typing. The relevant list is tight, and counts only the calls its 90-second
+ * cache cannot answer: a cache hit costs Redmine nothing, and the Tickets table
+ * and the search dropdown both read the list, so counting hits would refuse a
+ * person working normally. Ten real rebuilds a minute is a client looping. Applied in the method rather than through `DDPRateLimiter` — see
  * rate-limit.js for why that would guard a door this app does not use.
  */
 const searchLimiter = createRateLimiter({ limit: 20, windowMs: 10 * 1000 });
@@ -230,18 +232,17 @@ function requireIssueId(issueId) {
  * dismissal has to know about the issue it is hiding (rule 5).
  *
  * Asked of Redmine rather than of whatever the client had on screen, because the
- * answer decides whether the dismissal can be undone by someone else's action.
- * When Redmine cannot be reached the answer is **yes**: that makes the dismissal
- * permanent for its 15 days, which honours what the user just did. Guessing "no"
- * would risk the reassignment rule firing on the next list build and putting the
- * row straight back.
+ * answer decides whether the dismissal can be undone by someone else's action,
+ * and asked with `assigned_to_id=me` — the query the "assigned" signal runs — so
+ * an issue assigned to one of the caller's groups counts here exactly as it
+ * counts there. When Redmine cannot be reached the answer is **yes**: that makes
+ * the dismissal permanent for its 15 days, which honours what the user just did.
+ * Guessing "no" would risk the reassignment rule firing on the next list build
+ * and putting the row straight back.
  */
-async function isAssignedToCaller(userId, account, issueId) {
-  const link = await RedmineLinks.findOneAsync({ userId }, { fields: { redmineUserId: 1 } });
+async function isAssignedToCaller(account, issueId) {
   try {
-    const issue = await getIssue(account, issueId);
-    if (!issue) return true;
-    return issue.assigned_to?.id != null && issue.assigned_to.id === link?.redmineUserId;
+    return await isIssueAssignedToMe(account, issueId);
   } catch {
     return true;
   }
@@ -260,7 +261,6 @@ Meteor.methods({
    */
   async 'redmine.issues.relevant'({ includeDismissed = false } = {}) {
     const { userId } = await requireIdentity(this);
-    enforceLimit(relevantLimiter, userId);
 
     const account = await findRedmineAccount(userId);
     if (!account) {
@@ -269,8 +269,10 @@ Meteor.methods({
 
     const withDismissed = includeDismissed === true;
     // Only successful builds are cached, so a Redmine outage is retried rather
-    // than remembered for 90 seconds.
+    // than remembered for 90 seconds. The limit is checked inside, so it counts
+    // only the builds that go to Redmine.
     return relevantCache.get(userId, `relevant:${withDismissed}`, async () => {
+      enforceLimit(relevantLimiter, userId);
       const now = Date.now();
       const [{ pinnedIds }, redmineUserId, runningIds] = await Promise.all([
         readIssuePrefs(userId, { now }),
@@ -352,7 +354,7 @@ Meteor.methods({
 
     // Only a dismissal needs to know how the issue stood at the time.
     const assignedToMe =
-      state === DISMISSED ? await isAssignedToCaller(userId, await requireRedmineAccount(userId), id) : true;
+      state === DISMISSED ? await isAssignedToCaller(await requireRedmineAccount(userId), id) : true;
 
     await setIssuePref(userId, id, state, { assignedToMe });
     return { ok: true };

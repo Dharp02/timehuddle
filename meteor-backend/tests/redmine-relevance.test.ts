@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildRelevantIssues,
   latestByIssue,
+  RELEVANT_BUDGET_MS,
   scoreRelevantIssues,
   SIGNAL_SCORES,
 } from '../server/redmine-relevance';
@@ -340,6 +341,37 @@ describe('buildRelevantIssues', () => {
 
     const built = await buildRelevantIssues(account, { redmineUserId: 7, now: NOW });
     expect(built.partial).toBe(true);
+    expect(built.issues.map((row) => row.id).sort()).toEqual([1, 2]);
+  });
+
+  /** A wall clock that reads `start` once, then `start + elapsed` on every later call. */
+  const clockAfter = (elapsed: number) => {
+    const start = 1_000_000;
+    let calls = 0;
+    return () => (calls++ === 0 ? start : start + elapsed);
+  };
+
+  it('gives the batched resolve only the time the signals left', async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+    stubRedmine(allSignalsUp());
+    await buildRelevantIssues(account, { redmineUserId: 7, now: NOW, clock: clockAfter(5_000) });
+
+    // The last timeout set is the resolve's: what is left of the budget.
+    expect(timeoutSpy.mock.calls.at(-1)![0]).toBe(RELEVANT_BUDGET_MS - 5_000);
+    timeoutSpy.mockRestore();
+  });
+
+  it('skips the resolve when the signals spent the budget, and says the list is partial', async () => {
+    const seen = stubRedmine(allSignalsUp());
+    const built = await buildRelevantIssues(account, {
+      redmineUserId: 7,
+      now: NOW,
+      clock: clockAfter(RELEVANT_BUDGET_MS - 500),
+    });
+
+    expect(seen.some((url) => url.includes('issue_id='))).toBe(false);
+    expect(built.partial).toBe(true);
+    // The issues the signals returned whole are still served.
     expect(built.issues.map((row) => row.id).sort()).toEqual([1, 2]);
   });
 

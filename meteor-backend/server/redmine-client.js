@@ -21,8 +21,8 @@
  * instance" is not expressible here — M2's unfiltered `listIssues` is gone, and
  * cannot be reintroduced by accident. Its callers are the relevant-list signals
  * (`listAssignedIssues`, `listWatchedIssues`, `listTimeEntryIssueIds`,
- * `listActivityIssueIds`), search (`listIssuesAssignedTo`, `searchIssues`) and
- * `listIssuesByIds`.
+ * `listActivityIssueIds`), search (`listIssuesAssignedTo`, `searchIssues`),
+ * `isIssueAssignedToMe` and `listIssuesByIds`.
  *
  * **Writes, and only these three:** `createTimeEntry`, `createIssue` and
  * `updateIssue`. Time entries stay create-only (D1): once time is logged it is
@@ -277,7 +277,7 @@ function logRequestFailure({ method, path, startedAt, err, status = null }) {
  */
 async function issueQuery(account, params, { timeoutMs = LIST_TIMEOUT_MS } = {}) {
   const query = new URLSearchParams({ limit: '100', ...params });
-  if (!ISSUE_FILTERS.some((name) => query.has(name))) {
+  if (!isNarrowIssueQuery(query)) {
     throw new Error('Refusing to list Redmine issues without a filter');
   }
   const data = await redmineRequest(`/issues.json?${query.toString()}`, { account, timeoutMs });
@@ -286,10 +286,19 @@ async function issueQuery(account, params, { timeoutMs = LIST_TIMEOUT_MS } = {})
 
 /**
  * Query parameters that narrow `/issues.json` to a subset of the instance.
+ *
  * `status_id` is deliberately absent: "open issues only" is not a filter, it is
- * most of the database.
+ * most of the database. So is `project_id`: one project on the enterprise
+ * instance can hold thousands of issues, so it may narrow a query alongside one
+ * of these but never stands in for them.
  */
-const ISSUE_FILTERS = ['issue_id', 'assigned_to_id', 'watcher_id', 'author_id', 'project_id'];
+const ISSUE_FILTERS = ['issue_id', 'assigned_to_id', 'watcher_id', 'author_id'];
+
+/** Whether an `/issues.json` query carries at least one narrowing filter. */
+export function isNarrowIssueQuery(params) {
+  const query = params instanceof URLSearchParams ? params : new URLSearchParams(params);
+  return ISSUE_FILTERS.some((name) => query.has(name));
+}
 
 /**
  * Fetch the Redmine user that owns `account`'s key via `GET /users/current.json`.
@@ -314,6 +323,25 @@ export function listAssignedIssues(account, { timeoutMs } = {}) {
     { assigned_to_id: 'me', status_id: 'open', sort: 'updated_on:desc', limit: '100' },
     { timeoutMs },
   );
+}
+
+/**
+ * Whether one issue is assigned to the caller, by the same rule the "assigned"
+ * signal uses (MVP2 A3, dismissal rule 5).
+ *
+ * `assigned_to_id=me` counts the caller's **groups** as well as the caller, so
+ * comparing `assigned_to.id` with their own user id would call a group-assigned
+ * issue "not mine" — and the next relevant list, which does count it, would
+ * read that as a reassignment and undo the dismissal. Asking Redmine the same
+ * question keeps the two answers identical.
+ */
+export async function isIssueAssignedToMe(account, issueId, { timeoutMs } = {}) {
+  const issues = await issueQuery(
+    account,
+    { issue_id: String(issueId), assigned_to_id: 'me', status_id: '*', limit: '1' },
+    { timeoutMs },
+  );
+  return issues.length > 0;
 }
 
 /** Open issues the caller watches (MVP2 A1). A standing interest, so a smaller page. */

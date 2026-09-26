@@ -93,10 +93,16 @@ export async function setIssuePref(userId, issueId, state, { assignedToMe = true
  * Pin an issue, leaving an existing pin's date alone. Used by the timer-start
  * path, which fires on every start — rewriting `updatedAt` there would be pure
  * write noise, since a pin does not expire and its date carries no meaning.
+ *
+ * The cached relevant list is cleared either way: a timer just started, so the
+ * issue's `running` signal changed even when its pin did not.
  */
 export async function pinIssueIfUnset(userId, issueId) {
   const held = await RedmineIssuePrefs.findOneAsync({ userId, issueId }, { fields: { state: 1 } });
-  if (held?.state === PINNED) return;
+  if (held?.state === PINNED) {
+    bustUserCaches(userId);
+    return;
+  }
   await setIssuePref(userId, issueId, PINNED);
 }
 

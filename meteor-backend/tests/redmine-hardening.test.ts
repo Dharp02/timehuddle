@@ -17,6 +17,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getCurrentUser,
+  isIssueAssignedToMe,
+  isNarrowIssueQuery,
   listActivityIssueIds,
   listAssignedIssues,
   redmineAllowedHosts,
@@ -211,5 +213,56 @@ describe('failure logging', () => {
     );
     await expect(getCurrentUser(account)).rejects.toThrow(/fetch failed/);
     expect(logged()).toMatchObject({ name: 'TypeError', code: 'ECONNREFUSED', status: null });
+  });
+});
+
+describe('isNarrowIssueQuery', () => {
+  it('accepts the filters that pick out a small set', () => {
+    for (const filter of ['issue_id', 'assigned_to_id', 'watcher_id', 'author_id']) {
+      expect(isNarrowIssueQuery({ [filter]: 'me' })).toBe(true);
+    }
+  });
+
+  it('refuses a status on its own, since open issues are most of the database', () => {
+    expect(isNarrowIssueQuery({ status_id: 'open', limit: '100' })).toBe(false);
+  });
+
+  it('refuses a project on its own, since one project can hold thousands of issues', () => {
+    expect(isNarrowIssueQuery({ project_id: '12', status_id: 'open' })).toBe(false);
+  });
+
+  it('accepts a project alongside a real filter', () => {
+    expect(isNarrowIssueQuery({ project_id: '12', assigned_to_id: 'me' })).toBe(true);
+  });
+});
+
+describe('isIssueAssignedToMe', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const stubIssues = (issues: unknown[]) => {
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ issues }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    return fetchSpy;
+  };
+
+  it('asks the question the "assigned" signal asks, so a group assignment counts', async () => {
+    const fetchSpy = stubIssues([{ id: 42 }]);
+    await isIssueAssignedToMe(account, 42);
+
+    const [url] = fetchSpy.mock.calls[0] as unknown as [string];
+    const query = new URL(url).searchParams;
+    expect(query.get('issue_id')).toBe('42');
+    expect(query.get('assigned_to_id')).toBe('me');
+    expect(query.get('status_id')).toBe('*');
+  });
+
+  it('is true when Redmine returns the issue, and false when it does not', async () => {
+    // Redmine answers `assigned_to_id=me` with issues assigned to the caller's
+    // groups too, whose `assigned_to` is the group rather than the caller.
+    stubIssues([{ id: 42, assigned_to: { id: 900, name: 'Support team' } }]);
+    await expect(isIssueAssignedToMe(account, 42)).resolves.toBe(true);
+
+    stubIssues([]);
+    await expect(isIssueAssignedToMe(account, 42)).resolves.toBe(false);
   });
 });

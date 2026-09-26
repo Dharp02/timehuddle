@@ -45,6 +45,22 @@ import { toIssue } from './redmine-issues';
  */
 export const SIGNAL_TIMEOUT_MS = 6000;
 
+/**
+ * How long the whole list may take, signals and the batched resolve together.
+ * The signals run in parallel but the resolve has to wait for them, so bounding
+ * each step separately would let a slow signal and a slow resolve add up to
+ * twelve seconds. Set under the 8-second budget the method is judged on, leaving
+ * room for the Mongo reads either side.
+ */
+export const RELEVANT_BUDGET_MS = 7500;
+
+/**
+ * The least time worth giving the batched resolve. With less left, it is skipped
+ * and the list is served from the issues the signals already returned, marked
+ * `partial` — a request that is bound to time out only makes the wait longer.
+ */
+const MIN_RESOLVE_MS = 1000;
+
 /** How far back "recently logged" and "recent activity" look. */
 export const RECENT_DAYS = 14;
 
@@ -321,13 +337,23 @@ const issueIdsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) =>
  * @param {number|null} [context.redmineUserId]  for the activity feed
  * @param {(assignedIssueIds: number[]) => Promise<number[]>} [context.hiddenIssueIds]
  *   the ids to leave out, given what Redmine says is assigned to the caller
- * @param {number} [context.now]
+ * @param {number} [context.now]  the date the decay and `from` are measured from
+ * @param {() => number} [context.clock]  wall clock for the time budget; separate
+ *   from `now` so a test can fix the date and still move time along
  * @returns {Promise<{issues: RelevantIssue[], partial: boolean}>}
  */
 export async function buildRelevantIssues(
   account,
-  { pinnedIds = [], runningIds = [], redmineUserId = null, hiddenIssueIds, now = Date.now() } = {},
+  {
+    pinnedIds = [],
+    runningIds = [],
+    redmineUserId = null,
+    hiddenIssueIds,
+    now = Date.now(),
+    clock = Date.now,
+  } = {},
 ) {
+  const startedAt = clock();
   const from = isoDay(now - RECENT_DAYS * 24 * 60 * 60 * 1000);
 
   const { answered, failures, attempted } = await gatherRemoteSignals(account, {
@@ -362,10 +388,14 @@ export async function buildRelevantIssues(
   }
 
   let resolveFailed = false;
-  if (unresolved.size) {
+  const resolveMs = Math.min(SIGNAL_TIMEOUT_MS, RELEVANT_BUDGET_MS - (clock() - startedAt));
+  if (unresolved.size && resolveMs < MIN_RESOLVE_MS) {
+    // The signals spent the budget. Serve what they returned rather than wait.
+    resolveFailed = true;
+  } else if (unresolved.size) {
     try {
       const resolved = await listIssuesByIds(account, [...unresolved].slice(0, MAX_RELEVANT_ISSUES), {
-        timeoutMs: SIGNAL_TIMEOUT_MS,
+        timeoutMs: resolveMs,
       });
       for (const raw of resolved) {
         // `hidden` is re-checked, not assumed: "it is gone from my suggestions" is
