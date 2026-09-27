@@ -11,6 +11,11 @@
  *     not from the Tickets table, not from anyone else's view, and never from
  *     Redmine. It expires by itself after 15 days.
  *
+ * Hiding a **pinned** issue does not turn its row into a dismissal: the row stays
+ * pinned and gains `dismissedAt`. The pin is what keeps an issue someone else
+ * owns in the Tickets table, so losing it would make hiding a suggestion drop a
+ * table row. See rule 7 in redmine-prefs-core.js.
+ *
  * **Ids only.** A row holds a user id, an issue id, a state, one boolean and a
  * date. No subject, no project, no description — resolving a dismissal's title
  * for the Settings list is a read-time `listIssuesByIds` call, so TimeHuddle
@@ -57,32 +62,56 @@ export async function ensureRedmineIssuePrefIndexes() {
   );
 }
 
+/** The fields that make a pinned row also hidden (rule 7). */
+const HIDE_ON_PIN = { dismissedAt: '', assignedToMeAtDismissal: '' };
+
+/**
+ * Lift the hide on these issues: a dismissal row goes, a pinned row stays pinned.
+ * Undo, Restore and the reassignment rule all mean "show it again", never "unpin".
+ */
+async function clearHides(userId, issueIds) {
+  const issueId = { $in: issueIds };
+  await RedmineIssuePrefs.updateAsync(
+    { userId, issueId, state: PINNED },
+    { $unset: HIDE_ON_PIN },
+    { multi: true },
+  );
+  await RedmineIssuePrefs.removeAsync({ userId, issueId, state: DISMISSED });
+}
+
 /**
  * Record, replace or clear one preference.
  *
- * `state: null` removes the row — Undo in the dropdown and Restore in Settings
- * are the same call. `assignedToMe` is stored for a dismissal only, and only so
- * the reassignment rule can tell "I hid an issue that was already mine" from
- * "I hid an issue that later became mine".
+ * `state: null` lifts a hide — Undo in the dropdown and Restore in Settings are
+ * the same call — and leaves a pin in place. `assignedToMe` is stored for a
+ * dismissal only, and only so the reassignment rule can tell "I hid an issue
+ * that was already mine" from "I hid an issue that later became mine".
  */
 export async function setIssuePref(userId, issueId, state, { assignedToMe = true } = {}) {
   if (state === null) {
-    await RedmineIssuePrefs.removeAsync({ userId, issueId });
-  } else {
+    await clearHides(userId, [issueId]);
+  } else if (state === PINNED) {
+    // A pin replaces a dismissal, and clears a hide on an existing pin (rule 6).
     await RedmineIssuePrefs.upsertAsync(
       { userId, issueId },
-      {
-        $set: {
-          userId,
-          issueId,
-          state,
-          updatedAt: new Date(),
-          ...(state === DISMISSED ? { assignedToMeAtDismissal: assignedToMe === true } : {}),
-        },
-        ...(state === PINNED ? { $unset: { assignedToMeAtDismissal: '' } } : {}),
-      },
+      { $set: { userId, issueId, state, updatedAt: new Date() }, $unset: HIDE_ON_PIN },
     );
-    if (state === DISMISSED) await trimDismissals(userId);
+  } else {
+    const held = await RedmineIssuePrefs.findOneAsync({ userId, issueId }, { fields: { state: 1 } });
+    const hide = { assignedToMeAtDismissal: assignedToMe === true };
+    if (held?.state === PINNED) {
+      // Rule 7: hide it, keep the pin.
+      await RedmineIssuePrefs.updateAsync(
+        { userId, issueId },
+        { $set: { ...hide, dismissedAt: new Date() } },
+      );
+    } else {
+      await RedmineIssuePrefs.upsertAsync(
+        { userId, issueId },
+        { $set: { userId, issueId, state, updatedAt: new Date(), ...hide } },
+      );
+      await trimDismissals(userId);
+    }
   }
   // The relevant list is cached for 90 seconds and this changed what belongs in
   // it, so the next call must recompute rather than serve the pre-dismissal list.
@@ -98,8 +127,12 @@ export async function setIssuePref(userId, issueId, state, { assignedToMe = true
  * issue's `running` signal changed even when its pin did not.
  */
 export async function pinIssueIfUnset(userId, issueId) {
-  const held = await RedmineIssuePrefs.findOneAsync({ userId, issueId }, { fields: { state: 1 } });
-  if (held?.state === PINNED) {
+  const held = await RedmineIssuePrefs.findOneAsync(
+    { userId, issueId },
+    { fields: { state: 1, dismissedAt: 1 } },
+  );
+  // A hidden pin still needs the write: starting a timer lifts the hide (rule 6).
+  if (held?.state === PINNED && held.dismissedAt == null) {
     bustUserCaches(userId);
     return;
   }
@@ -118,7 +151,7 @@ async function trimDismissals(userId) {
 function allPrefRows(userId) {
   return RedmineIssuePrefs.find(
     { userId },
-    { fields: { issueId: 1, state: 1, updatedAt: 1, assignedToMeAtDismissal: 1 } },
+    { fields: { issueId: 1, state: 1, updatedAt: 1, dismissedAt: 1, assignedToMeAtDismissal: 1 } },
   ).fetchAsync();
 }
 
@@ -134,7 +167,7 @@ function allPrefRows(userId) {
 export async function readIssuePrefs(userId, { assignedIssueIds = [], now = Date.now() } = {}) {
   const partitioned = partitionIssuePrefs(await allPrefRows(userId), { assignedIssueIds, now });
   if (partitioned.reviveIds.length) {
-    await RedmineIssuePrefs.removeAsync({ userId, issueId: { $in: partitioned.reviveIds } });
+    await clearHides(userId, partitioned.reviveIds);
   }
   return partitioned;
 }

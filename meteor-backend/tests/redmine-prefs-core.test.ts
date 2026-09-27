@@ -88,6 +88,41 @@ describe('partitionIssuePrefs', () => {
     expect(dismissedIds).toEqual([]);
   });
 
+  describe('a hidden pin (rule 7)', () => {
+    const hiddenPin = (issueId: number, hiddenDaysAgo: number, assignedToMeAtDismissal = true) => ({
+      ...pin(issueId, 30),
+      dismissedAt: daysAgo(hiddenDaysAgo),
+      assignedToMeAtDismissal,
+    });
+
+    it('stays pinned while it is hidden', () => {
+      const { pinnedIds, dismissedIds } = read([hiddenPin(4, 1)]);
+      expect(pinnedIds).toEqual([4]);
+      expect(dismissedIds).toEqual([4]);
+    });
+
+    it('dates the hide from dismissedAt, not from the pin', () => {
+      // The pin is 30 days old; the hide is 1 day old and must still count.
+      expect(read([hiddenPin(4, 1)]).dismissedIds).toEqual([4]);
+      expect(read([hiddenPin(4, DISMISSAL_TTL_DAYS)]).dismissedIds).toEqual([]);
+    });
+
+    it('keeps the pin when the hide expires', () => {
+      expect(read([hiddenPin(4, DISMISSAL_TTL_DAYS + 5)]).pinnedIds).toEqual([4]);
+    });
+
+    it('revives on reassignment and keeps the pin (rule 5)', () => {
+      const { pinnedIds, dismissedIds, reviveIds } = read([hiddenPin(4, 1, false)], [4]);
+      expect(reviveIds).toEqual([4]);
+      expect(dismissedIds).toEqual([]);
+      expect(pinnedIds).toEqual([4]);
+    });
+
+    it('sorts among plain dismissals by when it was hidden', () => {
+      expect(read([dismissal(1, 5), hiddenPin(2, 1), dismissal(3, 9)]).dismissedIds).toEqual([2, 1, 3]);
+    });
+  });
+
   it('copes with no rows at all', () => {
     expect(read([])).toEqual({ pinnedIds: [], dismissedIds: [], reviveIds: [] });
     expect(partitionIssuePrefs(null as never)).toEqual({ pinnedIds: [], dismissedIds: [], reviveIds: [] });

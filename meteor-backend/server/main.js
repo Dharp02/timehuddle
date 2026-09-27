@@ -1073,7 +1073,7 @@ Meteor.startup(async() => {
         state: {
           type: ['string', 'null'],
           enum: ['pinned', 'dismissed', null],
-          description: 'null clears the preference (Undo / Restore)',
+          description: 'null lifts a hide (Undo / Restore); a pin stays',
         },
       },
       required: ['issueId', 'state'],

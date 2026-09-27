@@ -2179,7 +2179,7 @@ export type RedmineRelevanceReason =
 /** How the server read a search query, so an empty result can be explained. */
 export type RedmineSearchKind = 'id' | 'url' | 'assignee' | 'text';
 
-/** What TimeHuddle may remember about a Redmine issue. `null` clears it. */
+/** What TimeHuddle may remember about a Redmine issue. `null` lifts a hide; a pin stays. */
 export type RedmineIssuePrefState = 'pinned' | 'dismissed' | null;
 
 /** Why a previewed ticket-day cannot be sent, or null when it can. */
