@@ -420,8 +420,18 @@ export const TicketsPage: React.FC = () => {
         });
 
         if (!result.session) return 'failed';
-        // Hook refreshes via DDP / tickets:refetch once the open timer lands.
-        window.dispatchEvent(new CustomEvent('tickets:refetch'));
+        if (ticket.sourceId === 'redmine' && !ticketByKey.has(ticket.key)) {
+          // A Redmine suggestion that is not a table row yet. Pinning is what
+          // puts it in the Tickets table (see redmineSource), and My Board shows
+          // only rows the table has — so pin it and reload the table, skipping
+          // the session cache, before it goes on the board. The server pins on
+          // timer start too; this waits for it. Best-effort: the timer runs anyway.
+          await redmineApi.prefs.set(Number(ticket.id), 'pinned').catch(() => undefined);
+          refetchAfterRedmineWrite();
+        } else {
+          // Hook refreshes via DDP / tickets:refetch once the open timer lands.
+          window.dispatchEvent(new CustomEvent('tickets:refetch'));
+        }
         const board = await ensureOnBoard(ticket);
         return board === 'added'
           ? 'started-and-added'
@@ -435,7 +445,7 @@ export const TicketsPage: React.FC = () => {
         setTimerLoadingKey(null);
       }
     },
-    [ensureOnBoard],
+    [ensureOnBoard, ticketByKey, refetchAfterRedmineWrite],
   );
 
   const handleToggleTimer = useCallback(

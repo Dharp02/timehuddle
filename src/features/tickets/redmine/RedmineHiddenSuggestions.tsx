@@ -5,10 +5,11 @@
  * Restore. Hiding only ever affected the suggestion dropdown, so restoring
  * only brings a suggestion back: the Tickets table never lost the row.
  */
-import { Button, Text } from '@mieweb/ui';
+import { Button, Skeleton, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { redmineApi, type RedmineIssue } from '../../../lib/api';
+import { OverflowTooltip } from '../../../ui/OverflowTooltip';
 
 import { suggestionText as text } from './suggestionStrings';
 import { invalidateSuggestionsCache } from './useRedmineSuggestions';
@@ -47,19 +48,33 @@ export const RedmineHiddenSuggestions: React.FC = () => {
     }
   };
 
-  if (issues === null && !error) return null;
+  const loading = issues === null && !error;
 
   return (
     <section
       className="redmine-hidden-suggestions flex flex-col gap-2 border-t border-border pt-3"
       aria-labelledby="redmine-hidden-suggestions-heading"
+      aria-busy={loading}
     >
       <Text as="h3" id="redmine-hidden-suggestions-heading" size="sm" weight="medium">
         {text.hiddenHeading}
       </Text>
-      <Text variant="muted" size="xs">
-        {issues?.length ? text.hiddenExplainer : text.hiddenNone}
-      </Text>
+      {loading ? (
+        <div className="redmine-hidden-loading flex flex-col gap-3 py-1" aria-hidden="true">
+          <Skeleton variant="text" width="85%" />
+          {[0, 1].map((i) => (
+            <div key={i} className="redmine-hidden-skeleton-row flex items-center gap-3">
+              <Skeleton variant="text" width={36} className="shrink-0" />
+              <Skeleton variant="text" className="flex-1" />
+              <Skeleton width={72} height={28} className="shrink-0" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Text variant="muted" size="xs">
+          {issues?.length ? text.hiddenExplainer : text.hiddenNone}
+        </Text>
+      )}
 
       {!!issues?.length && (
         <ul className="redmine-hidden-list flex flex-col divide-y divide-border">
@@ -68,9 +83,11 @@ export const RedmineHiddenSuggestions: React.FC = () => {
               <Text as="span" size="xs" variant="muted" className="w-12 shrink-0 tabular-nums">
                 #{issue.id}
               </Text>
-              <Text as="span" size="sm" className="min-w-0 flex-1 truncate" title={issue.subject}>
-                {issue.subject}
-              </Text>
+              <OverflowTooltip content={issue.subject} className="flex-1">
+                <Text as="span" size="sm" className="block min-w-0 truncate">
+                  {issue.subject}
+                </Text>
+              </OverflowTooltip>
               <Button
                 variant="outline"
                 size="sm"

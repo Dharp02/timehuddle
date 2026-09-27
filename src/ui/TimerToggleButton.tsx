@@ -6,7 +6,7 @@
  */
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button } from '@mieweb/ui';
+import { Button, Tooltip } from '@mieweb/ui';
 import React from 'react';
 
 export interface TimerToggleButtonProps {
@@ -48,7 +48,6 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
       onMouseDown={onMouseDown}
       tabIndex={tabIndex}
       aria-hidden={ariaHidden}
-      title={title}
       disabled={disabled || isLoading}
       // `Button` wraps its content in an inline label span, which sits the icon
       // on the text baseline; a flex label centres it.
@@ -64,14 +63,18 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
     </Button>
   );
 
-  // Wrap in a title span if disabled to show tooltip
-  if (disabled && title) {
-    return (
-      <span title={title} style={{ cursor: 'not-allowed' }}>
-        {buttonContent}
-      </span>
-    );
-  }
+  if (!title) return buttonContent;
 
-  return buttonContent;
+  // A disabled button gets no pointer events, so the tooltip hangs off a span.
+  return (
+    <Tooltip content={title}>
+      {disabled ? (
+        <span className="inline-flex" style={{ cursor: 'not-allowed' }}>
+          {buttonContent}
+        </span>
+      ) : (
+        buttonContent
+      )}
+    </Tooltip>
+  );
 };

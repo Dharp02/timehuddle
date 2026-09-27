@@ -109,6 +109,8 @@ export interface RedmineIssueShape {
   description?: string;
   author?: RedmineNamedShape | null;
   allowedStatuses?: (RedmineNamedShape & { isClosed: boolean })[];
+  /** Why `issues.relevant` returned it, strongest first. The table shows only `assigned`. */
+  reasons?: string[];
 }
 
 /** A recorded request body, as the app POSTed it. */
@@ -381,6 +383,9 @@ export function redmineIssue(overrides: Partial<RedmineIssueShape> = {}): Redmin
     tracker: { id: 1, name: 'Bug' },
     createdAt: '2026-01-05T09:00:00.000Z',
     updatedAt: '2026-02-01T11:30:00.000Z',
+    // The real `issues.relevant` always sends reasons, and the Tickets table keeps
+    // only `assigned` ones; other calls ignore the field.
+    reasons: ['assigned'],
     ...overrides,
   };
 }

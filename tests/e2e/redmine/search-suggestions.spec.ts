@@ -86,14 +86,27 @@ test.describe('Redmine search suggestions', () => {
   test('typing narrows the suggestions and still filters the table', async ({ page }) => {
     const { tickets, input, menu, option } = await openTickets(page);
 
-    await input.fill('zulu');
+    await input.fill('alpha');
 
     await expect(menu.getByRole('option')).toHaveCount(1);
-    await expect(option(/Zulu export timeout/)).toBeVisible();
+    await expect(option(/Alpha intake validation/)).toBeVisible();
     await input.press('Escape');
     await expect(menu).toBeHidden();
-    await expect(input).toHaveValue('zulu');
-    await expect(tickets.rowByTitle('Zulu export timeout')).toBeVisible();
+    await expect(input).toHaveValue('alpha');
+    await expect(tickets.rowByTitle('Alpha intake validation')).toBeVisible();
+  });
+
+  test('the table lists only assigned issues; the rest are suggestions', async ({ page }) => {
+    const { tickets, input, option } = await openTickets(page);
+
+    await tickets.filterBySource('Redmine');
+    await expect(tickets.rowByTitle('Alpha intake validation')).toBeVisible();
+    await expect(tickets.rowByTitle('Zulu export timeout')).toHaveCount(0);
+    await expect(tickets.rowByTitle('Kilo billing report')).toHaveCount(0);
+
+    await input.click();
+    await expect(option(/Zulu export timeout/)).toBeVisible();
+    await expect(option(/Kilo billing report/)).toBeVisible();
   });
 
   test('adds new issues from a server search under "More from Redmine"', async ({ page }) => {
@@ -153,7 +166,7 @@ test.describe('Redmine search suggestions', () => {
     await input.click();
     const row = option(/Alpha intake validation/);
     await row.hover();
-    await row.getByTitle('Hide #15 from suggestions').click();
+    await row.getByLabel('Hide #15 from suggestions').click();
 
     await expect(row).toHaveCount(0);
     await expect(menu).toBeVisible();
@@ -308,13 +321,51 @@ test.describe('Redmine suggestion timers', () => {
     await input.click();
     const row = option(/Zulu export timeout/);
     await row.hover();
-    await row.getByTitle('Start a timer on #23').click();
+    await row.getByLabel('Start a timer on #23').click();
 
     // Already on My Board, so it is not added a second time.
     await expect(page.getByText("Timer started on #23. It's on My Board")).toBeVisible();
     expect(boardAdds).toHaveLength(0);
     expect(bodies[0]).toMatchObject({ ticketId: '23', source: 'redmine' });
     await expect(page).toHaveURL(/\/app\/tickets$/);
+  });
+
+  test('a timer on an issue you do not own adds it to the table, then My Board', async ({
+    page,
+  }) => {
+    await clock.ensureClockedIn();
+    const { boardAdds } = await stubTimerStart(page);
+    // The server answers with the issue as pinned only once it has been pinned.
+    let pinned = false;
+    const { rm, tickets, input, option } = await openTickets(page, {
+      'prefs.set': (params) => {
+        if (params.state === 'pinned') pinned = true;
+        return { ok: true };
+      },
+      'issues.relevant': () =>
+        relevant(
+          SUGGESTED.map((issue) =>
+            issue.id === 31 && pinned ? { ...issue, reasons: ['pinned', 'activity'] } : issue,
+          ),
+        ),
+    });
+
+    await tickets.filterBySource('Redmine');
+    await expect(tickets.rowByTitle('Kilo billing report')).toHaveCount(0);
+
+    await input.click();
+    const row = option(/Kilo billing report/);
+    await row.hover();
+    await row.getByLabel('Start a timer on #31').click();
+
+    await expect(page.getByText('Timer started on #31 and added to My Board')).toBeVisible();
+    expect(rm.calls('prefs.set')).toContainEqual({ issueId: 31, state: 'pinned' });
+    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '31' }] });
+    await expect(tickets.rowByTitle('Kilo billing report')).toBeVisible();
+
+    await tickets.switchToTab('my-board');
+    await expect(tickets.rowByTitle('Kilo billing report')).toBeVisible();
+    await expect(page.getByText(/no longer available/)).toHaveCount(0);
   });
 
   test('asks to clock in first when there is no shift', async ({ page }) => {
@@ -412,13 +463,13 @@ test.describe('The running timer in suggestions', () => {
     const row = option(/Zulu export timeout/);
     await expect(row.getByText('Timer running').last()).toBeVisible();
     await row.hover();
-    await expect(row.getByTitle('Stop the timer on #23')).toBeVisible();
+    await expect(row.getByLabel('Stop the timer on #23')).toBeVisible();
 
     running = false;
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('tickets:refetch')));
 
     await expect(row.getByText('Timer running')).toHaveCount(0);
-    await expect(row.getByTitle('Start a timer on #23')).toBeVisible();
+    await expect(row.getByLabel('Start a timer on #23')).toBeVisible();
     await page.mouse.move(0, 0);
     await expect(row.getByText('Watching').last()).toBeVisible();
   });

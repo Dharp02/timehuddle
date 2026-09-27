@@ -10,12 +10,16 @@
  *
  * Since MVP2 the rows come from `redmine.issues.relevant` rather than "every
  * issue the key can see": on a large instance that response was enormous and
- * every subject in it may carry PHI. The table therefore shows the user's own
- * work — assigned, recently logged against, recently touched, watched, pinned —
- * and anything else is reached through the search bar. `includeDismissed` is on,
- * because hiding a search suggestion must not quietly remove a row from a table.
+ * every subject in it may carry PHI. The table shows the issues **assigned to
+ * the user** (their groups included, as Redmine's `assigned_to_id=me` counts
+ * them) and the issues they **pinned**. Starting a timer from a search
+ * suggestion pins the issue, which is how an issue someone else owns joins the
+ * table — and so My Board, which only shows rows the table has. The rest of the
+ * relevant list (recently logged, recent activity, watched) belongs to the
+ * search bar's suggestions. `includeDismissed` is on, because hiding a search
+ * suggestion must not quietly remove a row from a table.
  */
-import { redmineApi, type RedmineIssue } from '../../../lib/api';
+import { redmineApi, type RedmineIssue, type RedmineRelevanceReason } from '../../../lib/api';
 
 import { ticketKey, type SourceCapabilities, type TicketSource, type UnifiedTicket } from './types';
 
@@ -31,6 +35,9 @@ const PRIORITY_RANK: Record<string, number> = {
   urgent: 4,
   immediate: 5,
 };
+
+/** The relevance reasons that put an issue in the Tickets table. */
+const TABLE_REASONS: readonly RedmineRelevanceReason[] = ['assigned', 'pinned'];
 
 const CAPABILITIES: SourceCapabilities = {
   edit: true,
@@ -82,7 +89,9 @@ export const redmineSource: TicketSource<RedmineRaw> = {
     const result = await redmineApi.issues.relevant(true);
     if (!result.connected) return [];
 
-    const raws = result.issues.map((issue) => ({ issue, baseUrl: result.baseUrl }));
+    const raws = result.issues
+      .filter((issue) => issue.reasons.some((reason) => TABLE_REASONS.includes(reason)))
+      .map((issue) => ({ issue, baseUrl: result.baseUrl }));
     listCache.set(userId, raws);
     return raws;
   },

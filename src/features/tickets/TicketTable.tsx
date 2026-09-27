@@ -13,6 +13,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Checkbox,
   ScrollArea,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -41,7 +42,7 @@ import {
   type TicketFilters,
 } from './ticketFilters';
 
-/** Column count including select and actions, for the skeleton colspan. */
+/** Column count including select and actions (the timer column is extra). */
 const COLUMN_COUNT = 10;
 
 /**
@@ -109,11 +110,28 @@ export interface TicketTableProps {
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
 }
 
-const SkeletonRow: React.FC<{ colSpan: number }> = ({ colSpan }) => (
-  <TableRow>
-    <TableCell colSpan={colSpan}>
-      <div className="h-4 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
-    </TableCell>
+/** How many placeholder rows sit under the loaded ones while a source is still loading. */
+const SKELETON_ROWS_EMPTY = 5;
+const SKELETON_ROWS_TRAILING = 3;
+
+/**
+ * A placeholder row shaped like a real one: a checkbox, a long title, and a
+ * short bar per remaining column. The title is the one column that flexes.
+ */
+const SkeletonRow: React.FC<{ columnCount: number; titleIndex: number }> = ({
+  columnCount,
+  titleIndex,
+}) => (
+  <TableRow aria-hidden="true" className="ticket-skeleton-row">
+    {Array.from({ length: columnCount }, (_, i) => (
+      <TableCell key={i} className={i === 0 ? 'pl-4' : i === columnCount - 1 ? 'pr-4' : undefined}>
+        {i === 0 ? (
+          <Skeleton width={16} height={16} />
+        ) : (
+          <Skeleton variant="text" width={i === titleIndex ? '70%' : '60%'} />
+        )}
+      </TableCell>
+    ))}
   </TableRow>
 );
 
@@ -306,24 +324,36 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading && tickets.length === 0
-                ? Array.from({ length: 5 }, (_, i) => <SkeletonRow key={i} colSpan={columnCount} />)
-                : tickets.map((ticket) => (
-                    <TicketTableRow
-                      key={ticket.key}
-                      ticket={ticket}
-                      isCreator={isCreator(ticket)}
-                      selected={selectedKeys.has(ticket.key)}
-                      onSelectedChange={onSelectedChange}
-                      isTimerRunning={runningTicketKey === ticket.key}
-                      timerLoading={timerLoadingKey === ticket.key}
-                      onToggleTimer={onToggleTimer}
-                      showTimerColumn={showTimerColumn}
-                      onEditRequest={onEditRequest}
-                      onDeleteRequest={onDeleteRequest}
-                      onChangeStatusRequest={onChangeStatusRequest}
+              {tickets.map((ticket) => (
+                <TicketTableRow
+                  key={ticket.key}
+                  ticket={ticket}
+                  isCreator={isCreator(ticket)}
+                  selected={selectedKeys.has(ticket.key)}
+                  onSelectedChange={onSelectedChange}
+                  isTimerRunning={runningTicketKey === ticket.key}
+                  timerLoading={timerLoadingKey === ticket.key}
+                  onToggleTimer={onToggleTimer}
+                  showTimerColumn={showTimerColumn}
+                  onEditRequest={onEditRequest}
+                  onDeleteRequest={onDeleteRequest}
+                  onChangeStatusRequest={onChangeStatusRequest}
+                />
+              ))}
+              {/* Sources load independently: Huddle rows arrive at once, Redmine can
+                  take seconds. Placeholders stay under the loaded rows until every
+                  source has answered, so a slow source never looks like "no more". */}
+              {loading &&
+                Array.from(
+                  { length: tickets.length ? SKELETON_ROWS_TRAILING : SKELETON_ROWS_EMPTY },
+                  (_, i) => (
+                    <SkeletonRow
+                      key={`skeleton-${i}`}
+                      columnCount={columnCount}
+                      titleIndex={showTimerColumn ? 2 : 1}
                     />
-                  ))}
+                  ),
+                )}
             </TableBody>
           </Table>
         </ScrollArea>

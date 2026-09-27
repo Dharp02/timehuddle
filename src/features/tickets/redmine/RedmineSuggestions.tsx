@@ -17,8 +17,10 @@ import {
   Input,
   ScrollArea,
   SearchIcon,
+  Skeleton,
   Spinner,
   Text,
+  Tooltip,
   XIcon,
   useAnchoredPosition,
   useToast,
@@ -28,6 +30,7 @@ import React, { useCallback, useId, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { RedmineIssue, RedmineRelevantIssue } from '../../../lib/api';
+import { OverflowTooltip } from '../../../ui/OverflowTooltip';
 import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
@@ -266,6 +269,12 @@ export function RedmineSuggestions({
     return null;
   })();
 
+  // Placeholders while the list is still on its way, so the panel never sits
+  // empty: rows for the first suggestions load, and a "More from Redmine"
+  // section while a search is out.
+  const loadingSuggested = suggestions.status === 'loading' && !suggestions.issues.length;
+  const loadingMore = search.status === 'loading' && !moreResults.length;
+
   const firstMoreIndex = rows.findIndex((row) => row.kind === 'issue' && row.section === 'more');
   const firstSuggestedIndex = rows.findIndex(
     (row) => row.kind === 'issue' && row.section === 'suggested',
@@ -336,7 +345,6 @@ export function RedmineSuggestions({
                       {...getItemProps({ item: row, index })}
                       {...(row.kind === 'issue'
                         ? {
-                            title: row.issue.subject,
                             'aria-describedby':
                               row.section === 'suggested' ? shortcutsId : searchShortcutsId,
                           }
@@ -368,6 +376,18 @@ export function RedmineSuggestions({
                     </li>
                   </React.Fragment>
                 ))}
+              {showPanel && loadingSuggested && (
+                <>
+                  <SectionHeading>{text.suggestedHeading}</SectionHeading>
+                  <SuggestionSkeletons count={4} />
+                </>
+              )}
+              {showPanel && loadingMore && (
+                <>
+                  <SectionHeading>{text.moreHeading}</SectionHeading>
+                  <SuggestionSkeletons count={2} />
+                </>
+              )}
             </ul>
           </ScrollArea>
 
@@ -405,6 +425,25 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
       </Text>
     </li>
   );
+}
+
+/** Stand-ins shaped like an issue row: `#id`, a title, and a project line. */
+function SuggestionSkeletons({ count }: { count: number }) {
+  const titleWidths = ['70%', '55%', '80%', '62%'];
+  return Array.from({ length: count }, (_, i) => (
+    <li
+      key={i}
+      role="presentation"
+      aria-hidden="true"
+      className="redmine-suggestion-skeleton flex items-center gap-2 px-3 py-2"
+    >
+      <Skeleton variant="text" width={36} className="shrink-0" />
+      <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <Skeleton variant="text" width={titleWidths[i % titleWidths.length]} />
+        <Skeleton variant="text" width="30%" height={10} />
+      </span>
+    </li>
+  ));
 }
 
 /**
@@ -455,7 +494,9 @@ function IssueRow({ issue, reason, running, onToggleTimer, onHide }: IssueRowPro
       </Text>
 
       <span className="redmine-suggestion-body min-w-0 flex-1">
-        <span className="block truncate">{issue.subject}</span>
+        <OverflowTooltip content={issue.subject}>
+          <span className="block min-w-0 truncate">{issue.subject}</span>
+        </OverflowTooltip>
         <span className="redmine-suggestion-meta flex min-w-0 items-center gap-2 empty:hidden">
           {issue.project && (
             <Text as="span" size="xs" variant="muted" className="hidden truncate sm:block">
@@ -502,20 +543,22 @@ function IssueRow({ issue, reason, running, onToggleTimer, onHide }: IssueRowPro
           }}
         />
         {onHide && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 [&_[data-slot=button-label]]:flex"
-            tabIndex={-1}
-            title={text.hide(issue.id)}
-            onMouseDown={keepFocus}
-            onClick={(event) => {
-              keepFocus(event);
-              onHide();
-            }}
-          >
-            <XIcon size={14} />
-          </Button>
+          <Tooltip content={text.hide(issue.id)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 [&_[data-slot=button-label]]:flex"
+              tabIndex={-1}
+              aria-label={text.hide(issue.id)}
+              onMouseDown={keepFocus}
+              onClick={(event) => {
+                keepFocus(event);
+                onHide();
+              }}
+            >
+              <XIcon size={14} />
+            </Button>
+          </Tooltip>
         )}
       </span>
     </>

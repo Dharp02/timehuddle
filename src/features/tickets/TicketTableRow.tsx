@@ -31,11 +31,13 @@ import {
   TableCell,
   TableRow,
   Text,
+  Tooltip,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { timeAgo } from '../../lib/date';
+import { OverflowTooltip } from '../../ui/OverflowTooltip';
 import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { UserAvatar } from '../../ui/UserAvatar';
@@ -193,34 +195,38 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       <TableCell className="overflow-hidden">
         <div className="flex min-w-0 items-center gap-2">
           <FontAwesomeIcon icon={icon} className={`shrink-0 text-sm ${iconClass}`} />
-          <Button
-            variant="ghost"
-            className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-left text-sm font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary"
-            onClick={openTicket}
-            title={ticket.title}
-          >
-            {ticket.title}
-          </Button>
+          <OverflowTooltip content={ticket.title} className="flex-1">
+            <Button
+              variant="ghost"
+              className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-left text-sm font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary"
+              onClick={openTicket}
+            >
+              {ticket.title}
+            </Button>
+          </OverflowTooltip>
           {ticket.sharedWithTimeharbor && (
-            <Badge variant="default" size="sm" title="Shared with TimeHarbor">
-              TH
-            </Badge>
+            <Tooltip content="Shared with TimeHarbor">
+              <Badge variant="default" size="sm">
+                TH
+              </Badge>
+            </Tooltip>
           )}
         </div>
       </TableCell>
 
       <TableCell className="whitespace-nowrap">
         {ticket.externalRef ? (
-          <a
-            href={ticket.externalRef.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-blue-500 hover:underline dark:text-neutral-400"
-            title={ticket.externalRef.label}
-          >
-            {ticket.ref}
-            <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
-          </a>
+          <Tooltip content={ticket.externalRef.label}>
+            <a
+              href={ticket.externalRef.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-blue-500 hover:underline dark:text-neutral-400"
+            >
+              {ticket.ref}
+              <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
+            </a>
+          </Tooltip>
         ) : (
           <Text size="sm" variant="muted">
             {ticket.ref}
@@ -258,38 +264,37 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
             {assignees.slice(0, 3).map((assignee) => {
               // Only Huddle assignee ids resolve to an in-app profile route.
               const avatar = <UserAvatar name={assignee.name} size="xs" />;
-              return ticket.sourceId === 'huddle' ? (
-                <Button
-                  key={assignee.id}
-                  variant="ghost"
-                  size="icon"
-                  className="h-auto w-auto rounded-full p-0 ring-2 ring-white transition-opacity hover:z-10 hover:opacity-80 dark:ring-neutral-900"
-                  onClick={() => navigate(`/app/profile/${assignee.id}`)}
-                  aria-label={`View ${assignee.name}'s profile`}
-                  title={assignee.name}
-                >
-                  {avatar}
-                </Button>
-              ) : (
-                <div
-                  key={assignee.id}
-                  className="rounded-full ring-2 ring-white dark:ring-neutral-900"
-                  title={assignee.name}
-                >
-                  {avatar}
-                </div>
+              return (
+                <Tooltip key={assignee.id} content={assignee.name}>
+                  {ticket.sourceId === 'huddle' ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-auto w-auto rounded-full p-0 ring-2 ring-white transition-opacity hover:z-10 hover:opacity-80 dark:ring-neutral-900"
+                      onClick={() => navigate(`/app/profile/${assignee.id}`)}
+                      aria-label={`View ${assignee.name}'s profile`}
+                    >
+                      {avatar}
+                    </Button>
+                  ) : (
+                    <div className="rounded-full ring-2 ring-white dark:ring-neutral-900">
+                      {avatar}
+                    </div>
+                  )}
+                </Tooltip>
               );
             })}
             {assignees.length > 3 && (
-              <div
-                className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-medium text-neutral-600 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-300 dark:ring-neutral-900"
-                title={assignees
+              <Tooltip
+                content={assignees
                   .slice(3)
                   .map((a) => a.name)
                   .join(', ')}
               >
-                +{assignees.length - 3}
-              </div>
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-medium text-neutral-600 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-300 dark:ring-neutral-900">
+                  +{assignees.length - 3}
+                </div>
+              </Tooltip>
             )}
           </div>
         ) : (
@@ -300,9 +305,11 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       </TableCell>
 
       <TableCell className="overflow-hidden">
-        <Text size="sm" variant="muted" className="block truncate" title={ticket.container?.name}>
-          {ticket.container?.name ?? '—'}
-        </Text>
+        <OverflowTooltip content={ticket.container?.name ?? '—'}>
+          <Text size="sm" variant="muted" className="block min-w-0 truncate">
+            {ticket.container?.name ?? '—'}
+          </Text>
+        </OverflowTooltip>
       </TableCell>
 
       <TableCell className="whitespace-nowrap">
