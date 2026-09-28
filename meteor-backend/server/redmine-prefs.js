@@ -31,8 +31,10 @@ import { bustUserCaches } from './redmine-cache';
 import {
   DISMISSAL_TTL_MS,
   DISMISSED,
+  MAX_PINS_PER_USER,
   PINNED,
   partitionIssuePrefs,
+  pinWouldExceedCap,
   surplusDismissalIds,
 } from './redmine-prefs-core';
 
@@ -80,6 +82,20 @@ async function clearHides(userId, issueIds) {
 }
 
 /**
+ * Thrown when a pin would pass `MAX_PINS_PER_USER`.
+ *
+ * A plain Error, not a `Meteor.Error`: this module is the Mongo half and stays
+ * out of the method layer's vocabulary, so the method translates it into the
+ * code the client branches on. `name` is what the method matches.
+ */
+export class TooManyPinsError extends Error {
+  constructor() {
+    super(`You can pin at most ${MAX_PINS_PER_USER} Redmine issues.`);
+    this.name = 'TooManyPinsError';
+  }
+}
+
+/**
  * Record, replace or clear one preference.
  *
  * `state: null` lifts a hide — Undo in the dropdown and Restore in Settings are
@@ -91,6 +107,11 @@ export async function setIssuePref(userId, issueId, state, { assignedToMe = true
   if (state === null) {
     await clearHides(userId, [issueId]);
   } else if (state === PINNED) {
+    // Refused rather than evicting the user's oldest pin, which would take a
+    // Tickets row and a My Board entry away without saying so.
+    if (pinWouldExceedCap(await allPrefRows(userId), issueId)) {
+      throw new TooManyPinsError();
+    }
     // A pin replaces a dismissal, and clears a hide on an existing pin (rule 6).
     await RedmineIssuePrefs.upsertAsync(
       { userId, issueId },

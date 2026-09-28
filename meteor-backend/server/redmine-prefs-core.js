@@ -44,8 +44,29 @@ export const DISMISSAL_TTL_MS = DISMISSAL_TTL_DAYS * 24 * 60 * 60 * 1000;
  * Most dismissals any one user may hold. A bound, not a feature: without it a
  * script calling `redmine.prefs.set` in a loop grows the collection without
  * limit, and nobody has 500 issues they want hidden.
+ *
+ * Past the cap the **oldest dismissal is dropped**, which costs the user nothing:
+ * a dismissal is a "not now" that expires by itself in 15 days anyway.
  */
 export const MAX_DISMISSALS_PER_USER = 500;
+
+/**
+ * Most pins any one user may hold — the same bound, for a worse gap. Pins had no
+ * cap at all: `surplusDismissalIds` counts `state: 'dismissed'` rows only, and
+ * the TTL index sweeps the same, so nothing bounded a loop of pins. They neither
+ * expire nor evict.
+ *
+ * Past this cap a new pin is **refused**, where a dismissal evicts. The two are
+ * not symmetrical: a pin is what keeps an issue in the user's Tickets table and
+ * on My Board, so silently unpinning their oldest to make room would take a row
+ * away from them without saying so. Being told they are at the maximum is the
+ * honest answer, and unpinning something is one click.
+ *
+ * These two are bounds on storage, not part of the numbered dismissal rules
+ * above — a pin is not a dismissal, and the cap does not change what either
+ * *means*.
+ */
+export const MAX_PINS_PER_USER = 500;
 
 /**
  * Read one user's preference rows into the three answers callers need.
@@ -113,14 +134,37 @@ export function partitionIssuePrefs(rows, { assignedIssueIds = [], now = Date.no
 }
 
 /**
+ * The rows of one state, newest first. An undated row sorts last, so a row that
+ * cannot be aged is the first to be evicted rather than the last.
+ */
+function newestFirst(rows, state) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => row?.state === state)
+    .map((row) => ({ issueId: Number(row.issueId), at: new Date(row.updatedAt ?? 0).getTime() }))
+    .sort((a, b) => b.at - a.at);
+}
+
+/**
  * The oldest dismissals to drop when a user is over the cap, newest kept.
  * Returns the ids to remove, so the store's delete is one statement.
  */
 export function surplusDismissalIds(rows) {
-  const dismissals = (Array.isArray(rows) ? rows : [])
-    .filter((row) => row?.state === DISMISSED)
-    .map((row) => ({ issueId: Number(row.issueId), at: new Date(row.updatedAt ?? 0).getTime() }))
-    .sort((a, b) => b.at - a.at);
+  return newestFirst(rows, DISMISSED).slice(MAX_DISMISSALS_PER_USER).map((row) => row.issueId);
+}
 
-  return dismissals.slice(MAX_DISMISSALS_PER_USER).map((row) => row.issueId);
+/**
+ * Whether one more pin would put this user over `MAX_PINS_PER_USER`.
+ *
+ * `issueId` is the issue about to be pinned, and re-pinning something already
+ * pinned is allowed at the cap: it writes no new row, and starting a timer pins,
+ * so a user at their limit must still be able to time the issues they have
+ * already pinned.
+ *
+ * Counts every `state: 'pinned'` row, whatever else is on it — which is what
+ * keeps this correct for a pin that also carries a hide.
+ */
+export function pinWouldExceedCap(rows, issueId) {
+  const pins = newestFirst(rows, PINNED);
+  if (pins.some((pin) => pin.issueId === Number(issueId))) return false;
+  return pins.length >= MAX_PINS_PER_USER;
 }

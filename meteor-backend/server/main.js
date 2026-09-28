@@ -1065,7 +1065,7 @@ Meteor.startup(async() => {
 
   Wormhole.expose('redmine.prefs.set', {
     description:
-      "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine)",
+      "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine). Refused with 'too-many-pins' past the per-user pin cap",
     inputSchema: {
       type: 'object',
       properties: {

@@ -2474,6 +2474,11 @@ export const redmineApi = {
      * Tickets table. The server expires a dismissal after 15 days, and clears it
      * early if the issue becomes assigned to the user, so there is nothing for
      * the client to schedule. `null` is both Undo and Restore.
+     *
+     * Two refusals beyond the usual Redmine ones: `too-many-pins` when the caller
+     * is at the per-user pin cap (they unpin something, or keep the suggestion),
+     * and `too-many-requests` when they are ahead of the rate limit, where the
+     * next attempt goes through.
      */
     set: (issueId: number, state: RedmineIssuePrefState): Promise<{ ok: true }> =>
       wormholeCall<{ ok: true }>('redmine.prefs.set', { issueId, state }),
