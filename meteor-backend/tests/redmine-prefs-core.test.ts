@@ -11,7 +11,9 @@ import { describe, it, expect } from 'vitest';
 import {
   DISMISSAL_TTL_DAYS,
   MAX_DISMISSALS_PER_USER,
+  MAX_PINS_PER_USER,
   partitionIssuePrefs,
+  pinWouldExceedCap,
   surplusDismissalIds,
 } from '../server/redmine-prefs-core';
 
@@ -116,5 +118,45 @@ describe('surplusDismissalIds', () => {
       pin(9001),
     ];
     expect(surplusDismissalIds(rows)).toEqual([]);
+  });
+});
+
+describe('pinWouldExceedCap', () => {
+  const pins = (count: number) => Array.from({ length: count }, (_, i) => pin(i + 1, i));
+
+  it('allows a new pin while the user is under the cap', () => {
+    expect(pinWouldExceedCap(pins(MAX_PINS_PER_USER - 1), 9001)).toBe(false);
+  });
+
+  it('refuses a new pin at the cap, rather than evicting the oldest', () => {
+    // The asymmetry with dismissals is the point: a pin keeps an issue in the
+    // Tickets table, so dropping one silently would take a row away.
+    expect(pinWouldExceedCap(pins(MAX_PINS_PER_USER), 9001)).toBe(true);
+  });
+
+  it('still allows re-pinning something already pinned at the cap', () => {
+    // Starting a timer pins, so a user at their limit must still be able to
+    // time the issues they have already pinned.
+    expect(pinWouldExceedCap(pins(MAX_PINS_PER_USER), 1)).toBe(false);
+  });
+
+  it('counts a pin row whatever else is on it', () => {
+    // Guards the cap against a pin that also carries other fields, so it keeps
+    // counting correctly as the row shape grows.
+    const rows = [
+      ...pins(MAX_PINS_PER_USER - 1),
+      { ...pin(9999, 0), dismissedAt: daysAgo(1), assignedToMeAtDismissal: true },
+    ];
+    expect(pinWouldExceedCap(rows, 9001)).toBe(true);
+  });
+
+  it('does not count dismissals towards the pin cap', () => {
+    const rows = [...pins(2), ...Array.from({ length: 600 }, (_, i) => dismissal(i + 1000, i))];
+    expect(pinWouldExceedCap(rows, 9001)).toBe(false);
+  });
+
+  it('copes with no rows at all', () => {
+    expect(pinWouldExceedCap([], 1)).toBe(false);
+    expect(pinWouldExceedCap(null as never, 1)).toBe(false);
   });
 });
