@@ -1,8 +1,8 @@
 /**
  * TimerToggleButton — Shared start/stop timer button.
  *
- * Reused across WorkPage, TicketsPage and the Redmine search suggestions for
- * consistent timer controls.
+ * Reused across WorkPage, TicketsPage, the Redmine search suggestions and the
+ * Redmine issue page for consistent timer controls.
  */
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -16,6 +16,8 @@ export interface TimerToggleButtonProps {
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   ariaLabel?: string;
   title?: string;
+  /** Visible text beside the icon, for a roomier spot like a page header. */
+  label?: string;
   /** Extra classes, e.g. a smaller size inside a dense row. */
   className?: string;
   /**
@@ -35,6 +37,7 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
   onClick,
   ariaLabel,
   title,
+  label,
   className = '',
   tabIndex,
   'aria-hidden': ariaHidden,
@@ -43,7 +46,7 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
   const buttonContent = (
     <Button
       variant="ghost"
-      size="icon"
+      size={label ? 'sm' : 'icon'}
       onClick={onClick}
       onMouseDown={onMouseDown}
       tabIndex={tabIndex}
@@ -60,6 +63,7 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
       style={disabled && !isLoading ? { pointerEvents: 'none' } : undefined}
     >
       <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
+      {label && <span className="timer-toggle-label ml-1.5">{label}</span>}
     </Button>
   );
 

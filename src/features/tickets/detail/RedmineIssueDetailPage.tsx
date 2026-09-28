@@ -7,6 +7,9 @@
  * under the user's own key; the status list only offers the transitions
  * Redmine allows them. A save made after someone else changed the issue in
  * Redmine is refused as stale, with a Reload.
+ *
+ * The header's timer does what a start from the search suggestions does: the
+ * issue is pinned into the Tickets table and put on My Board, then timed.
  */
 import { faArrowLeft, faExternalLink, faPen } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -21,11 +24,13 @@ import {
   Spinner,
   Text,
   Textarea,
+  useToast,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
+  myBoardApi,
   redmineApi,
   timerApi,
   type RedmineFormOptions,
@@ -35,9 +40,11 @@ import {
   type TicketSession,
 } from '../../../lib/api';
 import { useRefresh } from '../../../lib/RefreshContext';
+import { useRunningTicket } from '../../../lib/useRunningTicket';
 import { AppPage } from '../../../ui/AppPage';
 import { MarkdownContent } from '../../../ui/MarkdownContent';
 import { useRouter } from '../../../ui/router';
+import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { UserAvatar } from '../../../ui/UserAvatar';
 import {
   UNASSIGNED,
@@ -49,6 +56,13 @@ import {
   toOptions,
 } from '../redmine/redmineForm';
 import { invalidateRedmineCache } from '../sources';
+import {
+  STOP_TIMER_ERROR,
+  startTicketTimer,
+  timerErrorMessage,
+  toastTimerOutcome,
+  type TicketTimerOutcome,
+} from '../startTicketTimer';
 
 import { fromJournals, fromSessions, mergeByTime } from './activityEntries';
 import { TicketActivityCard } from './TicketActivityCard';
@@ -86,6 +100,8 @@ export interface RedmineIssueDetailPageProps {
 
 export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ issueId }) => {
   const { navigate } = useRouter();
+  const toast = useToast();
+  const runningTicket = useRunningTicket(true);
 
   const [loaded, setLoaded] = useState<LoadedIssue | null>(null);
   const [options, setOptions] = useState<RedmineFormOptions | null>(null);
@@ -100,21 +116,29 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
 
+  const [onBoard, setOnBoard] = useState(false);
+  const [timerBusy, setTimerBusy] = useState(false);
+  const [timerError, setTimerError] = useState<string | null>(null);
+
   /** Load everything; `quiet` refreshes in place without the page spinner. */
   const load = useCallback(
     async (quiet = false) => {
       if (!quiet) setLoading(true);
       setLoadError(null);
       try {
-        const [result, mySessions] = await Promise.all([
+        const [result, mySessions, boardEntries] = await Promise.all([
           redmineApi.issues.get(issueId),
           timerApi.getTicketSessions(String(issueId), 'redmine').catch(() => []),
+          myBoardApi.list().catch(() => []),
         ]);
         const formOptions = result.issue.project
           ? await redmineApi.projects.formOptions(result.issue.project.id).catch(() => null)
           : null;
         setLoaded(result);
         setSessions(mySessions);
+        setOnBoard(
+          boardEntries.some((e) => e.sourceId === 'redmine' && e.ticketId === String(issueId)),
+        );
         setOptions(formOptions);
         setStale(false);
       } catch (err) {
@@ -170,6 +194,43 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
     },
     [issue, load],
   );
+
+  const isTiming = runningTicket?.key === `redmine:${issueId}`;
+
+  /** Stop this issue's timer, or start one: pinned into the table and on My Board. */
+  const toggleTimer = async () => {
+    setTimerBusy(true);
+    setTimerError(null);
+    let outcome: TicketTimerOutcome;
+    try {
+      if (isTiming && runningTicket) {
+        await timerApi.stopSession(runningTicket.sessionId);
+        outcome = 'stopped';
+      } else {
+        // Assigned to me means the table already has it. A watched issue does
+        // too, but the page can't tell; pinning one again is harmless.
+        const assignedToMe = !!options?.me && issue?.assignedTo?.id === options.me;
+        outcome = await startTicketTimer(
+          { sourceId: 'redmine', id: String(issueId) },
+          { inTable: assignedToMe, onBoard },
+        );
+      }
+    } catch (err) {
+      setTimerError(isTiming ? STOP_TIMER_ERROR : timerErrorMessage(err));
+      outcome = 'failed';
+    }
+    if (outcome === 'started-and-added') setOnBoard(true);
+    if (toastTimerOutcome(toast, outcome, issueId)) {
+      // The Tickets table and the running-timer state pick up the pin and the timer.
+      invalidateRedmineCache();
+      window.dispatchEvent(new CustomEvent('tickets:refetch'));
+      // Activity shows the session just opened or closed.
+      setSessions(
+        await timerApi.getTicketSessions(String(issueId), 'redmine').catch(() => sessions),
+      );
+    }
+    setTimerBusy(false);
+  };
 
   const saveDescription = async () => {
     if (await save({ description: descDraft })) setEditingDesc(false);
@@ -238,9 +299,21 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
 
       {/* Title section */}
       <div className="redmine-issue-title-section mb-6">
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          {issue.subject}
-        </h1>
+        <div className="redmine-issue-title-row flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+            {issue.subject}
+          </h1>
+          <TimerToggleButton
+            isRunning={isTiming}
+            isLoading={timerBusy}
+            onClick={() => void toggleTimer()}
+            label={isTiming ? 'Stop timer' : 'Start timer'}
+            ariaLabel={
+              isTiming ? `Stop the timer on #${issue.id}` : `Start a timer on #${issue.id}`
+            }
+            className="redmine-issue-timer shrink-0"
+          />
+        </div>
         <div className="redmine-issue-title-meta mt-1.5 flex flex-wrap items-center gap-2">
           <Text size="sm" variant="muted" className="font-mono">
             #{issue.id}
@@ -272,6 +345,11 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
 
       {/* Save feedback */}
       <div className="redmine-issue-messages mb-3 space-y-2" aria-live="polite">
+        {timerError && (
+          <Alert variant="danger" role="alert" className="redmine-issue-timer-error">
+            <AlertDescription>{timerError}</AlertDescription>
+          </Alert>
+        )}
         {actionError && (
           <Alert variant={stale ? 'warning' : 'danger'} role="alert">
             <AlertDescription>
