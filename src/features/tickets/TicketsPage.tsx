@@ -426,7 +426,12 @@ export const TicketsPage: React.FC = () => {
           // only rows the table has — so pin it and reload the table, skipping
           // the session cache, before it goes on the board. The server pins on
           // timer start too; this waits for it. Best-effort: the timer runs anyway.
-          await redmineApi.prefs.set(Number(ticket.id), 'pinned').catch(() => undefined);
+          // At the pin cap it never joins the table, so it stays off My Board too.
+          const atPinLimit = await redmineApi.prefs.set(Number(ticket.id), 'pinned').then(
+            () => false,
+            (err: unknown) => err instanceof ApiError && err.code === 'too-many-pins',
+          );
+          if (atPinLimit) return 'started-pin-limit';
           refetchAfterRedmineWrite();
         } else {
           // Hook refreshes via DDP / tickets:refetch once the open timer lands.

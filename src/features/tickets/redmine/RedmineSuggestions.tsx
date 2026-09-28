@@ -50,9 +50,16 @@ import { invalidateSuggestionsCache, useRedmineSuggestions } from './useRedmineS
  * What starting or stopping a timer from a row came to, for the toast. A started
  * timer's issue is put on My Board: `started-and-added` did that,
  * `started-on-board` found it already there, and plain `started` could not add it.
+ * `started-pin-limit` left it off the table and My Board: the user is at the pin cap.
  */
 export type SuggestionTimerOutcome =
-  'started' | 'started-and-added' | 'started-on-board' | 'stopped' | 'clock-in' | 'failed';
+  | 'started'
+  | 'started-and-added'
+  | 'started-on-board'
+  | 'started-pin-limit'
+  | 'stopped'
+  | 'clock-in'
+  | 'failed';
 
 interface RedmineSuggestionsProps {
   userId: string | null;
@@ -159,6 +166,8 @@ export function RedmineSuggestions({
         toast.success(text.timerStartedOnBoard(issue.id));
       } else if (outcome === 'started') {
         toast.success(text.timerStarted(issue.id));
+      } else if (outcome === 'started-pin-limit') {
+        toast.warning(text.timerStartedPinLimit(issue.id));
       } else if (outcome === 'stopped') {
         toast.info(text.timerStopped(issue.id));
       } else {
