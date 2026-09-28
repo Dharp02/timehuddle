@@ -13,8 +13,6 @@
  * plan-first gates and their inline composer are always visible.
  */
 import {
-  faBug,
-  faBuilding,
   faChevronLeft,
   faCircleStop,
   faCircleUser,
@@ -24,29 +22,21 @@ import {
   faEllipsis,
   faGauge,
   faGear,
-  faCircleQuestion,
   faListCheck,
   faSitemap,
   faStopwatch,
   faUsers,
-  faWrench,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
-import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button } from '@mieweb/ui';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import React, { useState } from 'react';
 
-import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
-import { useTeam } from '../lib/TeamContext';
 import { useClockToggle } from '../lib/useClockToggle';
 import { useSession } from '../lib/useSession';
-import { useAppFeedback } from './AppLayout';
+import { useAccountMenuSections, type AccountMenuSectionId } from './accountMenu';
 import { useRouter } from './router';
-
-// Update this URL once the TestFlight build is published in App Store Connect.
-const TESTFLIGHT_URL = 'https://testflight.apple.com/join/45w2knYf';
 
 interface NavTab {
   icon: typeof faGauge;
@@ -79,23 +69,19 @@ const MORE_ITEMS: MoreItem[] = [
   { icon: faGear, label: 'Settings', href: '/app/settings' },
 ];
 
-/** Sub-sections of the More sheet — grouped destinations from the desktop
- *  account menu (Admin/Developers/Help) that drill down into a row list
- *  instead of navigating away immediately. */
-type MoreSection = 'root' | 'admin' | 'developers' | 'help';
+/** Sub-sections of the More sheet — the account menu's Admin/Developers/Help
+ *  groups (./accountMenu), which drill down into a row list instead of
+ *  navigating away immediately. */
+type MoreSection = 'root' | AccountMenuSectionId;
 
-interface MoreRow {
-  icon: typeof faGauge;
-  label: string;
-  onClick: () => void;
-}
+const MORE_TILE_CLASS =
+  'flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700';
 
 export const BottomNav: React.FC = () => {
   const { pathname, navigate } = useRouter();
   const { isClockedIn, planGate } = useClockToggle();
   const { user } = useSession();
-  const { enterprises } = useTeam();
-  const { openFeedback, openReportIssue } = useAppFeedback();
+  const accountSections = useAccountMenuSections();
   const [moreOpen, setMoreOpen] = useState(false);
   const [moreSection, setMoreSection] = useState<MoreSection>('root');
   const moreButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -162,50 +148,7 @@ export const BottomNav: React.FC = () => {
     navigate(user?.username ? `/app/profile/${user.username}` : '/app/settings');
   };
 
-  const showAdmin = hasDefaultOrganizationAdminAccess(user) || enterprises.length > 0;
-  const showDevelopers = import.meta.env.MODE !== 'production';
-
-  const adminRows: MoreRow[] = [
-    ...(enterprises.length > 0
-      ? [{ icon: faBuilding, label: 'Enterprise', onClick: () => goToMoreItem('/app/enterprise') }]
-      : []),
-    { icon: faUsers, label: 'Members', onClick: () => goToMoreItem('/app/org/members') },
-  ];
-  const developerRows: MoreRow[] = [
-    { icon: faWrench, label: 'Seeder', onClick: () => goToMoreItem('/app/seeder') },
-  ];
-  const helpRows: MoreRow[] = [
-    {
-      icon: faBug,
-      label: 'Report an Issue',
-      onClick: () => {
-        closeMore();
-        openReportIssue();
-      },
-    },
-    {
-      icon: faComments,
-      label: 'Share Your Feedback',
-      onClick: () => {
-        closeMore();
-        openFeedback();
-      },
-    },
-    {
-      icon: faApple,
-      label: 'TestFlight',
-      onClick: () => {
-        closeMore();
-        window.open(TESTFLIGHT_URL, '_blank', 'noopener,noreferrer');
-      },
-    },
-  ];
-
-  const SECTION_CONFIG: Record<Exclude<MoreSection, 'root'>, { label: string; rows: MoreRow[] }> = {
-    admin: { label: 'Admin', rows: adminRows },
-    developers: { label: 'Developers', rows: developerRows },
-    help: { label: 'Help', rows: helpRows },
-  };
+  const activeSection = accountSections.find((section) => section.id === moreSection);
 
   // Plan-first gate: the FAB always navigates to the clock page (where the
   // inline composer lives) in full color — it's a link, not a disabled
@@ -336,7 +279,7 @@ export const BottomNav: React.FC = () => {
                   </Button>
                 )}
                 <h2 className="flex-1 font-semibold text-neutral-900 dark:text-neutral-100">
-                  {moreSection === 'root' ? 'More' : SECTION_CONFIG[moreSection].label}
+                  {activeSection?.label ?? 'More'}
                 </h2>
                 <Button
                   variant="ghost"
@@ -349,7 +292,7 @@ export const BottomNav: React.FC = () => {
                 </Button>
               </div>
               <div className="overflow-y-auto px-5 py-4">
-                {moreSection === 'root' ? (
+                {!activeSection ? (
                   <div className="grid grid-cols-3 gap-3">
                     {MORE_ITEMS.map((item) => (
                       <button
@@ -358,53 +301,39 @@ export const BottomNav: React.FC = () => {
                         onClick={
                           item.label === 'Profile' ? goToProfile : () => goToMoreItem(item.href)
                         }
-                        className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                        className={MORE_TILE_CLASS}
                       >
                         <FontAwesomeIcon icon={item.icon} className="text-xl" />
                         <span className="text-xs font-medium">{item.label}</span>
                       </button>
                     ))}
-                    {showAdmin && (
+                    {accountSections.map((section) => (
                       <button
+                        key={section.id}
                         type="button"
-                        onClick={() => setMoreSection('admin')}
-                        className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                        onClick={() => setMoreSection(section.id)}
+                        className={MORE_TILE_CLASS}
                       >
-                        <FontAwesomeIcon icon={faBuilding} className="text-xl" />
-                        <span className="text-xs font-medium">Admin</span>
+                        <FontAwesomeIcon icon={section.icon} className="text-xl" />
+                        <span className="text-xs font-medium">{section.label}</span>
                       </button>
-                    )}
-                    {showDevelopers && (
-                      <button
-                        type="button"
-                        onClick={() => setMoreSection('developers')}
-                        className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
-                      >
-                        <FontAwesomeIcon icon={faWrench} className="text-xl" />
-                        <span className="text-xs font-medium">Developers</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setMoreSection('help')}
-                      className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
-                    >
-                      <FontAwesomeIcon icon={faCircleQuestion} className="text-xl" />
-                      <span className="text-xs font-medium">Help</span>
-                    </button>
+                    ))}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-1">
-                    {SECTION_CONFIG[moreSection].rows.map((row) => (
+                    {activeSection.items.map((item) => (
                       <Button
-                        key={row.label}
+                        key={item.label}
                         variant="ghost"
                         fullWidth
-                        onClick={row.onClick}
-                        leftIcon={<FontAwesomeIcon icon={row.icon} className="w-5 text-base" />}
+                        onClick={() => {
+                          closeMore();
+                          item.onSelect();
+                        }}
+                        leftIcon={<FontAwesomeIcon icon={item.icon} className="w-5 text-base" />}
                         className="justify-start gap-3 px-3 py-3 text-neutral-700 dark:text-neutral-200"
                       >
-                        {row.label}
+                        {item.label}
                       </Button>
                     ))}
                   </div>

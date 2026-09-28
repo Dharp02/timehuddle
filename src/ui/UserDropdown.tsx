@@ -1,45 +1,30 @@
 /**
  * UserDropdown — Avatar button + floating menu for the authenticated user.
  *
- * Uses @mieweb/ui Dropdown, Avatar, and DropdownItem components.
+ * Uses @mieweb/ui Dropdown, Avatar, and DropdownItem components. The Admin,
+ * Developers and Help groups come from ./accountMenu, shared with the mobile
+ * More sheet, and show at every width.
  */
 import {
-  faBug,
-  faBuilding,
   faBullhorn,
-  faChartLine,
   faCircleUser,
-  faComments,
   faGear,
   faRightFromBracket,
-  faUsers,
-  faWrench,
 } from '@fortawesome/free-solid-svg-icons';
-import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, Dropdown, DropdownItem, DropdownLabel, DropdownSeparator, Text } from '@mieweb/ui';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { releaseNotes, unseenReleaseNotes } from '../features/release-notes/notes';
-import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
-import {
-  hasDefaultOrganizationAdminAccess,
-  hasOrganizationAdminAccess,
-} from '../lib/organizationAccess';
-import { useAppFeedback } from './AppLayout';
+import { useAccountMenuSections } from './accountMenu';
 import { useRouter } from './router';
 import { UserAvatar } from './UserAvatar';
-
-// Update this URL once the TestFlight build is published in App Store Connect.
-const TESTFLIGHT_URL = 'https://testflight.apple.com/join/45w2knYf';
 
 // ─── UserDropdown ─────────────────────────────────────────────────────────────
 
 export const UserDropdown: React.FC = () => {
   const { user, signOut } = useSession();
-  const { enterprises, organizations } = useTeam();
-  const { openFeedback, openReportIssue } = useAppFeedback();
   const email = user?.email;
   const [open, setOpen] = useState(false);
 
@@ -71,48 +56,12 @@ export const UserDropdown: React.FC = () => {
 
   const displayName = user?.name || email?.split('@')[0] || 'Account';
   const truncated = displayName.length > 22 ? `${displayName.slice(0, 20)}…` : displayName;
-  const isOrganizationAdmin = hasOrganizationAdminAccess(organizations);
-  const showOrganizationAdmin = hasDefaultOrganizationAdminAccess(user) || isOrganizationAdmin;
-
-  const handleOrganizationMembers = useCallback(() => {
-    setOpen(false);
-    navigate('/app/org/members');
-  }, [navigate]);
-
-  const handleOrganizationUsage = useCallback(() => {
-    setOpen(false);
-    navigate('/app/org/usage');
-  }, [navigate]);
-
-  const handleEnterprisePage = useCallback(() => {
-    setOpen(false);
-    navigate('/app/enterprise');
-  }, [navigate]);
-
-  const handleSeeder = useCallback(() => {
-    setOpen(false);
-    navigate('/app/seeder');
-  }, [navigate]);
+  const sections = useAccountMenuSections();
 
   const handleSettings = useCallback(() => {
     setOpen(false);
     navigate('/app/settings');
   }, [navigate]);
-
-  const handleReportIssue = useCallback(() => {
-    setOpen(false);
-    openReportIssue();
-  }, [openReportIssue]);
-
-  const handleFeedback = useCallback(() => {
-    setOpen(false);
-    openFeedback();
-  }, [openFeedback]);
-
-  const handleTestFlight = useCallback(() => {
-    setOpen(false);
-    window.open(TESTFLIGHT_URL, '_blank', 'noopener,noreferrer');
-  }, []);
 
   return (
     <>
@@ -157,64 +106,24 @@ export const UserDropdown: React.FC = () => {
           <span className="font-normal">Settings</span>
         </DropdownItem>
 
-        {(showOrganizationAdmin || enterprises.length > 0) && (
-          <div className="hidden md:contents">
+        {sections.map((section) => (
+          <React.Fragment key={section.id}>
             <DropdownSeparator />
-            <DropdownLabel>Admin</DropdownLabel>
-
-            {enterprises.length > 0 && (
+            <DropdownLabel>{section.label}</DropdownLabel>
+            {section.items.map((item) => (
               <DropdownItem
-                icon={<FontAwesomeIcon icon={faBuilding} />}
-                onClick={handleEnterprisePage}
+                key={item.label}
+                icon={<FontAwesomeIcon icon={item.icon} />}
+                onClick={() => {
+                  setOpen(false);
+                  item.onSelect();
+                }}
               >
-                <span className="font-normal">Enterprise</span>
+                <span className="font-normal">{item.label}</span>
               </DropdownItem>
-            )}
-
-            <DropdownItem
-              icon={<FontAwesomeIcon icon={faUsers} />}
-              onClick={handleOrganizationMembers}
-            >
-              <span className="font-normal">Members</span>
-            </DropdownItem>
-
-            {isOrganizationAdmin && (
-              <DropdownItem
-                icon={<FontAwesomeIcon icon={faChartLine} />}
-                onClick={handleOrganizationUsage}
-              >
-                <span className="font-normal">Usage</span>
-              </DropdownItem>
-            )}
-          </div>
-        )}
-
-        {import.meta.env.MODE !== 'production' && (
-          <div className="hidden md:contents">
-            <DropdownSeparator />
-            <DropdownLabel>Developers</DropdownLabel>
-            <DropdownItem icon={<FontAwesomeIcon icon={faWrench} />} onClick={handleSeeder}>
-              <span className="font-normal">Seeder</span>
-            </DropdownItem>
-          </div>
-        )}
-
-        <div className="hidden md:contents">
-          <DropdownSeparator />
-          <DropdownLabel>Help</DropdownLabel>
-
-          <DropdownItem icon={<FontAwesomeIcon icon={faBug} />} onClick={handleReportIssue}>
-            <span className="font-normal">Report an Issue</span>
-          </DropdownItem>
-
-          <DropdownItem icon={<FontAwesomeIcon icon={faComments} />} onClick={handleFeedback}>
-            <span className="font-normal">Share Your Feedback</span>
-          </DropdownItem>
-
-          <DropdownItem icon={<FontAwesomeIcon icon={faApple} />} onClick={handleTestFlight}>
-            <span className="font-normal">TestFlight</span>
-          </DropdownItem>
-        </div>
+            ))}
+          </React.Fragment>
+        ))}
 
         <DropdownItem icon={<FontAwesomeIcon icon={faBullhorn} />} onClick={handleReleaseNotes}>
           <span className="font-normal">What&rsquo;s New</span>
