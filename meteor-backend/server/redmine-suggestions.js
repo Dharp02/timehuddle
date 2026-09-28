@@ -93,6 +93,14 @@ const MEMBERSHIP_CONCURRENCY = 5;
 const searchLimiter = createRateLimiter({ limit: 20, windowMs: 10 * 1000 });
 const relevantLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
 
+/**
+ * The preference methods. Generous for a person — hiding half a dozen
+ * suggestions in a row is normal — and still a bound, because `prefs.set` with
+ * `state: 'dismissed'` asks Redmine whether the issue is assigned to the caller,
+ * so an unmetered loop here is an unmetered loop against Redmine.
+ */
+const prefsLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
+
 /** Count this call against `limiter`, or refuse it with `too-many-requests`. */
 function enforceLimit(limiter, userId) {
   const { allowed, retryAfterMs } = limiter.check(userId);
@@ -347,6 +355,7 @@ Meteor.methods({
    */
   async 'redmine.prefs.set'({ issueId, state } = {}) {
     const { userId } = await requireIdentity(this);
+    enforceLimit(prefsLimiter, userId);
     const id = requireIssueId(issueId);
     if (state !== PINNED && state !== DISMISSED && state !== null) {
       throw new Meteor.Error('bad-request', 'state must be "pinned", "dismissed" or null.');
@@ -356,7 +365,12 @@ Meteor.methods({
     const assignedToMe =
       state === DISMISSED ? await isAssignedToCaller(await requireRedmineAccount(userId), id) : true;
 
-    await setIssuePref(userId, id, state, { assignedToMe });
+    try {
+      await setIssuePref(userId, id, state, { assignedToMe });
+    } catch (err) {
+      if (err?.name === 'TooManyPinsError') throw new Meteor.Error('too-many-pins', err.message);
+      throw err;
+    }
     return { ok: true };
   },
 
@@ -370,6 +384,7 @@ Meteor.methods({
    */
   async 'redmine.prefs.listDismissed'() {
     const { userId } = await requireIdentity(this);
+    enforceLimit(prefsLimiter, userId);
 
     // The link is checked before the rows, so an unlinked caller is told
     // `connected: false` like every other method here rather than `true` with an

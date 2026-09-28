@@ -172,6 +172,7 @@ The API key is already encrypted at rest with AES-256-GCM and never sent to the 
 
 - [x] ~~Add a `DDPRateLimiter` rule for~~ Limit `redmine.issues.search`: 20 calls per 10 seconds per user
 - [x] Add a rule for `redmine.issues.relevant`: 10 calls per minute per user (the 90-second cache absorbs normal use)
+- [x] **Added after Part B's review.** Limit `redmine.prefs.set` and `redmine.prefs.listDismissed` to 30 calls a minute per user, and cap pins at 500
 
 **Data minimisation**
 
@@ -188,6 +189,8 @@ The API key is already encrypted at rest with AES-256-GCM and never sent to the 
 - **A rotated key is re-encrypted on decrypt, not on the next Redmine call.** Decrypting successfully _is_ a successful use of the previous key, and doing it there means one write per user per rotation in one place (`findRedmineAccount`) rather than a hook on every call site. The write is fire-and-forget: a read path must not fail because a re-encrypt did, and the next read simply tries again.
 - **The data-minimisation test asserts the exhaustive key list of `toIssue`**, not the absence of three named fields. Every list and search response is built from that one shape, so a future field addition has to change the test deliberately — whereas a test that only banned `description`, `journals` and `custom_fields` would have said nothing about `attachments` or `watchers`.
 - **New env vars are documented where they are set**: `REDMINE_ALLOWED_HOSTS` and `REDMINE_ENCRYPTION_KEY_PREVIOUS` in both `docker-compose.yml` and `ecosystem.config.cjs`.
+- **The preference methods were left unmetered, and that was a miss.** This task rate-limited the two methods that read Redmine in bulk and stopped there, reasoning that `redmine.prefs.set` only writes one small row. Two things were wrong with that. `prefs.set` with `state: 'dismissed'` asks Redmine whether the issue is assigned to the caller, so an unmetered loop there is an unmetered loop against Redmine; and pins were never capped at all — `surplusDismissalIds` counts `state: 'dismissed'` rows only, and the TTL index sweeps the same, so nothing bounded a loop of pins. Reviewing Part B is what surfaced it, because Part B is the first code to call `prefs.set` from a browser. Now: 30 calls a minute across both preference methods, and `pinWouldExceedCap`.
+- **A pin at the cap is refused, where a dismissal evicts.** The asymmetry is deliberate. A dismissal is a "not now" that expires in 15 days, so dropping the oldest costs the user nothing they will notice. A pin is what keeps an issue in their Tickets table and on My Board, so evicting one would take a row away without saying so. Re-pinning something already pinned is allowed at the cap, because starting a timer pins and a user at their limit must still be able to time what they have.
 
 ## Task A5: Remove the `all` scope, and backend tests
 
