@@ -6,13 +6,17 @@
  * More sheet, and show at every width.
  */
 import {
-  faBullhorn,
-  faCircleUser,
-  faGear,
-  faRightFromBracket,
-} from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Dropdown, DropdownItem, DropdownLabel, DropdownSeparator, Text } from '@mieweb/ui';
+  Badge,
+  CircleUserIcon,
+  Dropdown,
+  DropdownItem,
+  DropdownLabel,
+  DropdownSeparator,
+  LogOutIcon,
+  SettingsIcon,
+  SparkleIcon,
+  Text,
+} from '@mieweb/ui';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { releaseNotes, unseenReleaseNotes } from '../features/release-notes/notes';
@@ -98,11 +102,11 @@ export const UserDropdown: React.FC = () => {
 
         <DropdownSeparator />
 
-        <DropdownItem icon={<FontAwesomeIcon icon={faCircleUser} />} onClick={handleProfile}>
+        <DropdownItem icon={<CircleUserIcon className="h-4 w-4" />} onClick={handleProfile}>
           <span className="font-normal">Profile</span>
         </DropdownItem>
 
-        <DropdownItem icon={<FontAwesomeIcon icon={faGear} />} onClick={handleSettings}>
+        <DropdownItem icon={<SettingsIcon className="h-4 w-4" />} onClick={handleSettings}>
           <span className="font-normal">Settings</span>
         </DropdownItem>
 
@@ -113,7 +117,7 @@ export const UserDropdown: React.FC = () => {
             {section.items.map((item) => (
               <DropdownItem
                 key={item.label}
-                icon={<FontAwesomeIcon icon={item.icon} />}
+                icon={<item.icon className="h-4 w-4" />}
                 onClick={() => {
                   setOpen(false);
                   item.onSelect();
@@ -125,7 +129,7 @@ export const UserDropdown: React.FC = () => {
           </React.Fragment>
         ))}
 
-        <DropdownItem icon={<FontAwesomeIcon icon={faBullhorn} />} onClick={handleReleaseNotes}>
+        <DropdownItem icon={<SparkleIcon className="h-4 w-4" />} onClick={handleReleaseNotes}>
           <span className="font-normal">What&rsquo;s New</span>
           {unseenReleaseCount > 0 && (
             <Badge
@@ -142,7 +146,7 @@ export const UserDropdown: React.FC = () => {
         <DropdownSeparator />
 
         <DropdownItem
-          icon={<FontAwesomeIcon icon={faRightFromBracket} />}
+          icon={<LogOutIcon className="h-4 w-4" />}
           variant="danger"
           onClick={handleLogout}
         >

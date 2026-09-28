@@ -13,23 +13,23 @@
  * plan-first gates and their inline composer are always visible.
  */
 import {
-  faChevronLeft,
-  faCircleStop,
-  faCircleUser,
-  faClock,
-  faClockRotateLeft,
-  faComments,
-  faEllipsis,
-  faGauge,
-  faGear,
-  faListCheck,
-  faSitemap,
-  faStopwatch,
-  faUsers,
-  faXmark,
-} from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button } from '@mieweb/ui';
+  Button,
+  BuildingIcon,
+  ChevronLeftIcon,
+  CircleUserIcon,
+  ClipboardListIcon,
+  ClockIcon,
+  HistoryIcon,
+  HomeIcon,
+  MessageIcon,
+  MoreHorizontalIcon,
+  SettingsIcon,
+  StopIcon,
+  TimerIcon,
+  UsersIcon,
+  XIcon,
+  type LucideIcon,
+} from '@mieweb/ui';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import React, { useState } from 'react';
 
@@ -39,7 +39,7 @@ import { useAccountMenuSections, type AccountMenuSectionId } from './accountMenu
 import { useRouter } from './router';
 
 interface NavTab {
-  icon: typeof faGauge;
+  icon: LucideIcon;
   label: string;
   href: string;
   isFab?: boolean;
@@ -47,26 +47,26 @@ interface NavTab {
 }
 
 const TABS: NavTab[] = [
-  { icon: faGauge, label: 'Home', href: '/app/dashboard' },
-  { icon: faComments, label: 'Huddle', href: '/app/huddle' },
-  { icon: faClock, label: 'Clock In', href: '/app/clock', isFab: true },
-  { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
-  { icon: faEllipsis, label: 'More', href: '', isMore: true },
+  { icon: HomeIcon, label: 'Home', href: '/app/dashboard' },
+  { icon: MessageIcon, label: 'Huddle', href: '/app/huddle' },
+  { icon: ClockIcon, label: 'Clock In', href: '/app/clock', isFab: true },
+  { icon: ClipboardListIcon, label: 'Tickets', href: '/app/tickets' },
+  { icon: MoreHorizontalIcon, label: 'More', href: '', isMore: true },
 ];
 
 interface MoreItem {
-  icon: typeof faGauge;
+  icon: LucideIcon;
   label: string;
   href: string;
 }
 
 const MORE_ITEMS: MoreItem[] = [
-  { icon: faUsers, label: 'Teams', href: '/app/teams' },
-  { icon: faSitemap, label: 'Organization', href: '/app/organization' },
-  { icon: faCircleUser, label: 'Profile', href: '/app/settings' },
-  { icon: faStopwatch, label: 'Work', href: '/app/work' },
-  { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
-  { icon: faGear, label: 'Settings', href: '/app/settings' },
+  { icon: UsersIcon, label: 'Teams', href: '/app/teams' },
+  { icon: BuildingIcon, label: 'Organization', href: '/app/organization' },
+  { icon: CircleUserIcon, label: 'Profile', href: '/app/settings' },
+  { icon: TimerIcon, label: 'Work', href: '/app/work' },
+  { icon: HistoryIcon, label: 'Activity Log', href: '/app/activity' },
+  { icon: SettingsIcon, label: 'Settings', href: '/app/settings' },
 ];
 
 /** Sub-sections of the More sheet — the account menu's Admin/Developers/Help
@@ -194,10 +194,11 @@ export const BottomNav: React.FC = () => {
                     : '0 4px 18px 0 color-mix(in srgb, var(--color-primary, #3b82f6) 45%, transparent)',
                 }}
               >
-                <FontAwesomeIcon
-                  icon={isClockedIn ? faCircleStop : tab.icon}
-                  className="text-xl text-white"
-                />
+                {isClockedIn ? (
+                  <StopIcon className="h-6 w-6 text-white" />
+                ) : (
+                  <tab.icon className="h-6 w-6 text-white" />
+                )}
                 <span className="mt-0.5 text-[9px] font-medium text-white/90">
                   {isClockedIn ? 'Clock Out' : 'Clock In'}
                 </span>
@@ -232,7 +233,7 @@ export const BottomNav: React.FC = () => {
                   }}
                 />
               )}
-              <FontAwesomeIcon icon={tab.icon} className="relative text-lg" />
+              <tab.icon className="relative h-5 w-5" />
               <span className="relative text-[10px] font-medium">{tab.label}</span>
             </button>
           );
@@ -275,7 +276,7 @@ export const BottomNav: React.FC = () => {
                     aria-label="Back"
                     className="rounded-full text-neutral-400"
                   >
-                    <FontAwesomeIcon icon={faChevronLeft} />
+                    <ChevronLeftIcon className="h-4 w-4" />
                   </Button>
                 )}
                 <h2 className="flex-1 font-semibold text-neutral-900 dark:text-neutral-100">
@@ -288,7 +289,7 @@ export const BottomNav: React.FC = () => {
                   aria-label="Close"
                   className="rounded-full text-neutral-400"
                 >
-                  <FontAwesomeIcon icon={faXmark} />
+                  <XIcon className="h-4 w-4" />
                 </Button>
               </div>
               <div className="overflow-y-auto px-5 py-4">
@@ -303,7 +304,7 @@ export const BottomNav: React.FC = () => {
                         }
                         className={MORE_TILE_CLASS}
                       >
-                        <FontAwesomeIcon icon={item.icon} className="text-xl" />
+                        <item.icon className="h-6 w-6" />
                         <span className="text-xs font-medium">{item.label}</span>
                       </button>
                     ))}
@@ -314,7 +315,7 @@ export const BottomNav: React.FC = () => {
                         onClick={() => setMoreSection(section.id)}
                         className={MORE_TILE_CLASS}
                       >
-                        <FontAwesomeIcon icon={section.icon} className="text-xl" />
+                        <section.icon className="h-6 w-6" />
                         <span className="text-xs font-medium">{section.label}</span>
                       </button>
                     ))}
@@ -330,7 +331,7 @@ export const BottomNav: React.FC = () => {
                           closeMore();
                           item.onSelect();
                         }}
-                        leftIcon={<FontAwesomeIcon icon={item.icon} className="w-5 text-base" />}
+                        leftIcon={<item.icon className="h-5 w-5" />}
                         className="justify-start gap-3 px-3 py-3 text-neutral-700 dark:text-neutral-200"
                       >
                         {item.label}

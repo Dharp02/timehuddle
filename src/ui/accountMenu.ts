@@ -6,17 +6,18 @@
  * the More sheet's drill-down tiles. Keeping both on one definition is what
  * stops the avatar menu and the mobile sheet drifting apart again.
  */
-import type { IconDefinition } from '@fortawesome/free-solid-svg-icons';
-import { faApple } from '@fortawesome/free-brands-svg-icons';
 import {
-  faBug,
-  faBuilding,
-  faChartLine,
-  faCircleQuestion,
-  faComments,
-  faUsers,
-  faWrench,
-} from '@fortawesome/free-solid-svg-icons';
+  BuildingIcon,
+  ChartIcon,
+  ExternalLinkIcon,
+  FlagIcon,
+  HelpCircleIcon,
+  MessageIcon,
+  ShieldCheckIcon,
+  UsersIcon,
+  WrenchIcon,
+  type LucideIcon,
+} from '@mieweb/ui';
 import { useMemo } from 'react';
 
 import type { TimecoreUser } from '../lib/api';
@@ -36,7 +37,7 @@ export const TESTFLIGHT_URL = 'https://testflight.apple.com/join/45w2knYf';
 export type AccountMenuSectionId = 'admin' | 'developers' | 'help';
 
 export interface AccountMenuItem {
-  icon: IconDefinition;
+  icon: LucideIcon;
   label: string;
   onSelect: () => void;
 }
@@ -44,7 +45,7 @@ export interface AccountMenuItem {
 export interface AccountMenuSection {
   id: AccountMenuSectionId;
   label: string;
-  icon: IconDefinition;
+  icon: LucideIcon;
   items: AccountMenuItem[];
 }
 
@@ -77,14 +78,20 @@ export function buildAccountMenuSections(
     sections.push({
       id: 'admin',
       label: 'Admin',
-      icon: faBuilding,
+      icon: ShieldCheckIcon,
       items: [
         ...(enterpriseCount > 0
-          ? [{ icon: faBuilding, label: 'Enterprise', onSelect: () => navigate('/app/enterprise') }]
+          ? [
+              {
+                icon: BuildingIcon,
+                label: 'Enterprise',
+                onSelect: () => navigate('/app/enterprise'),
+              },
+            ]
           : []),
-        { icon: faUsers, label: 'Members', onSelect: () => navigate('/app/org/members') },
+        { icon: UsersIcon, label: 'Members', onSelect: () => navigate('/app/org/members') },
         ...(isOrganizationAdmin
-          ? [{ icon: faChartLine, label: 'Usage', onSelect: () => navigate('/app/org/usage') }]
+          ? [{ icon: ChartIcon, label: 'Usage', onSelect: () => navigate('/app/org/usage') }]
           : []),
       ],
     });
@@ -94,19 +101,19 @@ export function buildAccountMenuSections(
     sections.push({
       id: 'developers',
       label: 'Developers',
-      icon: faWrench,
-      items: [{ icon: faWrench, label: 'Seeder', onSelect: () => navigate('/app/seeder') }],
+      icon: WrenchIcon,
+      items: [{ icon: WrenchIcon, label: 'Seeder', onSelect: () => navigate('/app/seeder') }],
     });
   }
 
   sections.push({
     id: 'help',
     label: 'Help',
-    icon: faCircleQuestion,
+    icon: HelpCircleIcon,
     items: [
-      { icon: faBug, label: 'Report an Issue', onSelect: openReportIssue },
-      { icon: faComments, label: 'Share Your Feedback', onSelect: openFeedback },
-      { icon: faApple, label: 'TestFlight', onSelect: openTestFlight },
+      { icon: FlagIcon, label: 'Report an Issue', onSelect: openReportIssue },
+      { icon: MessageIcon, label: 'Share Your Feedback', onSelect: openFeedback },
+      { icon: ExternalLinkIcon, label: 'TestFlight', onSelect: openTestFlight },
     ],
   });
 
