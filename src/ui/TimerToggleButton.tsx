@@ -53,8 +53,8 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
       aria-hidden={ariaHidden}
       disabled={disabled || isLoading}
       // `Button` wraps its content in an inline label span, which sits the icon
-      // on the text baseline; a flex label centres it.
-      className={`rounded-full [&_[data-slot=button-label]]:flex ${
+      // on the text baseline; a flex label centres it, and spaces it from `label`.
+      className={`rounded-full [&_[data-slot=button-label]]:flex [&_[data-slot=button-label]]:items-center [&_[data-slot=button-label]]:gap-1.5 ${
         isRunning
           ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
           : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
@@ -63,7 +63,7 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
       style={disabled && !isLoading ? { pointerEvents: 'none' } : undefined}
     >
       <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
-      {label && <span className="timer-toggle-label ml-1.5">{label}</span>}
+      {label && <span className="timer-toggle-label">{label}</span>}
     </Button>
   );
 
