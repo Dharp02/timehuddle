@@ -233,7 +233,7 @@ describe('canPostIn', () => {
   });
 });
 
-describe('the "Me · all teams" scope (posts from multiple teams)', () => {
+describe('the Personal ("me") scope (posts from multiple teams)', () => {
   const TEAM_NAMES: Record<string, string> = {
     'team-1': 'Platform Team',
     'team-2': 'Support Team',

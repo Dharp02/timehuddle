@@ -194,7 +194,7 @@ function buildTitle(
  * conversations. Pure: no React, no API calls, no `Date.now()` — pass `now`
  * explicitly so callers (and tests) get a stable "live" duration/label.
  *
- * `getTeamName` is only needed for the "Me · all teams" scope, where posts
+ * `getTeamName` is only needed for the Personal ("me") scope, where posts
  * from several teams can land in one conversation and each message's label
  * needs to say which team it came from.
  */

@@ -91,10 +91,16 @@ export default function Huddle() {
       // in-memory choice for this session still works.
     }
   }, []);
-  // Scope: one team (the header's selectedTeamId) or "Me · all teams" — the
+  const { user } = useSession();
+  const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
+    useTeam();
+
+  // Scope follows the selected team: the Personal team shows "me" — the
   // caller's own posts across every team, fetched separately (no per-team DDP
-  // subscription applies across teams).
-  const [scope, setScope] = useState<'team' | 'me'>('team');
+  // subscription applies across teams) — and any other team shows its feed.
+  const scope: 'team' | 'me' = teams.find((t) => t.id === selectedTeamId)?.isPersonal
+    ? 'me'
+    : 'team';
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
   const [myPostsLoading, setMyPostsLoading] = useState(false);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
@@ -112,9 +118,6 @@ export default function Huddle() {
     setMyPostsLoading(true);
     refreshMyPosts().finally(() => setMyPostsLoading(false));
   }, [scope, refreshMyPosts]);
-  const { user } = useSession();
-  const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
-    useTeam();
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
   // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
@@ -358,8 +361,10 @@ export default function Huddle() {
     for (let attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
       await refreshFeed();
-      if (inFeed()) return;
+      if (inFeed()) break;
     }
+    // The Personal ("me") view reads its own cross-team list, not `posts`.
+    if (scope === 'me') await refreshMyPosts();
   }
 
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
@@ -382,7 +387,7 @@ export default function Huddle() {
   const isAdmin = !!(user && team?.admins.includes(user.id));
   const viewer = useMemo(() => ({ userId: user?.id ?? '', isAdmin }), [user?.id, isAdmin]);
 
-  // Only the "Me · all teams" scope labels messages with their team — a
+  // Only the Personal ("me") scope labels messages with their team — a
   // single-team feed already has that context from the page itself.
   const getTeamName = useMemo(() => {
     if (scope !== 'me') return undefined;
@@ -476,10 +481,11 @@ export default function Huddle() {
 
   // Inline edit from the feed (self-authored messages only) → huddle.updatePost
   async function handleMessageEdited(messageId: string, text: string) {
-    const post = posts.find((p) => p.id === messageId);
+    const post = activePosts.find((p) => p.id === messageId);
     if (!post) return;
     try {
       await huddleApi.updatePost(messageId, { text, mentions: post.content.mentions });
+      if (scope === 'me') await refreshMyPosts();
     } catch (err) {
       console.error('[Huddle] Failed to save edit:', err);
       setEditError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
@@ -564,50 +570,38 @@ export default function Huddle() {
           />
         )}
 
-        {/* Scope (team) tabs for the inbox. Scope keeps the rest of the app
-            in sync by calling the same setSelectedTeamId the header team
-            switcher uses. Thread by (grouping) moved to the Group by dropdown
-            above, beside search — switching it only re-runs
-            postsToConversations, it never refetches. */}
+        {/* Team tabs for the inbox — the same setSelectedTeamId the header
+            team switcher uses, so the rest of the app stays in sync. The
+            Personal team's tab is the "me" scope (see `scope` above). Thread
+            by (grouping) is the Group by dropdown above, beside search —
+            switching it only re-runs postsToConversations, it never
+            refetches. */}
         {feedTab === 'feed' && (
           <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2">
-            <Tabs
-              variant="pills"
-              value={scope === 'me' ? 'me' : (selectedTeamId ?? '')}
-              onValueChange={(v) => {
-                if (v === 'me') {
-                  setScope('me');
-                } else {
-                  setScope('team');
-                  setSelectedTeamId(v);
-                }
-              }}
-            >
-              <TabsList aria-label="Scope" className="flex-wrap">
+            <Tabs variant="pills" value={selectedTeamId ?? ''} onValueChange={setSelectedTeamId}>
+              <TabsList aria-label="Team" className="flex-wrap">
                 {teams.map((t) => (
                   <TabsTrigger key={t.id} value={t.id}>
                     {t.name}
                   </TabsTrigger>
                 ))}
-                <TabsTrigger value="me">Me · all teams</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
         )}
 
-        {/* Composer for a team's very first post — sits right below the Scope
-            (team filter) tabs above. Once a team has any posts, replying
-            happens from inside the conversation it belongs to; showing this
-            composer too would just be a second way to do the same thing.
-            It only makes sense for one team at a time, so it hides in the
-            "Me · all teams" scope, and min-h-0 lets it shrink and scroll its
+        {/* Composer for a team's very first post — sits right below the team
+            tabs above. Once a team has any posts, replying happens from
+            inside the conversation it belongs to; showing this composer too
+            would just be a second way to do the same thing. In the Personal
+            ("me") view it shows only while you have no posts anywhere, and
+            posts to your Personal team. min-h-0 lets it shrink and scroll its
             own overflow on a short viewport instead of clipping its lower
             half (the attach buttons, Cancel and Post) under the nav. */}
         {selectedTeamId &&
-          scope === 'team' &&
           feedTab === 'feed' &&
-          !loading &&
-          posts.length === 0 && (
+          !(scope === 'me' ? myPostsLoading : loading) &&
+          activePosts.length === 0 && (
             <div className="huddle-composer min-h-0 max-h-[70vh] shrink-0 overflow-y-auto overscroll-contain">
               <HuddleComposer
                 key={selectedTeamId}
