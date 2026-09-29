@@ -306,10 +306,16 @@ back into either team.
 
 **Goal:** decide what happens to likes, based on your Milestone 1 notes.
 
-- [ ] **If** the upgraded SuperChat supports reactions: map `post.likes` to a reaction and call
+- [x] **If** the upgraded SuperChat supports reactions: map `post.likes` to a reaction and call
       `huddleApi.toggleLike` when it's clicked.
-- [ ] **If not:** remove likes from the UI. Leave the stored `likes` data and the backend method
+- [x] **If not:** remove likes from the UI. Leave the stored `likes` data and the backend method
       alone. Add a comment on #601 saying likes were removed until upstream adds reactions.
+      (0.10.0 has no reactions — confirmed in Milestone 1's type-surface check. There was no
+      separate like button to remove: it only ever lived on `PostCard`, archived whole in
+      Milestone 8. `HuddlePost.likes` and `huddleApi.toggleLike`/`huddle.toggleLike` are untouched.
+      **Comment on #601 not posted from this session** — commenting on a GitHub issue needs an
+      explicit go-ahead, flagged to the user instead of auto-posting, same as the Milestone 1 "what's
+      new" note.)
 
 **Done when:** one of the two options is done and noted on #601.
 
