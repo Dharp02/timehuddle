@@ -6,7 +6,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Input, Tabs, TabsList, TabsTrigger } from '@mieweb/ui';
-import { SuperChat } from '@mieweb/ui/components/SuperChat';
+import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
   createImagePlugin,
@@ -18,9 +18,8 @@ import { DraftsPanel } from '../features/huddle/DraftsPanel';
 import { PostCard } from '../features/huddle/PostCard';
 import { toPostAttachment } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
-import { composerErrorMessage } from '../features/huddle/composerErrors';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
-import { postsToConversation } from '../features/huddle/superChatFeed';
+import { postsToConversations } from '../features/huddle/superChatFeed';
 import type { ComposerContent } from '../features/huddle/types';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
@@ -44,10 +43,10 @@ export default function Huddle() {
   const [searchQuery, setSearchQuery] = useState('');
   // Top-level tab: the team feed or the user's private drafts.
   const [feedTab, setFeedTab] = useState<'feed' | 'drafts'>('feed');
-  // Feed view: the classic card view (default) or the SuperChat thread —
+  // Feed view: the SuperChatInbox thread (default) or the classic card view —
   // the card view keeps per-post comments/likes, which SuperChat has no
   // per-message-thread concept for (deliberately not force-fit).
-  const [feedView, setFeedView] = useState<'chat' | 'cards'>('cards');
+  const [feedView, setFeedView] = useState<'chat' | 'cards'>('chat');
   const { user } = useSession();
   const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
     useTeam();
@@ -340,32 +339,24 @@ export default function Huddle() {
     );
   });
 
-  // ── SuperChat mapping (memoized — posts update via DDP) ──
+  // The selected team's admins list gates the extra title detail
+  // (hours, no-wrap-up warning) postsToConversations shows admins on session
+  // threads.
+  const isAdmin = !!(user && team?.admins.includes(user.id));
+  const viewer = useMemo(() => ({ userId: user?.id ?? '', isAdmin }), [user?.id, isAdmin]);
+
+  // ── SuperChatInbox mapping (memoized — posts update via DDP) ──
   // Keyed by an id:updatedAt fingerprint instead of the array identity,
   // because filteredPosts is a fresh array every render.
   const conversationKey = filteredPosts.map((p) => `${p.id}:${p.updatedAt}`).join(',');
-  const conversation = useMemo(
-    () => postsToConversation(selectedTeamId ?? 'huddle', team?.name ?? 'Huddle', filteredPosts),
-    [selectedTeamId, team?.name, conversationKey],
+  const conversations = useMemo(
+    () => postsToConversations(filteredPosts, 'session', viewer),
+    [conversationKey, viewer],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
     [],
   );
-
-  // Inline edit from the feed (self-authored messages only) → huddle.updatePost
-  async function handleMessageEdited(messageId: string, text: string) {
-    const post = posts.find((p) => p.id === messageId);
-    if (!post) return;
-    try {
-      await huddleApi.updatePost(messageId, { text, mentions: post.content.mentions });
-    } catch (err) {
-      console.error('[Huddle] Failed to save edit:', err);
-      // Not the page-level `error`, which replaces the feed entirely — a failed
-      // edit should leave the posts on screen.
-      setEditError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
-    }
-  }
 
   return (
     <AppPage fill flush>
@@ -495,17 +486,16 @@ export default function Huddle() {
                   </div>
                 )}
 
-                {/* Chat view — SuperChat thread (newest-first, read-only
-                  composer: authoring goes through the RichEditor above) */}
+                {/* Chat view — SuperChatInbox, one conversation per clock
+                  session for now (Thread by/Scope tabs land in Milestone 4;
+                  posting from the inbox lands in Milestone 5). */}
                 {!loading && !error && user && posts.length > 0 && feedView === 'chat' && (
-                  <SuperChat
-                    conversation={conversation}
+                  <SuperChatInbox
+                    conversations={conversations}
                     currentParticipantId={user.id}
-                    order="desc"
                     readOnly
                     virtualized
                     renderPlugins={renderPlugins}
-                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
                     className="h-full"
                   />
                 )}

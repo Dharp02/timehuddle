@@ -146,15 +146,17 @@ first means the hard logic is correct before any UI exists.
 
 **Goal:** the Huddle feed shows `SuperChatInbox`, grouped by session, for the selected team.
 
-- [ ] In `Huddle.tsx`, replace the chat view's `<SuperChat …>` with `<SuperChatInbox …>` from
+- [x] In `Huddle.tsx`, replace the chat view's `<SuperChat …>` with `<SuperChatInbox …>` from
       `@mieweb/ui/components/SuperChat`.
-- [ ] Feed it `postsToConversations(filteredPosts, 'session', viewer)` inside `useMemo`
+- [x] Feed it `postsToConversations(filteredPosts, 'session', viewer)` inside `useMemo`
       (copy how the existing `conversationKey` memo avoids recomputing on every render).
-- [ ] Pass `currentParticipantId={user.id}`, the existing `renderPlugins`, `virtualized`, and
+- [x] Pass `currentParticipantId={user.id}`, the existing `renderPlugins`, `virtualized`, and
       `readOnly` for now.
-- [ ] Make it the default view (set `feedView` to `'chat'`). Don't delete the card view yet.
-- [ ] Give the inbox a fixed height so it scrolls inside the page (check on a phone-sized window).
-- [ ] Get `isAdmin` from the team you already load (`team.admins` includes `user.id`).
+- [x] Make it the default view (set `feedView` to `'chat'`). Don't delete the card view yet.
+- [x] Give the inbox a fixed height so it scrolls inside the page (check on a phone-sized window).
+      (Unverified interactively — see the M1 note on this environment's browser/DDP limitation;
+      the wrapping `div` is unchanged from the working `SuperChat` layout it replaces.)
+- [x] Get `isAdmin` from the team you already load (`team.admins` includes `user.id`).
 
 **Done when:** you can open Huddle, see one conversation per session, click through them, and the
 list scrolls on mobile.
