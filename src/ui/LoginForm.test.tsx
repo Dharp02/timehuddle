@@ -136,6 +136,26 @@ describe('LoginForm dev sign-in gate', () => {
     expect(devCard()).toBeNull();
   });
 
+  it('renders the dev card in a production build when the PR-preview flag is set', () => {
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
+    vi.stubEnv('VITE_DEV_QUICK_LOGIN', 'true');
+
+    render(<LoginForm />);
+
+    expect(devCard()).not.toBeNull();
+  });
+
+  it('does not render the dev card when the PR-preview flag is anything but "true"', () => {
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
+    vi.stubEnv('VITE_DEV_QUICK_LOGIN', 'false');
+
+    render(<LoginForm />);
+
+    expect(devCard()).toBeNull();
+  });
+
   it('renders a sign-in button per role in development', () => {
     vi.stubEnv('DEV', true);
 

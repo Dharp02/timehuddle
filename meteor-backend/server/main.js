@@ -16,6 +16,7 @@ import { Random } from 'meteor/random';
 import { Accounts } from 'meteor/accounts-base';
 
 import { buildMailUrl } from './mail-url';
+import { isDevQuickLoginEnabled } from './dev-quick-login-gate';
 import './collections';
 import './migration-login-handler';
 import { rawDb } from './collections';
@@ -57,9 +58,9 @@ import { initAgenda } from './agenda';
 import { bearerContextMiddleware } from './bearer-context';
 import { apiBodyLimitMiddleware } from './api-body-limit';
 
-// One-click role sign-in for local development. Imported dynamically so the
-// handler is never registered in a production server.
-if (Meteor.isDevelopment) {
+// One-click role sign-in for local development and PR previews. Imported
+// dynamically so the handler is never registered in a production server.
+if (isDevQuickLoginEnabled({ isDevelopment: Meteor.isDevelopment, env: process.env })) {
   Meteor.startup(async () => {
     await import('./dev-quick-login');
   });

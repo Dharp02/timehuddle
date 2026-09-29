@@ -10,8 +10,11 @@
  *
  * Runs against the test Meteor instance, which is `meteor run` and therefore
  * development mode; a production server never registers the handler at all.
+ * The gate that decides that (dev mode, or the PR-preview opt-in flag) is
+ * unit tested at the bottom of this file.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { isDevQuickLoginEnabled } from '../server/dev-quick-login-gate';
 import { DDPConnection, getDb, closeDb, ObjectId } from './helpers';
 import { METEOR_URL } from './setup';
 
@@ -206,5 +209,27 @@ describe('dev quick login', () => {
 
   it('rejects an unknown role', async () => {
     await expect(quickLogin('superuser')).rejects.toThrow(/Unknown dev role/);
+  });
+});
+
+describe('isDevQuickLoginEnabled', () => {
+  it('is enabled in development with no flag set', () => {
+    expect(isDevQuickLoginEnabled({ isDevelopment: true, env: {} })).toBe(true);
+  });
+
+  it('is enabled in a production build when a PR preview sets the flag', () => {
+    expect(
+      isDevQuickLoginEnabled({ isDevelopment: false, env: { DEV_QUICK_LOGIN_ENABLED: 'true' } }),
+    ).toBe(true);
+  });
+
+  it('is disabled in a production build with no flag set', () => {
+    expect(isDevQuickLoginEnabled({ isDevelopment: false, env: {} })).toBe(false);
+  });
+
+  it.each(['false', '1', 'TRUE', ''])('treats DEV_QUICK_LOGIN_ENABLED=%j as off', (value) => {
+    expect(
+      isDevQuickLoginEnabled({ isDevelopment: false, env: { DEV_QUICK_LOGIN_ENABLED: value } }),
+    ).toBe(false);
   });
 });

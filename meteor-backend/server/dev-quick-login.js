@@ -2,10 +2,11 @@
  * Dev-only one-click sign-in.
  *
  * Registers a `devQuickLogin` login handler that provisions (or reuses) one
- * fixed account per role and logs straight into it, so local development never
- * needs a seeded database to exercise role-gated UI.
+ * fixed account per role and logs straight into it, so local development and
+ * PR previews never need a seeded database to exercise role-gated UI.
  *
- * The handler refuses to run unless the server is in development mode, and
+ * The handler refuses to run unless isDevQuickLoginEnabled() allows it
+ * (development mode, or DEV_QUICK_LOGIN_ENABLED=true on a PR preview), and
  * main.js only imports this module under the same condition — production
  * builds have no code path to it at all.
  */
@@ -16,6 +17,7 @@ import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 
 import { Teams, rawDb } from './collections';
+import { isDevQuickLoginEnabled } from './dev-quick-login-gate';
 import {
   ensureDefaultOrganization,
   setOrgMemberRole,
@@ -181,7 +183,7 @@ async function provisionDevUser(spec) {
 
 Accounts.registerLoginHandler('devQuickLogin', async (options) => {
   if (!options.devQuickLogin) return undefined;
-  if (!Meteor.isDevelopment) {
+  if (!isDevQuickLoginEnabled({ isDevelopment: Meteor.isDevelopment, env: process.env })) {
     throw new Meteor.Error('forbidden', 'Dev quick login is disabled outside development');
   }
 

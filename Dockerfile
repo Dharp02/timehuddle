@@ -44,6 +44,8 @@ COPY . .
 # Build Vite frontend (VITE_* vars are baked in at build time)
 ARG VITE_TIMECORE_URL
 ENV VITE_TIMECORE_URL=${VITE_TIMECORE_URL}
+ARG VITE_DEV_QUICK_LOGIN=false
+ENV VITE_DEV_QUICK_LOGIN=${VITE_DEV_QUICK_LOGIN}
 RUN npm run build
 
 # Compile Meteor bundle — runs once here so the container starts in seconds
