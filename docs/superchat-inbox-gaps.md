@@ -1,6 +1,9 @@
 # SuperChatInbox Gaps for TimeHuddle Huddle
 
 **Status:** Ready to pick up · **Written:** 2026-09-29 · **Component version checked:** `@mieweb/ui` 0.9.0
+(re-checked against 0.10.0 on 2026-09-29 — the `SuperChat`/`SuperChatInbox`/`SuperChatConversation`/
+`SuperChatMessage` public type surface is byte-for-byte unchanged between 0.9.0 and 0.10.0, so every gap
+below still applies)
 
 ## Overview
 

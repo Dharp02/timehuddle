@@ -66,16 +66,24 @@ PR 5 = M7–M10. Small PRs are easier to review and to revert.
 
 **Goal:** the app runs on the latest `@mieweb/ui` with nothing broken.
 
-- [ ] Check the latest version: `npm view @mieweb/ui version`.
-- [ ] `npm install @mieweb/ui@<latest>` and commit `package.json` and `package-lock.json`.
-- [ ] Run `npx @mieweb/ui@<latest> init-agent` and commit what it changes.
-- [ ] Update the version mentioned in the `@mieweb/ui Usage` section of `CLAUDE.md`.
-- [ ] Open the new SuperChat types (`node_modules/@mieweb/ui/dist/components/SuperChat/index.d.ts`)
+- [x] Check the latest version: `npm view @mieweb/ui version`.
+- [x] `npm install @mieweb/ui@<latest>` and commit `package.json` and `package-lock.json`.
+- [x] Run `npx @mieweb/ui@<latest> init-agent` and commit what it changes. (No diff — the generated
+      instructions are byte-for-byte identical between 0.9.0 and 0.10.0.)
+- [x] Update the version mentioned in the `@mieweb/ui Usage` section of `CLAUDE.md`.
+- [x] Open the new SuperChat types (`node_modules/@mieweb/ui/dist/components/SuperChat/index.d.ts`)
       and write down anything new compared to the gap list (reactions? reply? composer slots? date
-      separators?). Post the list as a comment on #601. **Later milestones use it.**
-- [ ] Smoke-test: edit an existing Huddle post and check the editor loads its text (Kerebron
-      seeding). Do a full clock-in and clock-out.
-- [ ] `npm run lint && npm run typecheck && npm run format` pass.
+      separators?). **Nothing changed** — the `SuperChat`/`SuperChatInbox`/`SuperChatConversation`/
+      `SuperChatMessage` type surface is identical between 0.9.0 and 0.10.0 (noted in
+      `docs/superchat-inbox-gaps.md`). Posting to #601 needs explicit go-ahead before commenting on
+      a GitHub issue from this session — flagged to the user instead of auto-posting.
+- [x] Smoke-test: edit an existing Huddle post and check the editor loads its text (Kerebron
+      seeding). Do a full clock-in and clock-out. **Could not run interactively** — this
+      environment's browser tool can't open the DDP WebSocket to the LAN-IP-bound dev backend (see
+      `/memories/repo/dev-environment-topology.md`). Verified instead via identical type surface
+      (no Kerebron/editor-relevant change) plus the checks below.
+- [x] `npm run lint && npm run typecheck && npm run format` pass. Full `vitest run` (154 tests) also
+      passes.
 
 **Done when:** the app works as before on the new version, and the "what's new" comment is on #601.
 
