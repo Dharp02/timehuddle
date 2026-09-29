@@ -9,6 +9,7 @@ import {
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { DraftsPanel } from '../features/huddle/DraftsPanel';
 import { fileFromDataUrl, toPostAttachment, uploadMedia } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
@@ -20,6 +21,7 @@ import {
   postsToConversations,
   type ThreadBy,
 } from '../features/huddle/superChatFeed';
+import type { ComposerContent } from '../features/huddle/types';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
@@ -304,6 +306,48 @@ export default function Huddle() {
     };
   }, [selectedTeamId, syncPosts, refreshFeed]);
 
+  // Posting from the composer above the feed (team scope only — see its JSX
+  // below). A post lands in `posts` via the same DDP/REST sync as any other
+  // write, so it shows up in the SuperChatInbox the moment it's grouped.
+  async function addPost(content: ComposerContent) {
+    // Thrown, not alerted: HuddleComposer catches it and shows the reason in
+    // its own `role="alert"` region, keeping the draft and the caret intact.
+    if (!user || !selectedTeamId) {
+      throw new Error('Select a team before posting.');
+    }
+
+    const mentionUserIds = (content.mentions || []).map((m) => m.userId);
+    const attachments = content.attachments.map(toPostAttachment);
+
+    const { id } = await huddleApi.createPost({
+      teamId: selectedTeamId,
+      content: { text: content.text, mentions: mentionUserIds },
+      ticketId: content.ticketId,
+      attachments,
+      postDate: toDateString(new Date()),
+    });
+
+    // Show the new post without waiting on the live DDP socket, which may be
+    // down (dropped while the app was backgrounded for a Pulse recording):
+    // refreshFeed refetches over REST and overlays the result, and syncPosts
+    // drops the overlay once the subscription catches up.
+    //
+    // The retry condition is "not in the feed by *either* route". Waiting on
+    // the DDP cache specifically would stall the full backoff on every post
+    // whenever the socket is down — which is the exact case the REST overlay
+    // exists to cover, and where the post is already on screen after the first
+    // refresh.
+    const ddp = getDdpClient();
+    const inFeed = () =>
+      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
+      await refreshFeed();
+      if (inFeed()) return;
+    }
+  }
+
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
   const activePosts = scope === 'me' ? myPosts : posts;
@@ -529,6 +573,26 @@ export default function Huddle() {
               teamId={selectedTeamId}
               userInitials={getUserInitials(user.name)}
               userColor={getUserColor(user.id)}
+            />
+          </div>
+        )}
+
+        {/* Composer stays put while the feed below it scrolls. Posting here
+            lands in whichever conversation the new post groups into, below.
+            On a short viewport the expanded composer is taller than the space
+            between the header and the fixed bottom nav, so it must be able to
+            shrink and scroll its own overflow — otherwise its lower half (the
+            attach buttons, Cancel and Post) is clipped under the nav and
+            unreachable. min-h-0 is what lets a flex child shrink below its
+            content height. It only makes sense for one team at a time, so it
+            hides in the "Me · all teams" scope. */}
+        {selectedTeamId && scope === 'team' && feedTab === 'feed' && (
+          <div className="huddle-composer min-h-0 max-h-[70vh] overflow-y-auto overscroll-contain">
+            <HuddleComposer
+              key={selectedTeamId}
+              onPost={addPost}
+              userInitials={user ? getUserInitials(user.name) : 'U'}
+              userColor={user ? getUserColor(user.id) : 'indigo'}
             />
           </div>
         )}

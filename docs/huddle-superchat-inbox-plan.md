@@ -278,7 +278,10 @@ back into either team.
 - [x] Remove the cards/chat toggle button and the `feedView` state.
 - [x] Remove the card view from `Huddle.tsx`.
 - [x] **Keep** the Feed / Drafts tabs, `DraftsPanel` and `HuddleComposer` (Drafts uses it).
-- [x] Remove the `HuddleComposer` that sits above the feed (posting now happens in the inbox).
+- [x] ~~Remove the `HuddleComposer` that sits above the feed~~ **Restored per user request** after
+      this milestone shipped: the composer above the Feed tab (team scope only) is back, posting
+      through it the same way it always did. It's an additional way to post alongside sending
+      from inside an open `SuperChatInbox` conversation — not a replacement for either.
 - [x] Existing comments are no longer shown anywhere. **Don't delete comment data or the
       comment backend methods**; comments may come back once the inbox supports replies.
 - [x] Move `PostCard/` and `HuddleComments/` to `.attic/` with a short `README` saying why and
@@ -286,23 +289,23 @@ back into either team.
 - [x] Delete the old `postsToConversation` and any now-unused imports and icons.
 - [x] `npm run lint && npm run typecheck` pass with no unused-code warnings.
 
-> ⚠️ **Follow-up needed — larger than first scoped:** running the suite (`npm run test`) surfaced
-> that the shared `tests/e2e/huddle/helpers.ts` → `openComposer()` clicks the old top composer's
-> "Share an update..." placeholder, which Milestone 8 removed — so **every** spec that calls
-> `openComposer` now times out, not just the ones that toggle to card view. That's effectively the
-> whole `tests/e2e/huddle/` directory: `composer-actions`, `composer-failures`, `composer-paste`,
-> `composer-responsive`, `edit-post-works`, `large-uploads`, `post-progress-bar`,
-> `pulsevault-video`, plus `edit-composer-remount` and `yjs-collab-editing` (card view), plus
-> `tests/e2e/realtime/huddle-posts.spec.ts`, `tests/e2e/realtime/huddle-refresh.spec.ts`, and
-> `tests/e2e/notifications/deep-links.spec.ts` (card view + `#huddle-post-<id>`), and the shared
-> `tests/e2e/pages/HuddlePage.ts` page object. All of them need `openComposer`/`postContainer`/
-> `switchToCardView` (and the direct card-view/`Share an update...` references in the specs that
-> don't go through those helpers) rewritten against `SuperChatInbox`'s own message box and
-> conversation thread instead of the removed Kerebron composer and `PostCard`. Not done in this
-> session: rewriting a dozen interdependent Playwright files without being able to confirm a run
-> completes in this sandbox (its own `:3002` dev server took a couple of minutes to bind, and a
-> full-suite run was still in progress after several minutes when this was written) was judged
-> riskier than leaving it as an explicit, accurately-scoped gap for the next session.
+> ⚠️ **Follow-up needed — larger than first scoped, partially resolved by the composer restore
+> above:** running the suite (`npm run test`) surfaced that the shared
+> `tests/e2e/huddle/helpers.ts` → `openComposer()` clicks the top composer's "Share an update..."
+> placeholder — removing it broke **every** spec that calls `openComposer`, not just the ones that
+> toggle to card view. Restoring the composer should fix the `openComposer`-only specs:
+> `composer-actions`, `composer-failures`, `composer-responsive`, `edit-post-works`,
+> `large-uploads`, `post-progress-bar`, `pulsevault-video` (unverified — not re-run after the
+> restore). **Still genuinely broken** (depend on the removed card view /
+> `data-testid="post-card"` / `#huddle-post-<id>`, which is still gone): `composer-paste` (asserts
+> on `post-card` for the pasted image), `edit-composer-remount`, `yjs-collab-editing`,
+> `tests/e2e/realtime/huddle-posts.spec.ts`, `tests/e2e/realtime/huddle-refresh.spec.ts`,
+> `tests/e2e/notifications/deep-links.spec.ts`, and the shared `tests/e2e/pages/HuddlePage.ts`
+> page object. These need `postContainer`/`switchToCardView` (and direct card-view references)
+> rewritten against `SuperChatInbox`'s own conversation thread instead of `PostCard`. Not done in
+> this session: rewriting several interdependent Playwright files without being able to confirm a
+> run completes in this sandbox was judged riskier than leaving it as an explicit, accurately-
+> scoped gap for the next session.
 
 **Done when:** Huddle shows Feed (inbox) and Drafts, nothing else, and nothing is left unused.
 
@@ -335,7 +338,7 @@ back into either team.
       likes, if Milestone 9 removed them). (`release-notes/1.0.4.md`; verified it renders on
       `/release-notes`.)
 - [x] `npm run test:all` passes. (**Does not pass** — see the Milestone 8 note above. `npm run
-      test:unit` (168 tests) passes; the huddle-related slice of `npm run test` (Playwright) does
+  test:unit` (168 tests) passes; the huddle-related slice of `npm run test` (Playwright) does
       not, for reasons unrelated to regressions in the shipped behavior itself — the tests still
       drive the old, now-removed composer/card-view DOM. Confirmed by actually starting a full run:
       the first 33 non-Huddle tests passed, then `composer-actions.spec.ts` timed out as expected.)
@@ -354,6 +357,7 @@ back into either team.
   tests, and the checks that don't need a live DDP session (typecheck/lint/format, the public
   `/release-notes` page, the version banner). **A real interactive smoke test by a human (or from
   an environment where the app's DDP socket is reachable) is still needed before merging.**
+
 - [ ] Walk through every acceptance criterion in #601 and tick it on the issue. (Not done from this
       session — see the summary below for how the 20 criteria map to what's implemented.)
 - [ ] Open the final PR with `Closes #601`. (Not done — pushing branches/opening PRs needs an
