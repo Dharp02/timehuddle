@@ -167,16 +167,18 @@ list scrolls on mobile.
 
 **Goal:** the user can switch grouping and team from two tab bars above the inbox.
 
-- [ ] Add two `Tabs` from `@mieweb/ui` (copy the existing Feed/Drafts `Tabs` usage):
-  - [ ] **Thread by:** Session, Day, Person, Ticket.
-  - [ ] **Scope:** one tab per team from `useTeam()`, plus **Me · all teams** (disabled until
+- [x] Add two `Tabs` from `@mieweb/ui` (copy the existing Feed/Drafts `Tabs` usage):
+  - [x] **Thread by:** Session, Day, Person, Ticket.
+  - [x] **Scope:** one tab per team from `useTeam()`, plus **Me · all teams** (disabled until
         Milestone 6).
-- [ ] Choosing a team in Scope calls `setSelectedTeamId` so the rest of the app stays in sync.
-- [ ] Save the Thread by choice in `localStorage` (wrap it in `try/catch`) and restore it on load.
-- [ ] Switching Thread by must **not** refetch: it only re-runs the grouping function.
-- [ ] Each tab list has an `aria-label`. All tab text goes through the same pattern the page uses
+- [x] Choosing a team in Scope calls `setSelectedTeamId` so the rest of the app stays in sync.
+- [x] Save the Thread by choice in `localStorage` (wrap it in `try/catch`) and restore it on load.
+- [x] Switching Thread by must **not** refetch: it only re-runs the grouping function.
+- [x] Each tab list has an `aria-label`. All tab text goes through the same pattern the page uses
       for other labels.
-- [ ] Check it at phone width: tabs wrap or scroll, and nothing overflows the page.
+- [x] Check it at phone width: tabs wrap or scroll, and nothing overflows the page. (Both
+      `TabsList`s take `flex-wrap`; unverified in an actual phone-width browser — see the M1 note
+      on this environment's browser/DDP limitation.)
 
 **Done when:** all four groupings work for a team, and the choice survives a reload.
 

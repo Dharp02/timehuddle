@@ -19,7 +19,7 @@ import { PostCard } from '../features/huddle/PostCard';
 import { toPostAttachment } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
-import { postsToConversations } from '../features/huddle/superChatFeed';
+import { postsToConversations, type ThreadBy } from '../features/huddle/superChatFeed';
 import type { ComposerContent } from '../features/huddle/types';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
@@ -29,6 +29,26 @@ import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
+
+const THREAD_BY_KEY = 'app:huddleThreadBy';
+const THREAD_BY_OPTIONS: ThreadBy[] = ['session', 'day', 'person', 'ticket'];
+const THREAD_BY_LABELS: Record<ThreadBy, string> = {
+  session: 'Session',
+  day: 'Day',
+  person: 'Person',
+  ticket: 'Ticket',
+};
+
+function loadStoredThreadBy(): ThreadBy {
+  try {
+    const stored = localStorage.getItem(THREAD_BY_KEY);
+    return (THREAD_BY_OPTIONS as string[]).includes(stored ?? '')
+      ? (stored as ThreadBy)
+      : 'session';
+  } catch {
+    return 'session';
+  }
+}
 
 export default function Huddle() {
   const { navigate, search, replace } = useRouter();
@@ -47,6 +67,19 @@ export default function Huddle() {
   // the card view keeps per-post comments/likes, which SuperChat has no
   // per-message-thread concept for (deliberately not force-fit).
   const [feedView, setFeedView] = useState<'chat' | 'cards'>('chat');
+  // How the inbox groups posts into conversations. Persisted so a reload
+  // keeps the reader's choice; switching it only re-runs the grouping
+  // function below, it never refetches.
+  const [threadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
+  const setThreadBy = useCallback((next: ThreadBy) => {
+    _setThreadBy(next);
+    try {
+      localStorage.setItem(THREAD_BY_KEY, next);
+    } catch {
+      // Storage may be unavailable (private mode, embedded webview) — the
+      // in-memory choice for this session still works.
+    }
+  }, []);
   const { user } = useSession();
   const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
     useTeam();
@@ -350,8 +383,8 @@ export default function Huddle() {
   // because filteredPosts is a fresh array every render.
   const conversationKey = filteredPosts.map((p) => `${p.id}:${p.updatedAt}`).join(',');
   const conversations = useMemo(
-    () => postsToConversations(filteredPosts, 'session', viewer),
-    [conversationKey, viewer],
+    () => postsToConversations(filteredPosts, threadBy, viewer),
+    [conversationKey, threadBy, viewer],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
@@ -420,6 +453,44 @@ export default function Huddle() {
             className="shrink-0 mx-4 md:mx-0"
             autoFocus
           />
+        )}
+
+        {/* Thread by (grouping) + Scope (team) tabs for the inbox. Switching
+            Thread by only re-runs postsToConversations above — it never
+            refetches. Scope keeps the rest of the app in sync by calling the
+            same setSelectedTeamId the header team switcher uses. */}
+        {feedTab === 'feed' && feedView === 'chat' && (
+          <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2 px-4 md:px-0">
+            <Tabs
+              variant="pills"
+              value={threadBy}
+              onValueChange={(v) => setThreadBy(v as ThreadBy)}
+            >
+              <TabsList aria-label="Thread by" className="flex-wrap">
+                {THREAD_BY_OPTIONS.map((option) => (
+                  <TabsTrigger key={option} value={option}>
+                    {THREAD_BY_LABELS[option]}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+            <Tabs
+              variant="pills"
+              value={selectedTeamId ?? ''}
+              onValueChange={(v) => setSelectedTeamId(v)}
+            >
+              <TabsList aria-label="Scope" className="flex-wrap">
+                {teams.map((t) => (
+                  <TabsTrigger key={t.id} value={t.id}>
+                    {t.name}
+                  </TabsTrigger>
+                ))}
+                <TabsTrigger value="me" disabled>
+                  Me · all teams
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         )}
 
         {/* Drafts tab — private, multiple drafts */}
