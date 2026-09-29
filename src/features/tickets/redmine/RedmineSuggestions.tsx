@@ -35,7 +35,7 @@ import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { ticketDetailPath } from '../sources/types';
-import { toastTimerOutcome, type TicketTimerOutcome } from '../startTicketTimer';
+import type { TicketTimerOutcome } from '../startTicketTimer';
 
 import { suggestionText as text } from './suggestionStrings';
 import {
@@ -145,14 +145,16 @@ export function RedmineSuggestions({
 
   const toggleTimer = useCallback(
     async (issue: RedmineIssue) => {
+      // The toast is the parent's (`TicketStartProvider`); a start waiting on a
+      // clock-in reports 'clock-in', and its chip follows the live timer.
       const outcome = await onToggleTimer(issue);
-      if (!toastTimerOutcome(toast, outcome, issue.id)) return;
+      if (outcome === 'failed' || outcome === 'clock-in') return;
       // The chip already follows the live timer (`runningIssueId`); refetching
       // brings the order and the server-side pin up to date as well.
       invalidateSuggestionsCache();
       void loadSuggestions({ force: true });
     },
-    [onToggleTimer, toast, loadSuggestions],
+    [onToggleTimer, loadSuggestions],
   );
 
   const hide = useCallback(

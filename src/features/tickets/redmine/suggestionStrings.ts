@@ -51,13 +51,6 @@ export const suggestionText = {
   hidden: (id: number) => `Hidden #${id}`,
   undo: 'Undo',
   hideFailed: (id: number) => `Couldn't hide #${id}. Please try again.`,
-  timerStarted: (id: number) => `Timer started on #${id}`,
-  timerStartedAndAdded: (id: number) => `Timer started on #${id} and added to My Board`,
-  timerStartedOnBoard: (id: number) => `Timer started on #${id}. It's on My Board`,
-  /** 500 is the server's `MAX_PINS_PER_USER`. */
-  timerStartedPinLimit: (id: number) =>
-    `Timer started on #${id}. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.`,
-  timerStopped: (id: number) => `Timer stopped on #${id}`,
 
   hiddenHeading: 'Hidden suggestions',
   hiddenExplainer:

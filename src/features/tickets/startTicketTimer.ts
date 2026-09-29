@@ -1,6 +1,7 @@
 /**
- * Starting a ticket timer, shared by every place that offers one: the Tickets
- * page (My Board rows, Redmine suggestions) and the Redmine issue page.
+ * Starting a ticket timer, shared by every place that offers one. Callers go
+ * through `TicketStartProvider` (`features/timers`), which adds the clock-in
+ * prompt and the toast around this.
  *
  * A ticket being timed belongs in the Tickets table and on My Board. A Redmine
  * issue joins the table by being pinned, so one the table doesn't have yet is
@@ -8,15 +9,15 @@
  * running either way, and the outcome says how far they got so the caller can
  * tell the user.
  *
- * No React here: each page keeps its own loading flags and refreshes, and reads
- * the outcome to decide what to show.
+ * No React here: the outcome says what happened, and the provider decides what
+ * to show.
  */
 import type { useToast } from '@mieweb/ui';
 
 import { ApiError, myBoardApi, redmineApi, timerApi, type TicketSourceId } from '../../lib/api';
 import { toLocalDateStr } from '../../lib/date';
 
-import { suggestionText as text } from './redmine/suggestionStrings';
+import { ticketTimerText as text } from '../timers/ticketTimerStrings';
 
 /**
  * What starting or stopping a ticket timer came to, for the toast. A started
@@ -104,19 +105,24 @@ export async function startTicketTimer(
 }
 
 /**
- * Confirm a Redmine issue's timer start or stop in a toast. False when the
- * outcome has nothing to confirm (it failed, or is waiting on a clock-in).
+ * Confirm a ticket timer's start or stop in a toast, naming the ticket by
+ * `label` (see `timerLabel`). A start that stopped another ticket's timer names
+ * that one too. False when the outcome has nothing to confirm (it failed, or is
+ * waiting on a clock-in).
  */
 export function toastTimerOutcome(
   toast: ReturnType<typeof useToast>,
   outcome: TicketTimerOutcome,
-  issueId: number,
+  label: string,
+  stoppedLabel?: string | null,
 ): boolean {
-  if (outcome === 'started-and-added') toast.success(text.timerStartedAndAdded(issueId));
-  else if (outcome === 'started-on-board') toast.success(text.timerStartedOnBoard(issueId));
-  else if (outcome === 'started') toast.success(text.timerStarted(issueId));
-  else if (outcome === 'started-pin-limit') toast.warning(text.timerStartedPinLimit(issueId));
-  else if (outcome === 'stopped') toast.info(text.timerStopped(issueId));
+  const withSwitch = (message: string) =>
+    stoppedLabel ? text.switched(stoppedLabel, message) : message;
+  if (outcome === 'started-and-added') toast.success(withSwitch(text.startedAndAdded(label)));
+  else if (outcome === 'started-on-board') toast.success(withSwitch(text.startedOnBoard(label)));
+  else if (outcome === 'started') toast.success(withSwitch(text.started(label)));
+  else if (outcome === 'started-pin-limit') toast.warning(withSwitch(text.startedPinLimit(label)));
+  else if (outcome === 'stopped') toast.info(text.stopped(label));
   else return false;
   return true;
 }

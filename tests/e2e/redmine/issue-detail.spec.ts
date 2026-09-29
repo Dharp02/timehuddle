@@ -12,6 +12,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { ClockPage } from '../pages/ClockPage';
 import {
   BASE_URL,
   issueDetail,
@@ -240,8 +241,11 @@ test.describe('Redmine issue detail', () => {
 });
 
 test.describe('Redmine issue page timer', () => {
+  let clock: ClockPage;
+
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
+    clock = new ClockPage(page);
   });
 
   /**
@@ -345,6 +349,7 @@ test.describe('Redmine issue page timer', () => {
     page.getByRole('button', { name: `Stop the timer on #${ISSUE_ID}` });
 
   test('starts and stops a timer from the header', async ({ page }) => {
+    await clock.ensureClockedIn();
     const { starts, stops } = await stubTimer(page, { onBoard: true });
     const rm = await openIssue(page, { 'issues.get': detailResponse() });
 
@@ -369,6 +374,7 @@ test.describe('Redmine issue page timer', () => {
   });
 
   test('an issue not in your table is pinned and added to My Board', async ({ page }) => {
+    await clock.ensureClockedIn();
     const { boardAdds } = await stubTimer(page);
     const rm = await openIssue(page, {
       'issues.get': detailResponse({ assignedTo: { id: 3, name: 'Priya Patel' } }),
@@ -385,6 +391,7 @@ test.describe('Redmine issue page timer', () => {
   });
 
   test('at the pin limit the timer starts, and says it stayed off the table', async ({ page }) => {
+    await clock.ensureClockedIn();
     const { boardAdds } = await stubTimer(page);
     await openIssue(page, {
       'issues.get': detailResponse({ assignedTo: null }),
@@ -397,17 +404,34 @@ test.describe('Redmine issue page timer', () => {
     expect(boardAdds).toHaveLength(0);
   });
 
-  test('says to clock in when there is no shift, and starts nothing', async ({ page }) => {
-    const { boardAdds } = await stubTimer(page, { startError: 'no-active-shift' });
-    const rm = await openIssue(page, { 'issues.get': detailResponse({ assignedTo: null }) });
+  test('clocked out, the prompt clocks in and then starts the timer', async ({ page }) => {
+    await clock.ensureClockedOut();
+    const { starts, boardAdds } = await stubTimer(page);
+    await openIssue(page, {
+      'issues.get': detailResponse({ assignedTo: null }),
+      'prefs.set': { ok: true },
+    });
+
+    await startButton(page).click();
+    await expect(page.getByRole('heading', { name: 'Clock In Required' })).toBeVisible();
+    expect(starts).toHaveLength(0);
+    await page.getByRole('button', { name: 'Clock In Now' }).click();
+
+    await expect(
+      page.getByText(`Timer started on #${ISSUE_ID} and added to My Board`),
+    ).toBeVisible();
+    expect(starts[0]).toMatchObject({ ticketId: String(ISSUE_ID), source: 'redmine' });
+    expect(boardAdds).toHaveLength(1);
+  });
+
+  test('a refused start says why', async ({ page }) => {
+    await clock.ensureClockedIn();
+    await stubTimer(page, { startError: 'no-active-shift' });
+    await openIssue(page, { 'issues.get': detailResponse() });
 
     await startButton(page).click();
 
-    await expect(
-      page.getByRole('alert').filter({ hasText: 'Clock in to start a ticket timer.' }),
-    ).toBeVisible();
-    expect(rm.calls('prefs.set')).toHaveLength(0);
-    expect(boardAdds).toHaveLength(0);
+    await expect(page.getByText('Clock in to start a ticket timer.')).toBeVisible();
     await expect(startButton(page)).toBeVisible();
   });
 });

@@ -101,7 +101,7 @@ test.describe('My Board ticket timers', () => {
     await expect(tickets.startTimerButton(title)).toBeVisible();
   });
 
-  test('switching to another ticket stops the first one, with no warning (D5)', async ({
+  test('switching to another ticket stops the first one, without a dialog (D5)', async ({
     page,
   }) => {
     await clock.ensureClockedIn();
@@ -124,7 +124,7 @@ test.describe('My Board ticket timers', () => {
     await tickets.startTimerButton(second).click();
     await expect(tickets.stopTimerButton(second)).toBeVisible();
 
-    // The first stopped silently — no confirmation dialog, no second running row.
+    // The first stopped without a dialog (a toast names it), and no second running row.
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(tickets.startTimerButton(first)).toBeVisible();
 
