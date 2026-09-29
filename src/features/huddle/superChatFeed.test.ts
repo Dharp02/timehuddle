@@ -232,3 +232,23 @@ describe('canPostIn', () => {
     expect(canPostIn(personThread, 'person', VIEWER_OTHER_MEMBER)).toBe(false);
   });
 });
+
+describe('the "Me · all teams" scope (posts from multiple teams)', () => {
+  const TEAM_NAMES: Record<string, string> = {
+    'team-1': 'Platform Team',
+    'team-2': 'Support Team',
+  };
+  const getTeamName = (teamId: string) => TEAM_NAMES[teamId];
+
+  it('groups posts from every team the same way (person), each labeled with its own team', () => {
+    const posts = [
+      makePost({ id: 'p1', teamId: 'team-1', postDate: '2026-09-29' }),
+      makePost({ id: 'p2', teamId: 'team-2', postDate: '2026-09-29' }),
+    ];
+    const [conversation] = postsToConversations(posts, 'person', VIEWER_MEMBER, NOW, getTeamName);
+    expect(conversation.thread).toHaveLength(2);
+    const byId = new Map(conversation.thread.map((m) => [m.id, m]));
+    expect(byId.get('p1')?.text).toContain('Platform Team');
+    expect(byId.get('p2')?.text).toContain('Support Team');
+  });
+});

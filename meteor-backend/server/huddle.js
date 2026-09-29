@@ -319,7 +319,44 @@ Meteor.methods({
     const enriched = await Promise.all(posts.map(post => enrichPost(post)));
     return { posts: enriched };
   },
-  
+
+  /**
+   * The caller's own published posts across every team they belong to — the
+   * Huddle inbox's "Me · all teams" scope. Defaults to the last 30 days so an
+   * account with years of history doesn't return an unbounded feed.
+   */
+  async 'huddle.getMyPosts'({ since } = {}) {
+    const identity = await requireIdentity(this);
+    if (since !== undefined && (typeof since !== 'string' || Number.isNaN(Date.parse(since)))) {
+      throw new Meteor.Error('bad-request', 'since must be an ISO date string');
+    }
+    const sinceDate = since ? new Date(since) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const myTeams = await rawDb()
+      .collection('teams')
+      .find(
+        { $or: [{ members: identity.userId }, { admins: identity.userId }] },
+        { projection: { _id: 1 } },
+      )
+      .toArray();
+    const teamIds = myTeams.map((t) => String(t._id));
+
+    const posts = await rawDb()
+      .collection('huddlePosts')
+      .find({
+        userId: identity.userId,
+        teamId: { $in: teamIds },
+        createdAt: { $gte: sinceDate },
+        ...PUBLISHED,
+      })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    await attachSessions(posts);
+    const enriched = await Promise.all(posts.map((post) => enrichPost(post)));
+    return { posts: enriched };
+  },
+
   async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, draft, clockEventId, wrapUp }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the

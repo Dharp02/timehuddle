@@ -1285,6 +1285,15 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('huddle.getMyPosts', {
+    description:
+      "The caller's own published posts across every team they belong to (default: last 30 days)",
+    inputSchema: {
+      type: 'object',
+      properties: { since: { type: 'string', description: 'ISO date string' } },
+    },
+  });
+
   // Post authoring over REST as well as DDP. On mobile the WebView drops the
   // DDP socket whenever the app is backgrounded (recording a Pulse video, for
   // one), so these writes must not depend on a live socket.

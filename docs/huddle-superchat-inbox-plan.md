@@ -225,17 +225,17 @@ are read-only, and failures show a message.
 **Goal:** the **Me** scope shows the user's own posts from every team, with the same Thread by
 options, posting and editing.
 
-- [ ] Backend: add `huddle.getMyPosts({ since })` in `huddle.js`, returning the caller's published
+- [x] Backend: add `huddle.getMyPosts({ since })` in `huddle.js`, returning the caller's published
       posts from all their teams (limit to a date range, e.g. the last 30 days). Return the same
       fields as `huddle.getPosts`.
-- [ ] Register it in `main.js` with `Wormhole.expose(...)`.
-- [ ] Add `huddleApi.getMyPosts` in `src/lib/api.ts`.
-- [ ] Enable the **Me · all teams** tab. When it's selected, load with `getMyPosts` instead of
+- [x] Register it in `main.js` with `Wormhole.expose(...)`.
+- [x] Add `huddleApi.getMyPosts` in `src/lib/api.ts`.
+- [x] Enable the **Me · all teams** tab. When it's selected, load with `getMyPosts` instead of
       the team feed.
-- [ ] Show which team each message came from (add `· Platform Team` to the message label; the
+- [x] Show which team each message came from (add `· Platform Team` to the message label; the
       team name comes from `useTeam().allTeams`).
-- [ ] Sending in the Me scope posts to the thread's team (every post has a `teamId`).
-- [ ] Add a grouping test with posts from two teams.
+- [x] Sending in the Me scope posts to the thread's team (every post has a `teamId`).
+- [x] Add a grouping test with posts from two teams.
 
 **Done when:** a user in two teams sees their posts from both, grouped by any option, and can post
 back into either team.

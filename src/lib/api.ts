@@ -1167,6 +1167,13 @@ export const huddleApi = {
   getPosts: (teamId: string) =>
     wormholeCall<{ posts: HuddlePost[] }>('huddle.getPosts', { teamId }).then((r) => r.posts),
 
+  /** The caller's own published posts across every team they belong to (the
+   *  Huddle inbox's "Me · all teams" scope). Defaults to the last 30 days. */
+  getMyPosts: (since?: string) =>
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyPosts', since ? { since } : {}).then(
+      (r) => r.posts,
+    ),
+
   /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
   getMyPostForDate: (teamId: string, postDate: string) =>
     wormholeCall<{ post: HuddlePost | null }>('huddle.getMyPostForDate', {

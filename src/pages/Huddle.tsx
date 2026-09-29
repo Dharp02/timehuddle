@@ -87,6 +87,27 @@ export default function Huddle() {
       // in-memory choice for this session still works.
     }
   }, []);
+  // Scope: one team (the header's selectedTeamId) or "Me · all teams" — the
+  // caller's own posts across every team, fetched separately (no per-team DDP
+  // subscription applies across teams).
+  const [scope, setScope] = useState<'team' | 'me'>('team');
+  const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
+  const [myPostsLoading, setMyPostsLoading] = useState(false);
+  const [myPostsError, setMyPostsError] = useState<string | null>(null);
+  const refreshMyPosts = useCallback(async () => {
+    try {
+      setMyPosts(await huddleApi.getMyPosts());
+      setMyPostsError(null);
+    } catch (err) {
+      console.error('[Huddle] refreshMyPosts failed:', err);
+      setMyPostsError('Failed to load your posts.');
+    }
+  }, []);
+  useEffect(() => {
+    if (scope !== 'me') return;
+    setMyPostsLoading(true);
+    refreshMyPosts().finally(() => setMyPostsLoading(false));
+  }, [scope, refreshMyPosts]);
   const { user } = useSession();
   const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
     useTeam();
@@ -276,8 +297,13 @@ export default function Huddle() {
     }
   }, [selectedTeamId, syncPosts]);
 
-  // Wire pull-to-refresh (swipe down) to the REST refetch.
-  useRefresh(refreshFeed);
+  // Wire pull-to-refresh (swipe down) to the REST refetch for whichever scope
+  // is active.
+  const refreshActiveScope = useCallback(
+    () => (scope === 'me' ? refreshMyPosts() : refreshFeed()),
+    [scope, refreshMyPosts, refreshFeed],
+  );
+  useRefresh(refreshActiveScope);
 
   // Subscribe to live DDP publication for huddle posts
   useEffect(() => {
@@ -369,7 +395,11 @@ export default function Huddle() {
     return canEditPost(post);
   }
 
-  const filteredPosts = posts.filter((post) => {
+  // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
+  // caller's own posts across every team.
+  const activePosts = scope === 'me' ? myPosts : posts;
+
+  const filteredPosts = activePosts.filter((post) => {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -385,13 +415,21 @@ export default function Huddle() {
   const isAdmin = !!(user && team?.admins.includes(user.id));
   const viewer = useMemo(() => ({ userId: user?.id ?? '', isAdmin }), [user?.id, isAdmin]);
 
+  // Only the "Me · all teams" scope labels messages with their team — a
+  // single-team feed already has that context from the page itself.
+  const getTeamName = useMemo(() => {
+    if (scope !== 'me') return undefined;
+    const names = new Map(allTeams.map((t) => [t.id, t.name]));
+    return (teamId: string) => names.get(teamId);
+  }, [scope, allTeams]);
+
   // ── SuperChatInbox mapping (memoized — posts update via DDP) ──
   // Keyed by an id:updatedAt fingerprint instead of the array identity,
   // because filteredPosts is a fresh array every render.
   const conversationKey = filteredPosts.map((p) => `${p.id}:${p.updatedAt}`).join(',');
   const conversations = useMemo(
-    () => postsToConversations(filteredPosts, threadBy, viewer),
-    [conversationKey, threadBy, viewer],
+    () => postsToConversations(filteredPosts, threadBy, viewer, undefined, getTeamName),
+    [conversationKey, threadBy, viewer, getTeamName],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
@@ -419,7 +457,14 @@ export default function Huddle() {
       attachments: ComposerAttachment[];
     },
   ) {
-    if (!user || !selectedTeamId) throw new Error('Select a team before posting.');
+    // In the "Me" scope a conversation can mix posts from several teams, so
+    // the target team comes from one of its own messages, not the header's
+    // selectedTeamId.
+    const targetTeamId =
+      scope === 'me'
+        ? myPosts.find((p) => meta.conversation.thread.some((m) => m.id === p.id))?.teamId
+        : selectedTeamId;
+    if (!user || !targetTeamId) throw new Error('Select a team before posting.');
     setEditError(null);
     try {
       const key = conversationGroupKey(meta.conversation.id);
@@ -432,14 +477,14 @@ export default function Huddle() {
         ),
       );
       await huddleApi.createPost({
-        teamId: selectedTeamId,
+        teamId: targetTeamId,
         content: { text, mentions: meta.mentions },
         postDate,
         attachments,
         ...(threadBy === 'session' && !key.startsWith('nosession:') ? { clockEventId: key } : {}),
         ...(threadBy === 'ticket' && key !== 'none' ? { ticketId: key } : {}),
       });
-      await refreshFeed();
+      await (scope === 'me' ? refreshMyPosts() : refreshFeed());
     } catch (err) {
       console.error('[Huddle] Failed to send message:', err);
       setEditError(composerErrorMessage(err, 'Failed to send. Please try again.'));
@@ -546,8 +591,15 @@ export default function Huddle() {
             </Tabs>
             <Tabs
               variant="pills"
-              value={selectedTeamId ?? ''}
-              onValueChange={(v) => setSelectedTeamId(v)}
+              value={scope === 'me' ? 'me' : (selectedTeamId ?? '')}
+              onValueChange={(v) => {
+                if (v === 'me') {
+                  setScope('me');
+                } else {
+                  setScope('team');
+                  setSelectedTeamId(v);
+                }
+              }}
             >
               <TabsList aria-label="Scope" className="flex-wrap">
                 {teams.map((t) => (
@@ -555,9 +607,7 @@ export default function Huddle() {
                     {t.name}
                   </TabsTrigger>
                 ))}
-                <TabsTrigger value="me" disabled>
-                  Me · all teams
-                </TabsTrigger>
+                <TabsTrigger value="me">Me · all teams</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -580,8 +630,9 @@ export default function Huddle() {
             shrink and scroll its own overflow — otherwise its lower half (the
             attach buttons, Cancel and Post) is clipped under the nav and
             unreachable. min-h-0 is what lets a flex child shrink below its
-            content height. */}
-        {selectedTeamId && feedTab === 'feed' && (
+            content height. It only makes sense for one team at a time, so it
+            hides in the "Me · all teams" scope (send from the inbox there). */}
+        {selectedTeamId && scope === 'team' && feedTab === 'feed' && (
           <div className="huddle-composer min-h-0 max-h-[70vh] overflow-y-auto overscroll-contain">
             <HuddleComposer
               key={selectedTeamId}
@@ -595,7 +646,7 @@ export default function Huddle() {
         {/* Feed */}
         {feedTab === 'feed' && (
           <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
-            {!selectedTeamId && (
+            {scope === 'team' && !selectedTeamId && (
               <div className="flex items-center justify-center py-16 px-4">
                 <p className="text-sm text-gray-500 dark:text-neutral-400">
                   Please select a team to view the huddle feed
@@ -603,50 +654,60 @@ export default function Huddle() {
               </div>
             )}
 
-            {selectedTeamId && (
+            {(scope === 'me' || selectedTeamId) && (
               <>
-                {loading && (
+                {(scope === 'me' ? myPostsLoading : loading) && (
                   <div className="flex items-center justify-center py-16">
                     <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
 
-                {error && (
+                {(scope === 'me' ? myPostsError : error) && (
                   <div className="flex items-center justify-center py-16 px-4">
-                    <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
+                    <p className="text-sm text-red-500 dark:text-red-400">
+                      {scope === 'me' ? myPostsError : error}
+                    </p>
                   </div>
                 )}
 
                 <ComposerError message={editError} onDismiss={() => setEditError(null)} />
 
-                {!loading && !error && posts.length === 0 && (
-                  <div className="flex items-center justify-center py-16 px-4">
-                    <p className="text-sm text-gray-500 dark:text-neutral-400">
-                      No posts yet. Be the first to share!
-                    </p>
-                  </div>
-                )}
+                {!(scope === 'me' ? myPostsLoading : loading) &&
+                  !(scope === 'me' ? myPostsError : error) &&
+                  activePosts.length === 0 && (
+                    <div className="flex items-center justify-center py-16 px-4">
+                      <p className="text-sm text-gray-500 dark:text-neutral-400">
+                        No posts yet. Be the first to share!
+                      </p>
+                    </div>
+                  )}
 
                 {/* Chat view — SuperChatInbox, grouped by the selected
                   Thread by option. Writable only where posting makes sense
                   (see canPostIn): the composer is read-only everywhere else,
                   and the component shows its own read-only placeholder. */}
-                {!loading && !error && user && posts.length > 0 && feedView === 'chat' && (
-                  <SuperChatInbox
-                    conversations={conversations}
-                    activeConversationId={activeConversationId}
-                    onConversationOpened={(conversation) =>
-                      setActiveConversationId(conversation.id)
-                    }
-                    currentParticipantId={user.id}
-                    readOnly={inboxReadOnly}
-                    virtualized
-                    renderPlugins={renderPlugins}
-                    onMessageSent={(text, meta) => handleInboxMessageSent(text, meta)}
-                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
-                    className="h-full"
-                  />
-                )}
+                {!(scope === 'me' ? myPostsLoading : loading) &&
+                  !(scope === 'me' ? myPostsError : error) &&
+                  user &&
+                  activePosts.length > 0 &&
+                  feedView === 'chat' && (
+                    <SuperChatInbox
+                      conversations={conversations}
+                      activeConversationId={activeConversationId}
+                      onConversationOpened={(conversation) =>
+                        setActiveConversationId(conversation.id)
+                      }
+                      currentParticipantId={user.id}
+                      readOnly={inboxReadOnly}
+                      virtualized
+                      renderPlugins={renderPlugins}
+                      onMessageSent={(text, meta) => handleInboxMessageSent(text, meta)}
+                      onMessageEdited={(messageId, text) =>
+                        void handleMessageEdited(messageId, text)
+                      }
+                      className="h-full"
+                    />
+                  )}
 
                 {/* Classic card view — keeps per-post comments and likes */}
                 {!loading &&

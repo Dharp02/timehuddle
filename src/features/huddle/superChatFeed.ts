@@ -169,7 +169,7 @@ function systemMessagesForSession(session: SessionInfo): SuperChatMessage[] {
 }
 
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 Onboarding checklist". */
-function postLabelParts(post: HuddlePost): string[] {
+function postLabelParts(post: HuddlePost, teamName?: string): string[] {
   const parts: string[] = [];
   if (post.clockEventId) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
@@ -177,17 +177,20 @@ function postLabelParts(post: HuddlePost): string[] {
   if (post.ticketTitle) {
     parts.push(`🎫 ${post.ticketTitle}`);
   }
+  if (teamName) {
+    parts.push(teamName);
+  }
   return parts;
 }
 
 /** Message text for the inbox: body first (the sidebar preview shows the
  *  first line), then attachments, then an italic plan/ticket label. */
-function postToInboxMessageText(post: HuddlePost): string {
+function postToInboxMessageText(post: HuddlePost, teamName?: string): string {
   const parts = [post.content.text];
   if (post.attachments.length > 0) {
     parts.push(post.attachments.map(attachmentMarkdown).join('\n\n'));
   }
-  const label = postLabelParts(post);
+  const label = postLabelParts(post, teamName);
   if (label.length > 0) {
     parts.push(`*${label.join(' · ')}*`);
   }
@@ -239,12 +242,17 @@ function buildTitle(
  * Group huddle posts (+ their clock sessions) into SuperChatInbox
  * conversations. Pure: no React, no API calls, no `Date.now()` — pass `now`
  * explicitly so callers (and tests) get a stable "live" duration/label.
+ *
+ * `getTeamName` is only needed for the "Me · all teams" scope, where posts
+ * from several teams can land in one conversation and each message's label
+ * needs to say which team it came from.
  */
 export function postsToConversations(
   posts: HuddlePost[],
   threadBy: ThreadBy,
   viewer: InboxViewer,
   now: number = Date.now(),
+  getTeamName?: (teamId: string) => string | undefined,
 ): SuperChatConversation[] {
   const groups = new Map<string, HuddlePost[]>();
   for (const post of posts) {
@@ -282,7 +290,7 @@ export function postsToConversations(
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
-      text: postToInboxMessageText(post),
+      text: postToInboxMessageText(post, getTeamName?.(post.teamId)),
       time: post.createdAt,
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
     }));
