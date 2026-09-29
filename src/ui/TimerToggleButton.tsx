@@ -1,8 +1,8 @@
 /**
  * TimerToggleButton — Shared start/stop timer button.
  *
- * Reused across WorkPage, TicketsPage and the Redmine search suggestions for
- * consistent timer controls.
+ * Reused across WorkPage, TicketsPage, the Redmine search suggestions and the
+ * Redmine issue page for consistent timer controls.
  */
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -16,6 +16,8 @@ export interface TimerToggleButtonProps {
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   ariaLabel?: string;
   title?: string;
+  /** Visible text beside the icon, for a roomier spot like a page header. */
+  label?: string;
   /** Extra classes, e.g. a smaller size inside a dense row. */
   className?: string;
   /**
@@ -35,6 +37,7 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
   onClick,
   ariaLabel,
   title,
+  label,
   className = '',
   tabIndex,
   'aria-hidden': ariaHidden,
@@ -43,15 +46,15 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
   const buttonContent = (
     <Button
       variant="ghost"
-      size="icon"
+      size={label ? 'sm' : 'icon'}
       onClick={onClick}
       onMouseDown={onMouseDown}
       tabIndex={tabIndex}
       aria-hidden={ariaHidden}
       disabled={disabled || isLoading}
       // `Button` wraps its content in an inline label span, which sits the icon
-      // on the text baseline; a flex label centres it.
-      className={`rounded-full [&_[data-slot=button-label]]:flex ${
+      // on the text baseline; a flex label centres it, and spaces it from `label`.
+      className={`rounded-full [&_[data-slot=button-label]]:flex [&_[data-slot=button-label]]:items-center [&_[data-slot=button-label]]:gap-1.5 ${
         isRunning
           ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
           : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
@@ -60,6 +63,7 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
       style={disabled && !isLoading ? { pointerEvents: 'none' } : undefined}
     >
       <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
+      {label && <span className="timer-toggle-label">{label}</span>}
     </Button>
   );
 

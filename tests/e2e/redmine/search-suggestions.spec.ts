@@ -368,6 +368,32 @@ test.describe('Redmine suggestion timers', () => {
     await expect(page.getByText(/no longer available/)).toHaveCount(0);
   });
 
+  test('at the pin limit the timer starts, but the issue stays off the table and My Board', async ({
+    page,
+  }) => {
+    await clock.ensureClockedIn();
+    const { bodies, boardAdds } = await stubTimerStart(page);
+    const { rm, tickets, input, option } = await openTickets(page, {
+      'prefs.set': { error: 'too-many-pins', status: 500 },
+    });
+
+    await tickets.filterBySource('Redmine');
+    await input.click();
+    const row = option(/Kilo billing report/);
+    await row.hover();
+    await row.getByLabel('Start a timer on #31').click();
+
+    await expect(
+      page.getByText(
+        "Timer started on #31. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.",
+      ),
+    ).toBeVisible();
+    expect(bodies[0]).toMatchObject({ ticketId: '31', source: 'redmine' });
+    expect(rm.calls('prefs.set')).toContainEqual({ issueId: 31, state: 'pinned' });
+    expect(boardAdds).toHaveLength(0);
+    await expect(tickets.rowByTitle('Kilo billing report')).toHaveCount(0);
+  });
+
   test('asks to clock in first when there is no shift', async ({ page }) => {
     // The earlier tests leave a shift open, and ensureClockedOut can look before
     // the clock controls have loaded. Retry until the Clock page offers "Clock in".

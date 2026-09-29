@@ -38,7 +38,6 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  ApiError,
   myBoardApi,
   redmineApi,
   teamApi,
@@ -51,7 +50,6 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
-import { toLocalDateStr } from '../../lib/date';
 import { useSession } from '../../lib/useSession';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
@@ -67,7 +65,7 @@ import { TicketTable } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
 import { RedmineIssueCreateModal } from './redmine/RedmineIssueCreateModal';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
-import { RedmineSuggestions, type SuggestionTimerOutcome } from './redmine/RedmineSuggestions';
+import { RedmineSuggestions } from './redmine/RedmineSuggestions';
 import {
   huddleSource,
   invalidateRedmineCache,
@@ -75,6 +73,12 @@ import {
   useUnifiedTickets,
   type UnifiedTicket,
 } from './sources';
+import {
+  STOP_TIMER_ERROR,
+  startTicketTimer,
+  timerErrorMessage,
+  type TicketTimerOutcome,
+} from './startTicketTimer';
 import { useMeAssigneeKeys } from './useMeAssigneeKeys';
 import { useTicketTableView } from './useTicketTableView';
 
@@ -366,78 +370,35 @@ export const TicketsPage: React.FC = () => {
 
   // ── Ticket timers (started from My Board — M3 D1 — and Redmine suggestions) ──
 
-  /**
-   * Turn a rejected timer start into something the user can act on. The shift
-   * gate is the common one: `isClockedIn` can be stale (another tab clocked
-   * out, the 8h auto-clockout fired), so the server's answer is authoritative.
-   */
-  const timerErrorMessage = (err: unknown): string => {
-    const code = err instanceof ApiError ? err.code : undefined;
-    if (code === 'no-active-shift') return 'Clock in to start a ticket timer.';
-    if (code === 'not-connected')
-      return 'Connect your Redmine account in Settings to time this issue.';
-    if (code === 'unreachable' || code === 'invalid-key')
-      return 'Could not reach Redmine to start this timer.';
-    return 'Could not start the timer. Please try again.';
-  };
-
   // Read inside the timer start below without making it depend on every board change.
   const boardKeysRef = React.useRef(boardKeys);
   useEffect(() => {
     boardKeysRef.current = boardKeys;
   }, [boardKeys]);
 
-  /**
-   * A ticket being timed belongs on My Board. Starts from the board are already
-   * there; a start from a Redmine suggestion (or after its clock-in prompt) is
-   * not, so it is added. Best-effort: the timer is running either way.
-   */
-  const ensureOnBoard = useCallback(
-    async (ticket: UnifiedTicket): Promise<'added' | 'already' | 'failed'> => {
-      if (boardKeysRef.current.has(ticket.key)) return 'already';
-      try {
-        await myBoardApi.addMany([{ sourceId: ticket.sourceId, ticketId: ticket.id }]);
-        setBoardKeys((prev) => new Set([...prev, ticket.key]));
-        return 'added';
-      } catch {
-        return 'failed';
-      }
-    },
-    [],
-  );
-
   const startTimerForTicket = useCallback(
-    async (ticket: UnifiedTicket): Promise<SuggestionTimerOutcome> => {
+    async (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
       setTimerLoadingKey(ticket.key);
       setTimerError(null);
+      // A Redmine suggestion is not a table row yet; the helper pins it into the table.
+      const inTable = ticketByKey.has(ticket.key);
       try {
-        const result = await timerApi.createEntry({
-          ticketId: ticket.id,
-          source: ticket.sourceId,
-          date: toLocalDateStr(new Date()),
-          startNow: true,
-          notifyAdmins: false,
+        const outcome = await startTicketTimer(ticket, {
+          inTable,
+          onBoard: boardKeysRef.current.has(ticket.key),
         });
-
-        if (!result.session) return 'failed';
-        if (ticket.sourceId === 'redmine' && !ticketByKey.has(ticket.key)) {
-          // A Redmine suggestion that is not a table row yet. Pinning is what
-          // puts it in the Tickets table (see redmineSource), and My Board shows
-          // only rows the table has — so pin it and reload the table, skipping
-          // the session cache, before it goes on the board. The server pins on
-          // timer start too; this waits for it. Best-effort: the timer runs anyway.
-          await redmineApi.prefs.set(Number(ticket.id), 'pinned').catch(() => undefined);
+        if (outcome === 'failed') return outcome;
+        if (outcome === 'started-and-added') {
+          setBoardKeys((prev) => new Set([...prev, ticket.key]));
+        }
+        if (ticket.sourceId === 'redmine' && !inTable) {
+          // Reload the table past the session cache so the pinned issue shows.
           refetchAfterRedmineWrite();
         } else {
           // Hook refreshes via DDP / tickets:refetch once the open timer lands.
           window.dispatchEvent(new CustomEvent('tickets:refetch'));
         }
-        const board = await ensureOnBoard(ticket);
-        return board === 'added'
-          ? 'started-and-added'
-          : board === 'already'
-            ? 'started-on-board'
-            : 'started';
+        return outcome;
       } catch (err) {
         setTimerError(timerErrorMessage(err));
         return 'failed';
@@ -445,11 +406,11 @@ export const TicketsPage: React.FC = () => {
         setTimerLoadingKey(null);
       }
     },
-    [ensureOnBoard, ticketByKey, refetchAfterRedmineWrite],
+    [ticketByKey, refetchAfterRedmineWrite],
   );
 
   const handleToggleTimer = useCallback(
-    async (ticket: UnifiedTicket): Promise<SuggestionTimerOutcome> => {
+    async (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
       // Starting a second ticket's timer auto-stops the first (M3 D5) — that is
       // `closeRunningSession` server-side, and needs no confirmation here.
       if (runningTicket?.key === ticket.key && runningTicket.sessionId) {
@@ -460,7 +421,7 @@ export const TicketsPage: React.FC = () => {
           window.dispatchEvent(new CustomEvent('tickets:refetch'));
           return 'stopped';
         } catch {
-          setTimerError('Could not stop the timer. Please try again.');
+          setTimerError(STOP_TIMER_ERROR);
           return 'failed';
         } finally {
           setTimerLoadingKey(null);

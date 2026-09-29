@@ -35,6 +35,7 @@ import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { ticketDetailPath } from '../sources/types';
+import { toastTimerOutcome, type TicketTimerOutcome } from '../startTicketTimer';
 
 import { suggestionText as text } from './suggestionStrings';
 import {
@@ -46,14 +47,6 @@ import {
 } from './suggestions';
 import { invalidateSuggestionsCache, useRedmineSuggestions } from './useRedmineSuggestions';
 
-/**
- * What starting or stopping a timer from a row came to, for the toast. A started
- * timer's issue is put on My Board: `started-and-added` did that,
- * `started-on-board` found it already there, and plain `started` could not add it.
- */
-export type SuggestionTimerOutcome =
-  'started' | 'started-and-added' | 'started-on-board' | 'stopped' | 'clock-in' | 'failed';
-
 interface RedmineSuggestionsProps {
   userId: string | null;
   /** The search text. The parent filters the Tickets table with it. */
@@ -64,7 +57,7 @@ interface RedmineSuggestionsProps {
   /** The Redmine issue a timer is running on, if any. */
   runningIssueId: number | null;
   /** Start a timer on the issue, or stop it when it is the running one. */
-  onToggleTimer: (issue: RedmineIssue) => Promise<SuggestionTimerOutcome>;
+  onToggleTimer: (issue: RedmineIssue) => Promise<TicketTimerOutcome>;
   inputClassName?: string;
 }
 
@@ -153,17 +146,7 @@ export function RedmineSuggestions({
   const toggleTimer = useCallback(
     async (issue: RedmineIssue) => {
       const outcome = await onToggleTimer(issue);
-      if (outcome === 'started-and-added') {
-        toast.success(text.timerStartedAndAdded(issue.id));
-      } else if (outcome === 'started-on-board') {
-        toast.success(text.timerStartedOnBoard(issue.id));
-      } else if (outcome === 'started') {
-        toast.success(text.timerStarted(issue.id));
-      } else if (outcome === 'stopped') {
-        toast.info(text.timerStopped(issue.id));
-      } else {
-        return;
-      }
+      if (!toastTimerOutcome(toast, outcome, issue.id)) return;
       // The chip already follows the live timer (`runningIssueId`); refetching
       // brings the order and the server-side pin up to date as well.
       invalidateSuggestionsCache();
