@@ -1,0 +1,322 @@
+# Huddle SuperChat Inbox: Execution Plan
+
+**Issue:** [#601 Replace the Huddle Feed Modes With the SuperChat Inbox](https://github.com/mieweb/timehuddle/issues/601)
+**Branch:** `feat/huddle-superchat-inbox`
+**Related:** [`superchat-inbox-gaps.md`](superchat-inbox-gaps.md) (what the component can't do yet;
+don't build any of it here)
+
+This plan breaks #601 into small milestones. Each one ends in something you can run and show.
+Finish a milestone, tick its boxes, push, and ask for a review before starting the next one.
+
+## Before You Start
+
+- [ ] Read issue #601 end to end, including **Out of Scope**.
+- [ ] Open the prototype built on the real component and click every Scope and Thread by tab:
+      https://claude.ai/artifact/5TYzdgArrh5nBUV5ZVXVu7 (ask for access if it doesn't open).
+      Your finished page should behave like it.
+- [ ] Read `CLAUDE.md` (project rules), `release-notes/README.md`, and the `SuperChatInbox`
+      story in Storybook: https://ui.mieweb.org/?path=/story/superchat-inbox--playground
+- [ ] Run `nvm use && npm install`, then start the app and backend and log in. Open Huddle and try
+      the card view, the chat view and Drafts, so you know what's being replaced.
+- [ ] Skim these files (you'll touch most of them):
+
+| File                                         | What it is                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------ |
+| `src/pages/Huddle.tsx`                       | The page. Feed/Drafts tabs, cards/chat toggle, loading, DDP, deep link, search |
+| `src/features/huddle/superChatFeed.ts`       | Turns posts into **one** SuperChat conversation today. You'll replace this     |
+| `src/features/huddle/PostCard/`              | Card view (likes, comments). Removed in Milestone 8                            |
+| `src/features/huddle/HuddleComments/`        | Comments under a card. Removed in Milestone 8                                  |
+| `src/features/huddle/HuddleComposer.tsx`     | Rich editor. **Stays**: `DraftsPanel` still uses it                            |
+| `src/features/huddle/useAttachmentUpload.ts` | Existing upload flow for attachments                                           |
+| `src/lib/api.ts` (`huddleApi`, `HuddlePost`) | `getPosts`, `createPost`, `updatePost`, `toggleLike`                           |
+| `src/lib/ddp.ts` (`useLiveClockEvents`)      | Open (live) clock sessions for a team                                          |
+| `meteor-backend/server/huddle.js`            | Backend methods (`huddle.getPosts`, `huddle.getComments`, …)                   |
+| `meteor-backend/server/main.js`              | `Wormhole.expose(...)`: a method must be listed here or REST calls 404         |
+
+```mermaid
+flowchart TD
+  M1[M1 Upgrade mieweb/ui] --> M2[M2 Grouping function + tests]
+  M2 --> M3[M3 Show the inbox, read-only]
+  M3 --> M4[M4 Scope + Thread by tabs]
+  M4 --> M5[M5 Send + edit]
+  M5 --> M6[M6 Personal feed]
+  M6 --> M7[M7 Live updates, deep link, search]
+  M7 --> M8[M8 Remove old modes]
+  M8 --> M9[M9 Likes]
+  M9 --> M10[M10 Release note + final checks]
+
+  classDef setup fill:#fff4d6,stroke:#9a6700,color:#16202e
+  classDef logic fill:#e6efff,stroke:#1f6feb,color:#16202e
+  classDef ui fill:#e3f5ea,stroke:#1a7f4b,color:#16202e
+  classDef ship fill:#f3e8ff,stroke:#7c3aed,color:#16202e
+  class M1 setup
+  class M2 logic
+  class M3,M4,M5,M6,M7 ui
+  class M8,M9,M10 ship
+```
+
+**Suggested PRs** (each one references #601): PR 1 = M1. PR 2 = M2–M4. PR 3 = M5. PR 4 = M6.
+PR 5 = M7–M10. Small PRs are easier to review and to revert.
+
+**Every time you commit:** the pre-commit hook runs lint and Prettier. Don't skip it.
+
+---
+
+## Milestone 1: Upgrade `@mieweb/ui`
+
+**Goal:** the app runs on the latest `@mieweb/ui` with nothing broken.
+
+- [ ] Check the latest version: `npm view @mieweb/ui version`.
+- [ ] `npm install @mieweb/ui@<latest>` and commit `package.json` and `package-lock.json`.
+- [ ] Run `npx @mieweb/ui@<latest> init-agent` and commit what it changes.
+- [ ] Update the version mentioned in the `@mieweb/ui Usage` section of `CLAUDE.md`.
+- [ ] Open the new SuperChat types (`node_modules/@mieweb/ui/dist/components/SuperChat/index.d.ts`)
+      and write down anything new compared to the gap list (reactions? reply? composer slots? date
+      separators?). Post the list as a comment on #601. **Later milestones use it.**
+- [ ] Smoke-test: edit an existing Huddle post and check the editor loads its text (Kerebron
+      seeding). Do a full clock-in and clock-out.
+- [ ] `npm run lint && npm run typecheck && npm run format` pass.
+
+**Done when:** the app works as before on the new version, and the "what's new" comment is on #601.
+
+> 💡 If the upgrade breaks something unrelated to Huddle, stop and ask. Don't fix other pages in
+> this branch.
+
+---
+
+## Milestone 2: Grouping Function and Tests (No UI Yet)
+
+**Goal:** a pure function that turns posts into inbox conversations, fully tested. Doing this
+first means the hard logic is correct before any UI exists.
+
+- [ ] In `src/features/huddle/superChatFeed.ts`, add:
+  ```ts
+  export type ThreadBy = 'session' | 'day' | 'person' | 'ticket';
+  export function postsToConversations(
+    posts: HuddlePost[],
+    threadBy: ThreadBy,
+    viewer: { userId: string; isAdmin: boolean },
+  ): SuperChatConversation[];
+  ```
+- [ ] Group posts with one key function per option:
+  - [ ] **session:** `post.clockEventId`. Posts without one: key `${userId}:${postDate}`.
+  - [ ] **day:** `post.postDate` (fall back to the date part of `createdAt`).
+  - [ ] **person:** `post.userId`.
+  - [ ] **ticket:** `post.ticketId`, or `'none'` for a "No ticket" thread.
+- [ ] Build each conversation:
+  - [ ] `id`: `${threadBy}:${key}`, so ids don't clash between groupings.
+  - [ ] `title` (plain text): for sessions `Aisha Khan · Tue, Sep 29 · 08:58–now · ● Live`. Show
+        `You` for the viewer's own threads. Admins also get hours (`· 8h 18m`) and `· ⚠ no wrap-up`
+        when a finished session has no post with `wrapUpAt`.
+  - [ ] Clock-in / clock-out as `type: 'system'` messages from `post.session.startTime` /
+        `endTime` (session, day and person only; **not** ticket).
+  - [ ] Each post as a message. Body first, then the label, e.g.
+        `Checklist UI is done.\n\n*Plan · 🎫 Onboarding checklist*`. The sidebar preview shows the
+        first line, so the body must come first.
+  - [ ] Reuse the existing `postToMessageText` attachment handling (images, file links).
+  - [ ] `participants`: every post author with `color` from `getUserColor`,
+        plus a `system` participant for the clock.
+  - [ ] `lastActivity`: the newest message time; for live sessions use "now" so they sort first.
+- [ ] Keep the old `postsToConversation` for now; the page still uses it until Milestone 3.
+- [ ] Create `src/features/huddle/superChatFeed.test.ts` with fixtures. Test at least:
+  - [ ] Each grouping puts the right posts in the right conversations.
+  - [ ] A live session (no `endTime`) is marked `● Live` and has no clock-out message.
+  - [ ] Admin titles show hours; member titles don't.
+  - [ ] Posts with no `clockEventId` and posts with no ticket are handled.
+  - [ ] Ticket threads have no clock messages.
+- [ ] `npx vitest run src/features/huddle` passes. (The Vitest suite doesn't run in CI, so run it
+      yourself.)
+
+**Done when:** tests pass and a reviewer has read the function.
+
+> 💡 Keep it pure: no React, no API calls, no `Date.now()` inside. Pass "now" in if you need it,
+> so tests are stable.
+
+---
+
+## Milestone 3: Show the Inbox (Read-Only)
+
+**Goal:** the Huddle feed shows `SuperChatInbox`, grouped by session, for the selected team.
+
+- [ ] In `Huddle.tsx`, replace the chat view's `<SuperChat …>` with `<SuperChatInbox …>` from
+      `@mieweb/ui/components/SuperChat`.
+- [ ] Feed it `postsToConversations(filteredPosts, 'session', viewer)` inside `useMemo`
+      (copy how the existing `conversationKey` memo avoids recomputing on every render).
+- [ ] Pass `currentParticipantId={user.id}`, the existing `renderPlugins`, `virtualized`, and
+      `readOnly` for now.
+- [ ] Make it the default view (set `feedView` to `'chat'`). Don't delete the card view yet.
+- [ ] Give the inbox a fixed height so it scrolls inside the page (check on a phone-sized window).
+- [ ] Get `isAdmin` from the team you already load (`team.admins` includes `user.id`).
+
+**Done when:** you can open Huddle, see one conversation per session, click through them, and the
+list scrolls on mobile.
+
+---
+
+## Milestone 4: Scope and Thread By Tabs
+
+**Goal:** the user can switch grouping and team from two tab bars above the inbox.
+
+- [ ] Add two `Tabs` from `@mieweb/ui` (copy the existing Feed/Drafts `Tabs` usage):
+  - [ ] **Thread by:** Session, Day, Person, Ticket.
+  - [ ] **Scope:** one tab per team from `useTeam()`, plus **Me · all teams** (disabled until
+        Milestone 6).
+- [ ] Choosing a team in Scope calls `setSelectedTeamId` so the rest of the app stays in sync.
+- [ ] Save the Thread by choice in `localStorage` (wrap it in `try/catch`) and restore it on load.
+- [ ] Switching Thread by must **not** refetch: it only re-runs the grouping function.
+- [ ] Each tab list has an `aria-label`. All tab text goes through the same pattern the page uses
+      for other labels.
+- [ ] Check it at phone width: tabs wrap or scroll, and nothing overflows the page.
+
+**Done when:** all four groupings work for a team, and the choice survives a reload.
+
+---
+
+## Milestone 5: Send and Edit
+
+**Goal:** people can post and edit from the inbox's message box. There are no comments (see
+**Out of Scope** at the end of this plan).
+
+- [ ] Make the active conversation controlled: keep `activeConversationId` in state and update it
+      in `onConversationOpened`.
+- [ ] Set `readOnly` from the active conversation, so the message box only works where posting
+      makes sense:
+  - [ ] **Session and Person threads:** writable only if the thread is yours.
+  - [ ] **Day and Ticket threads:** writable for everyone (sending creates your own post).
+  - [ ] Other people's Session and Person threads show the component's "Read-only conversation"
+        placeholder.
+- [ ] Handle `onMessageSent(text, { conversation, attachments })` with `huddleApi.createPost`:
+  - [ ] Always send `teamId` and `postDate`.
+  - [ ] **Your Session thread:** add the thread's `clockEventId`.
+  - [ ] **Ticket thread:** add the thread's `ticketId` (not for "No ticket").
+  - [ ] `attachments` arrive as `data:` URLs. Turn each into a `File` and upload it with the same
+        flow `useAttachmentUpload` uses, then pass the results as `attachments`.
+- [ ] Keep `onMessageEdited` → `huddleApi.updatePost` and the `ComposerError` banner. Every
+      message you can edit is one of your posts, so no extra routing is needed.
+- [ ] Show an error if sending fails (reuse `ComposerError` and `composerErrorMessage`).
+- [ ] Add a small pure helper `canPostIn(conversation, threadBy, viewer)` in `superChatFeed.ts`
+      and test it.
+- [ ] Test in two browsers logged in as two users: a new post appears for the other user.
+
+**Done when:** posting, editing and attaching an image all work, other people's session threads
+are read-only, and failures show a message.
+
+> 💡 The inbox's message box has no Pulse or ticket buttons. That's expected (see **Out of Scope**
+> in #601). Don't add a second composer.
+
+---
+
+## Milestone 6: Personal Feed (Me · All Teams)
+
+**Goal:** the **Me** scope shows the user's own posts from every team, with the same Thread by
+options, posting and editing.
+
+- [ ] Backend: add `huddle.getMyPosts({ since })` in `huddle.js`, returning the caller's published
+      posts from all their teams (limit to a date range, e.g. the last 30 days). Return the same
+      fields as `huddle.getPosts`.
+- [ ] Register it in `main.js` with `Wormhole.expose(...)`.
+- [ ] Add `huddleApi.getMyPosts` in `src/lib/api.ts`.
+- [ ] Enable the **Me · all teams** tab. When it's selected, load with `getMyPosts` instead of
+      the team feed.
+- [ ] Show which team each message came from (add `· Platform Team` to the message label; the
+      team name comes from `useTeam().allTeams`).
+- [ ] Sending in the Me scope posts to the thread's team (every post has a `teamId`).
+- [ ] Add a grouping test with posts from two teams.
+
+**Done when:** a user in two teams sees their posts from both, grouped by any option, and can post
+back into either team.
+
+---
+
+## Milestone 7: Live Updates, Deep Link and Search
+
+**Goal:** the inbox stays live and the existing entry points still work.
+
+- [ ] **Live posts:** new and edited posts from DDP appear without a reload (check with two
+      browsers).
+- [ ] **Live sessions:** use `useLiveClockEvents` so a clock-out updates the thread title (drops
+      `● Live`, adds the clock-out message) without a reload.
+- [ ] **Pull-to-refresh / REST fallback:** still works (`useRefresh(refreshFeed)`).
+- [ ] **Deep link:** `/app/huddle?postId=…&teamId=…` switches team (already works), then sets
+      Thread by to Session and opens the conversation containing that post with
+      `activeConversationId`. Test from a notification and from Dashboard → Recent Activity.
+- [ ] **Search:** filters posts **before** grouping, so it works in every Thread by option.
+
+**Done when:** each item above is checked in the browser.
+
+---
+
+## Milestone 8: Remove the Old Modes
+
+**Goal:** only the inbox is left. Drafts stay.
+
+- [ ] Remove the cards/chat toggle button and the `feedView` state.
+- [ ] Remove the card view from `Huddle.tsx`.
+- [ ] **Keep** the Feed / Drafts tabs, `DraftsPanel` and `HuddleComposer` (Drafts uses it).
+- [ ] Remove the `HuddleComposer` that sits above the feed (posting now happens in the inbox).
+- [ ] Existing comments are no longer shown anywhere. **Don't delete comment data or the
+      comment backend methods**; comments may come back once the inbox supports replies.
+- [ ] Move `PostCard/` and `HuddleComments/` to `.attic/` with a short `README` saying why and
+      when (check nothing else imports them first: `grep -r "PostCard\|HuddleComments" src`).
+- [ ] Delete the old `postsToConversation` and any now-unused imports and icons.
+- [ ] `npm run lint && npm run typecheck` pass with no unused-code warnings.
+
+**Done when:** Huddle shows Feed (inbox) and Drafts, nothing else, and nothing is left unused.
+
+---
+
+## Milestone 9: Likes
+
+**Goal:** decide what happens to likes, based on your Milestone 1 notes.
+
+- [ ] **If** the upgraded SuperChat supports reactions: map `post.likes` to a reaction and call
+      `huddleApi.toggleLike` when it's clicked.
+- [ ] **If not:** remove likes from the UI. Leave the stored `likes` data and the backend method
+      alone. Add a comment on #601 saying likes were removed until upstream adds reactions.
+
+**Done when:** one of the two options is done and noted on #601.
+
+---
+
+## Milestone 10: Release Note and Final Checks
+
+- [ ] Add `release-notes/<next version>.md` following `release-notes/README.md` exactly. Cover:
+      Thread by, Scope, the personal feed, posting from the inbox, and that Pulse and ticket
+      buttons aren't in the message box yet. Also say that comments are no longer shown (and
+      likes, if Milestone 9 removed them).
+- [ ] `npm run test:all` passes.
+- [ ] `npm run lint && npm run typecheck` pass.
+- [ ] `npm run format` is clean.
+- [ ] Browser smoke test, as a **member** and as an **admin**:
+  - [ ] Every Scope × Thread by combination loads.
+  - [ ] Post, edit, attach an image. Other people's session threads are read-only.
+  - [ ] Clock in, post, clock out: the thread updates live.
+  - [ ] Deep link from a notification.
+  - [ ] Dark mode and a phone-sized window.
+- [ ] Walk through every acceptance criterion in #601 and tick it on the issue.
+- [ ] Open the final PR with `Closes #601`.
+
+---
+
+## Out of Scope
+
+Don't build these in #601. If you think one is needed, ask on the issue first.
+
+- **Comments.** `SuperChatInbox` has no replies: a thread is one flat list, messages have no
+  parent, and there's no Reply or Delete action. So the inbox doesn't show comments, and you can't
+  comment on someone else's thread (it's read-only). Existing comment data stays in the database.
+- **Drafts changes.** The Drafts tab stays exactly as it is.
+- **Any change to `SuperChatInbox` itself.** See `superchat-inbox-gaps.md`.
+- **Pulse video and ticket picker buttons in the message box.**
+- **Thread by Milestone** and **direct messages.**
+
+---
+
+## When You Get Stuck
+
+- **REST call returns 404:** the method isn't registered with `Wormhole.expose` in `main.js`.
+- **Logins hang on "Please wait…":** the backend crashed but its health check still passes. Check
+  the PM2 logs and restart the Meteor app.
+- **Something you need isn't in `SuperChatInbox`:** don't work around it with custom CSS or a
+  fork. Check `superchat-inbox-gaps.md`, then ask. It's probably out of scope for this issue.
+- **Unsure about a product decision:** ask on #601, so the answer is recorded for everyone.
