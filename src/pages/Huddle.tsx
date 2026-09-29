@@ -172,8 +172,8 @@ export default function Huddle() {
   useEffect(() => {
     if (!targetPostId) return;
     setFeedTab('feed');
-    setFeedView('cards');
-  }, [targetPostId]);
+    setThreadBy('session');
+  }, [targetPostId, setThreadBy]);
 
   // A boolean, not `posts` itself: the array gets a fresh identity on every DDP
   // change event, and depending on it tore down the effect below (cancelling its
@@ -218,10 +218,14 @@ export default function Huddle() {
     return () => clearTimeout(timer);
   }, [highlight]);
 
-  // Live session state for the post headers. The posts publication only fires
-  // on post writes, so a clock-out would never reach the feed on its own —
-  // `clock.liveForTeams` carries every still-open session for the team.
-  const liveTeamIds = useMemo(() => (selectedTeamId ? [selectedTeamId] : []), [selectedTeamId]);
+  // Live session state for the inbox titles and the classic card header. The
+  // posts publication only fires on post writes, so a clock-out would never
+  // reach the feed on its own — `clock.liveForTeams` carries every still-open
+  // session for the team(s) in scope.
+  const liveTeamIds = useMemo(
+    () => (scope === 'me' ? allTeams.map((t) => t.id) : selectedTeamId ? [selectedTeamId] : []),
+    [scope, allTeams, selectedTeamId],
+  );
   const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
   const activeClockEventIds = useMemo(
     () => new Set(liveClockEvents.filter((d) => d.endTime == null).map((d) => d._id)),
@@ -304,6 +308,25 @@ export default function Huddle() {
     [scope, refreshMyPosts, refreshFeed],
   );
   useRefresh(refreshActiveScope);
+
+  // A post's `session.endTime` is a snapshot from when it was last fetched —
+  // clocking out doesn't touch the huddlePosts document, so the change stream
+  // behind the posts subscription never fires for it. `activeClockEventIds`
+  // above is reactive (it drops a session the instant it closes), so refetch
+  // whenever it changes: the inbox's title (● Live, hours, the clock-out
+  // message) picks up the real end time on the next render, no reload needed.
+  // Skipped on mount (an initial empty→populated transition isn't a clock-out).
+  const liveClockEventIdsKey = liveClockEvents
+    .map((d) => `${d._id}:${d.endTime ?? 'open'}`)
+    .join(',');
+  const hasMountedLiveClock = useRef(false);
+  useEffect(() => {
+    if (!hasMountedLiveClock.current) {
+      hasMountedLiveClock.current = true;
+      return;
+    }
+    refreshActiveScope();
+  }, [liveClockEventIdsKey, refreshActiveScope]);
 
   // Subscribe to live DDP publication for huddle posts
   useEffect(() => {
@@ -445,6 +468,19 @@ export default function Huddle() {
   }, [threadBy, selectedTeamId]);
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
   const inboxReadOnly = !activeConversation || !canPostIn(activeConversation, threadBy, viewer);
+
+  // Deep link (see the targetPostId/threadBy effect above): once the post has
+  // loaded and the grouping has switched to session, open the conversation
+  // that contains it.
+  useEffect(() => {
+    if (!targetPostId || !targetPostLoaded) return;
+    if (feedTab !== 'feed' || threadBy !== 'session') return;
+    const match = conversations.find((c) => c.thread.some((m) => m.id === targetPostId));
+    if (!match) return;
+    setActiveConversationId(match.id);
+    setTargetPostId(null);
+    replace('/app/huddle');
+  }, [targetPostId, targetPostLoaded, feedTab, threadBy, conversations, replace]);
 
   // Send from the inbox's message box → huddle.createPost, routed by how the
   // open conversation is grouped (its own clock session, its own ticket, or

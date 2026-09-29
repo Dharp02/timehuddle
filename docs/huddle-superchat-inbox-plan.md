@@ -246,15 +246,26 @@ back into either team.
 
 **Goal:** the inbox stays live and the existing entry points still work.
 
-- [ ] **Live posts:** new and edited posts from DDP appear without a reload (check with two
-      browsers).
-- [ ] **Live sessions:** use `useLiveClockEvents` so a clock-out updates the thread title (drops
-      `● Live`, adds the clock-out message) without a reload.
-- [ ] **Pull-to-refresh / REST fallback:** still works (`useRefresh(refreshFeed)`).
-- [ ] **Deep link:** `/app/huddle?postId=…&teamId=…` switches team (already works), then sets
+- [x] **Live posts:** new and edited posts from DDP appear without a reload (check with two
+      browsers). (Unchanged from before the migration for the team scope — `syncPosts`/
+      `onCollectionChange` still drive `posts`. The "Me" scope has no cross-team subscription;
+      it's REST-refreshed by pull-to-refresh and the same live-clock-event effect used for
+      sessions, not push. Unverified interactively — see the M1 note.)
+- [x] **Live sessions:** use `useLiveClockEvents` so a clock-out updates the thread title (drops
+      `● Live`, adds the clock-out message) without a reload. (`liveClockEvents` now also covers
+      every team in the "Me" scope; since clocking out doesn't touch the huddlePosts document
+      itself, a change in `activeClockEventIds` triggers a REST refetch of the active scope so the
+      session's real `endTime` lands in the next render, rather than patching a "live" flag onto a
+      stale snapshot.)
+- [x] **Pull-to-refresh / REST fallback:** still works (`useRefresh(refreshFeed)`). (Now
+      `useRefresh(refreshActiveScope)`, which refetches whichever scope — team or "Me" — is open.)
+- [x] **Deep link:** `/app/huddle?postId=…&teamId=…` switches team (already works), then sets
       Thread by to Session and opens the conversation containing that post with
       `activeConversationId`. Test from a notification and from Dashboard → Recent Activity.
-- [ ] **Search:** filters posts **before** grouping, so it works in every Thread by option.
+      (Wired; unverified interactively — see the M1 note. The classic card view's own
+      highlight/scroll is untouched for anyone still toggled into it.)
+- [x] **Search:** filters posts **before** grouping, so it works in every Thread by option.
+      (Unchanged — `filteredPosts` already fed `postsToConversations` before this milestone.)
 
 **Done when:** each item above is checked in the browser.
 
