@@ -275,16 +275,28 @@ back into either team.
 
 **Goal:** only the inbox is left. Drafts stay.
 
-- [ ] Remove the cards/chat toggle button and the `feedView` state.
-- [ ] Remove the card view from `Huddle.tsx`.
-- [ ] **Keep** the Feed / Drafts tabs, `DraftsPanel` and `HuddleComposer` (Drafts uses it).
-- [ ] Remove the `HuddleComposer` that sits above the feed (posting now happens in the inbox).
-- [ ] Existing comments are no longer shown anywhere. **Don't delete comment data or the
+- [x] Remove the cards/chat toggle button and the `feedView` state.
+- [x] Remove the card view from `Huddle.tsx`.
+- [x] **Keep** the Feed / Drafts tabs, `DraftsPanel` and `HuddleComposer` (Drafts uses it).
+- [x] Remove the `HuddleComposer` that sits above the feed (posting now happens in the inbox).
+- [x] Existing comments are no longer shown anywhere. **Don't delete comment data or the
       comment backend methods**; comments may come back once the inbox supports replies.
-- [ ] Move `PostCard/` and `HuddleComments/` to `.attic/` with a short `README` saying why and
+- [x] Move `PostCard/` and `HuddleComments/` to `.attic/` with a short `README` saying why and
       when (check nothing else imports them first: `grep -r "PostCard\|HuddleComments" src`).
-- [ ] Delete the old `postsToConversation` and any now-unused imports and icons.
-- [ ] `npm run lint && npm run typecheck` pass with no unused-code warnings.
+- [x] Delete the old `postsToConversation` and any now-unused imports and icons.
+- [x] `npm run lint && npm run typecheck` pass with no unused-code warnings.
+
+> ⚠️ **Follow-up needed:** several Playwright specs assert against the removed card view
+> (`Switch to card view`/`Switch to chat view` buttons, `[data-testid="post-card"]`,
+> `#huddle-post-<id>`): `tests/e2e/huddle/edit-composer-remount.spec.ts`,
+> `tests/e2e/huddle/yjs-collab-editing.spec.ts`, `tests/e2e/realtime/huddle-posts.spec.ts`,
+> `tests/e2e/realtime/huddle-refresh.spec.ts`, `tests/e2e/notifications/deep-links.spec.ts`, the
+> shared `tests/e2e/pages/HuddlePage.ts` page object, and `tests/e2e/huddle/helpers.ts`. They need
+> updating to target `SuperChatInbox` instead (its conversation list/thread panel, not per-post
+> cards). Not done in this milestone: this environment's Playwright run couldn't be confirmed
+> completing end-to-end (its own dev server on :3002 took a long time to bind and the run was
+> inconclusive — see `npm run test` locally), so rewriting six interdependent specs without being
+> able to verify them was judged riskier than leaving this as an explicit, tracked gap.
 
 **Done when:** Huddle shows Feed (inbox) and Drafts, nothing else, and nothing is left unused.
 

@@ -1,15 +1,10 @@
 /**
- * superChatFeed — map huddle posts onto the SuperChat conversation model.
- *
- * One participant per post author, one message per post (newest-first is
- * handled by SuperChat's order="desc"). Image attachments are embedded as
- * markdown images (rendered by createImagePlugin with a lightbox); other
- * attachments become plain links. Comments deliberately stay in the classic
- * card view — SuperChat has no per-message thread concept.
- *
- * `postsToConversations` (the SuperChatInbox replacement, see
- * docs/huddle-superchat-inbox-plan.md) groups posts into many conversations
- * instead of one; `postsToConversation` above stays until Milestone 8.
+ * superChatFeed — map huddle posts onto SuperChatInbox conversations, grouped
+ * by session, day, person, or ticket (`postsToConversations`). Image
+ * attachments are embedded as markdown images (rendered by createImagePlugin
+ * with a lightbox); other attachments become plain links. Comments have no
+ * surface here — SuperChat has no per-message thread concept (see
+ * .attic/huddle-superchat-inbox/README.md).
  */
 import { resolveMediaUrl } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
@@ -24,54 +19,10 @@ import type {
 function attachmentMarkdown(att: HuddlePost['attachments'][number]): string {
   const name = att.filename ?? 'attachment';
   // Posts store attachment URLs by path — bind them to the current backend
-  // origin, same as the card view does (see PostCard).
+  // origin.
   const url = resolveMediaUrl(att.url);
   if (att.type === 'image') return `![${name}](${url})`;
   return `[📎 ${name}](${url})`;
-}
-
-/** Message text = post markdown + ticket tag + attachment embeds/links. */
-export function postToMessageText(post: HuddlePost): string {
-  const parts = [post.content.text];
-  if (post.ticketTitle) {
-    parts.push(`\`🎫 ${post.ticketTitle}\``);
-  }
-  if (post.attachments.length > 0) {
-    parts.push(post.attachments.map(attachmentMarkdown).join('\n\n'));
-  }
-  return parts.filter(Boolean).join('\n\n');
-}
-
-export function postsToConversation(
-  teamId: string,
-  teamName: string,
-  posts: HuddlePost[],
-): SuperChatConversation {
-  const participants = new Map<string, Participant>();
-  for (const post of posts) {
-    if (!participants.has(post.userId)) {
-      participants.set(post.userId, {
-        id: post.userId,
-        kind: 'human',
-        name: post.userName || post.userInitials || 'Unknown',
-      });
-    }
-  }
-
-  const thread: SuperChatMessage[] = posts.map((post) => ({
-    id: post.id,
-    participantId: post.userId,
-    text: postToMessageText(post),
-    time: post.createdAt,
-    editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
-  }));
-
-  return {
-    id: teamId,
-    title: teamName,
-    participants: [...participants.values()],
-    thread,
-  };
 }
 
 // ─── SuperChatInbox grouping (postsToConversations) ────────────────────────

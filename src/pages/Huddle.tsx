@@ -1,9 +1,4 @@
-import {
-  faBell,
-  faComments,
-  faMagnifyingGlass,
-  faTableList,
-} from '@fortawesome/free-solid-svg-icons';
+import { faBell, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Input, Tabs, TabsList, TabsTrigger } from '@mieweb/ui';
 import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
@@ -14,9 +9,7 @@ import {
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
-import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { DraftsPanel } from '../features/huddle/DraftsPanel';
-import { PostCard } from '../features/huddle/PostCard';
 import { fileFromDataUrl, toPostAttachment, uploadMedia } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
@@ -27,7 +20,6 @@ import {
   postsToConversations,
   type ThreadBy,
 } from '../features/huddle/superChatFeed';
-import type { ComposerContent } from '../features/huddle/types';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
@@ -70,10 +62,6 @@ export default function Huddle() {
   const [searchQuery, setSearchQuery] = useState('');
   // Top-level tab: the team feed or the user's private drafts.
   const [feedTab, setFeedTab] = useState<'feed' | 'drafts'>('feed');
-  // Feed view: the SuperChatInbox thread (default) or the classic card view —
-  // the card view keeps per-post comments/likes, which SuperChat has no
-  // per-message-thread concept for (deliberately not force-fit).
-  const [feedView, setFeedView] = useState<'chat' | 'cards'>('chat');
   // How the inbox groups posts into conversations. Persisted so a reload
   // keeps the reader's choice; switching it only re-runs the grouping
   // function below, it never refetches.
@@ -114,10 +102,10 @@ export default function Huddle() {
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
   // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
-  // notification) — switch to the post's team, then scroll to and briefly
-  // highlight it once loaded, then strip the query params.
-  // Re-derived from `search` (not just mount) so tapping a second notification
-  // while already on this page is honored.
+  // notification) — switch to the post's team, set Thread by to session, and
+  // open the conversation containing it once loaded, then strip the query
+  // params. Re-derived from `search` (not just mount) so tapping a second
+  // notification while already on this page is honored.
   const [targetPostId, setTargetPostId] = useState<string | null>(() =>
     new URLSearchParams(search).get('postId'),
   );
@@ -163,12 +151,6 @@ export default function Huddle() {
     setSelectedOrgId,
   ]);
 
-  // Carries a nonce, not just the id: re-tapping the same notification while
-  // its highlight is still up would otherwise be a no-op state write, and
-  // neither the scroll nor the expiry effect below would re-run.
-  const [highlight, setHighlight] = useState<{ postId: string; nonce: number } | null>(null);
-  const highlightedPostId = highlight?.postId ?? null;
-
   useEffect(() => {
     if (!targetPostId) return;
     setFeedTab('feed');
@@ -180,44 +162,6 @@ export default function Huddle() {
   // rAF) faster than a frame could elapse, so the scroll never ran.
   const targetPostLoaded = targetPostId !== null && posts.some((p) => p.id === targetPostId);
 
-  useEffect(() => {
-    if (!targetPostId || !targetPostLoaded) return;
-    if (feedTab !== 'feed' || feedView !== 'cards') return;
-
-    setHighlight((prev) => ({ postId: targetPostId, nonce: (prev?.nonce ?? 0) + 1 }));
-    setTargetPostId(null);
-    replace('/app/huddle');
-  }, [targetPostId, targetPostLoaded, feedTab, feedView, replace]);
-
-  // Scrolling hangs off the highlight rather than the target: clearing
-  // `targetPostId` above re-runs that effect, and its cleanup would cancel the
-  // pending animation frame before the card had a chance to mount.
-  useEffect(() => {
-    if (!highlight) return;
-    const { postId } = highlight;
-    let frame = 0;
-    let attempts = 0;
-    const tryScroll = () => {
-      const el = document.getElementById(`huddle-post-${postId}`);
-      if (!el) {
-        if (attempts++ < 60) frame = requestAnimationFrame(tryScroll);
-        return;
-      }
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    };
-    frame = requestAnimationFrame(tryScroll);
-    return () => cancelAnimationFrame(frame);
-  }, [highlight]);
-
-  // Long enough to survive a scroll animation and catch the eye. Deliberately
-  // not dismissed on tap — the tap that opened the notification arrives here as
-  // a ghost event and was killing the highlight instantly on touch devices.
-  useEffect(() => {
-    if (!highlight) return;
-    const timer = setTimeout(() => setHighlight(null), 6000);
-    return () => clearTimeout(timer);
-  }, [highlight]);
-
   // Live session state for the inbox titles and the classic card header. The
   // posts publication only fires on post writes, so a clock-out would never
   // reach the feed on its own — `clock.liveForTeams` carries every still-open
@@ -227,10 +171,6 @@ export default function Huddle() {
     [scope, allTeams, selectedTeamId],
   );
   const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
-  const activeClockEventIds = useMemo(
-    () => new Set(liveClockEvents.filter((d) => d.endTime == null).map((d) => d._id)),
-    [liveClockEvents],
-  );
 
   // Load team data for permission checks
   useEffect(() => {
@@ -258,7 +198,8 @@ export default function Huddle() {
   const restPostsRef = useRef<Map<string, HuddlePost>>(new Map());
 
   // Build the feed from the DDP cache plus any pending overlay posts. Lifted to
-  // component scope so addPost can trigger an immediate re-sync after posting.
+  // component scope so handleInboxMessageSent and pull-to-refresh can trigger
+  // an immediate re-sync.
   const syncPosts = useCallback(() => {
     if (!selectedTeamId) return;
     const ddp = getDdpClient();
@@ -311,8 +252,8 @@ export default function Huddle() {
 
   // A post's `session.endTime` is a snapshot from when it was last fetched —
   // clocking out doesn't touch the huddlePosts document, so the change stream
-  // behind the posts subscription never fires for it. `activeClockEventIds`
-  // above is reactive (it drops a session the instant it closes), so refetch
+  // behind the posts subscription never fires for it. The live clock event
+  // list above is reactive (it drops a session the instant it closes), so refetch
   // whenever it changes: the inbox's title (● Live, hours, the clock-out
   // message) picks up the real end time on the next render, no reload needed.
   // Skipped on mount (an initial empty→populated transition isn't a clock-out).
@@ -362,61 +303,6 @@ export default function Huddle() {
       restPostsRef.current.clear();
     };
   }, [selectedTeamId, syncPosts, refreshFeed]);
-
-  async function addPost(content: ComposerContent) {
-    // Thrown, not alerted: HuddleComposer catches it and shows the reason in
-    // its own `role="alert"` region, keeping the draft and the caret intact.
-    if (!user || !selectedTeamId) {
-      throw new Error('Select a team before posting.');
-    }
-
-    const mentionUserIds = (content.mentions || []).map((m) => m.userId);
-    const attachments = content.attachments.map(toPostAttachment);
-
-    const { id } = await huddleApi.createPost({
-      teamId: selectedTeamId,
-      content: { text: content.text, mentions: mentionUserIds },
-      ticketId: content.ticketId,
-      attachments,
-      postDate: toDateString(new Date()),
-    });
-
-    // Show the new post without waiting on the live DDP socket, which may be
-    // down (dropped while the app was backgrounded for a Pulse recording):
-    // refreshFeed refetches over REST and overlays the result, and syncPosts
-    // drops the overlay once the subscription catches up.
-    //
-    // The retry condition is "not in the feed by *either* route". Waiting on
-    // the DDP cache specifically would stall the full backoff on every post
-    // whenever the socket is down — which is the exact case the REST overlay
-    // exists to cover, and where the post is already on screen after the first
-    // refresh.
-    const ddp = getDdpClient();
-    const inFeed = () =>
-      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
-
-    for (let attempt = 0; attempt < 4; attempt++) {
-      if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
-      await refreshFeed();
-      if (inFeed()) return;
-    }
-  }
-
-  // Determine permissions for each post
-  function canEditPost(post: HuddlePost): boolean {
-    if (!user || !team) return false;
-    const isAuthor = post.userId === user.id;
-    const isTeamAdmin = team.admins.includes(user.id);
-    const isOrgOwner =
-      user.organizationMembership?.role === 'owner' &&
-      user.organizationMembership?.organizationId === team.orgId;
-    return isAuthor || isTeamAdmin || isOrgOwner;
-  }
-
-  function canDeletePost(post: HuddlePost): boolean {
-    // Same permissions as edit
-    return canEditPost(post);
-  }
 
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
@@ -559,28 +445,15 @@ export default function Huddle() {
           </Tabs>
           <div className="ml-auto flex items-center gap-2">
             {feedTab === 'feed' && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setFeedView(feedView === 'chat' ? 'cards' : 'chat')}
-                  aria-label={feedView === 'chat' ? 'Switch to card view' : 'Switch to chat view'}
-                  title={
-                    feedView === 'chat' ? 'Card view (comments & likes)' : 'Chat view (rich thread)'
-                  }
-                >
-                  <FontAwesomeIcon icon={feedView === 'chat' ? faTableList : faComments} />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowSearch(!showSearch)}
-                  aria-label="Search posts"
-                  title="Search posts"
-                >
-                  <FontAwesomeIcon icon={faMagnifyingGlass} />
-                </Button>
-              </>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowSearch(!showSearch)}
+                aria-label="Search posts"
+                title="Search posts"
+              >
+                <FontAwesomeIcon icon={faMagnifyingGlass} />
+              </Button>
             )}
             <Button
               variant="ghost"
@@ -610,7 +483,7 @@ export default function Huddle() {
             Thread by only re-runs postsToConversations above — it never
             refetches. Scope keeps the rest of the app in sync by calling the
             same setSelectedTeamId the header team switcher uses. */}
-        {feedTab === 'feed' && feedView === 'chat' && (
+        {feedTab === 'feed' && (
           <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2 px-4 md:px-0">
             <Tabs
               variant="pills"
@@ -660,25 +533,6 @@ export default function Huddle() {
           </div>
         )}
 
-        {/* Composer stays put while the feed below it scrolls.
-            On a short viewport the expanded composer is taller than the space
-            between the header and the fixed bottom nav, so it must be able to
-            shrink and scroll its own overflow — otherwise its lower half (the
-            attach buttons, Cancel and Post) is clipped under the nav and
-            unreachable. min-h-0 is what lets a flex child shrink below its
-            content height. It only makes sense for one team at a time, so it
-            hides in the "Me · all teams" scope (send from the inbox there). */}
-        {selectedTeamId && scope === 'team' && feedTab === 'feed' && (
-          <div className="huddle-composer min-h-0 max-h-[70vh] overflow-y-auto overscroll-contain">
-            <HuddleComposer
-              key={selectedTeamId}
-              onPost={addPost}
-              userInitials={user ? getUserInitials(user.name) : 'U'}
-              userColor={user ? getUserColor(user.id) : 'indigo'}
-            />
-          </div>
-        )}
-
         {/* Feed */}
         {feedTab === 'feed' && (
           <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
@@ -718,15 +572,14 @@ export default function Huddle() {
                     </div>
                   )}
 
-                {/* Chat view — SuperChatInbox, grouped by the selected
-                  Thread by option. Writable only where posting makes sense
-                  (see canPostIn): the composer is read-only everywhere else,
-                  and the component shows its own read-only placeholder. */}
+                {/* SuperChatInbox, grouped by the selected Thread by option.
+                  Writable only where posting makes sense (see canPostIn):
+                  the composer is read-only everywhere else, and the
+                  component shows its own read-only placeholder. */}
                 {!(scope === 'me' ? myPostsLoading : loading) &&
                   !(scope === 'me' ? myPostsError : error) &&
                   user &&
-                  activePosts.length > 0 &&
-                  feedView === 'chat' && (
+                  activePosts.length > 0 && (
                     <SuperChatInbox
                       conversations={conversations}
                       activeConversationId={activeConversationId}
@@ -744,25 +597,6 @@ export default function Huddle() {
                       className="h-full"
                     />
                   )}
-
-                {/* Classic card view — keeps per-post comments and likes */}
-                {!loading &&
-                  !error &&
-                  user &&
-                  feedView === 'cards' &&
-                  filteredPosts.map((post) => (
-                    <PostCard
-                      key={post.id}
-                      post={post}
-                      currentUserId={user?.id ?? ''}
-                      canEdit={canEditPost(post)}
-                      canDelete={canDeletePost(post)}
-                      highlighted={post.id === highlightedPostId}
-                      sessionActive={
-                        !!post.clockEventId && activeClockEventIds.has(post.clockEventId)
-                      }
-                    />
-                  ))}
               </>
             )}
           </div>
