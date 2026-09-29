@@ -474,9 +474,9 @@ export default function Huddle() {
 
   return (
     <AppPage fill flush>
-      <div className="huddle flex h-full min-h-0 flex-col gap-4 md:mx-auto md:w-full md:max-w-4xl md:px-6 md:pb-6">
+      <div className="huddle flex h-full min-h-0 flex-col gap-4 px-4 pb-4 md:px-6 md:pb-6">
         {/* Feed / Drafts tabs + actions */}
-        <div className="huddle-actions flex shrink-0 items-center gap-2 px-4 md:px-0">
+        <div className="huddle-actions flex shrink-0 items-center gap-2">
           <Tabs
             variant="pills"
             value={feedTab}
@@ -518,7 +518,7 @@ export default function Huddle() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search posts…"
-            className="shrink-0 mx-4 md:mx-0"
+            className="shrink-0"
             autoFocus
           />
         )}
@@ -528,7 +528,7 @@ export default function Huddle() {
             refetches. Scope keeps the rest of the app in sync by calling the
             same setSelectedTeamId the header team switcher uses. */}
         {feedTab === 'feed' && (
-          <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2 px-4 md:px-0">
+          <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2">
             <Tabs
               variant="pills"
               value={threadBy}
@@ -568,7 +568,7 @@ export default function Huddle() {
 
         {/* Drafts tab — private, multiple drafts */}
         {selectedTeamId && feedTab === 'drafts' && user && (
-          <div className="px-4 md:px-0">
+          <div>
             <DraftsPanel
               teamId={selectedTeamId}
               userInitials={getUserInitials(user.name)}

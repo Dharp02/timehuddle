@@ -360,9 +360,12 @@ const AppLayoutContent: React.FC = () => {
         : (route?.title ?? 'App');
   useClockDocumentTitle(documentTitle);
 
-  // Rendered in the body by <PageTitle />. Null on profile and ticket detail:
-  // both already lead with a more specific heading of their own.
-  const pageTitle = route?.title ?? null;
+  // Rendered in the body by <PageTitle />. Null on profile and ticket detail
+  // (both already lead with a more specific heading of their own) and on
+  // Huddle (the sidebar nav already reads "Huddle" for the active route; a
+  // second plain-text title above the inbox is redundant and costs it a row
+  // of the height it wants for the feed).
+  const pageTitle = pathname === '/app/huddle' ? null : (route?.title ?? null);
 
   const isTicketsRoute =
     !profileUserId && !profileUsername && !ticketDetailId && pathname === '/app/tickets';
