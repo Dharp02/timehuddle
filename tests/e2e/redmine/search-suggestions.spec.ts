@@ -279,11 +279,13 @@ test.describe('Redmine suggestion timers', () => {
       bodies.push(route.request().postDataJSON());
       await route.fulfill(json({ entry: { id: 'e2e-entry' }, session: { id: 'e2e-session' } }));
     });
-    // My Board, so "added" versus "already there" is deterministic.
+    // My Board, so "added" versus "already there" is deterministic. It keeps what
+    // is added, like the server: the page reloads the board after a start.
+    const board = [...onBoard];
     await page.route('**/api/myBoard_list', (route) =>
       route.fulfill(
         json({
-          entries: onBoard.map((ticketId) => ({
+          entries: board.map((ticketId) => ({
             sourceId: 'redmine',
             ticketId,
             addedAt: '2026-09-01T00:00:00.000Z',
@@ -292,7 +294,9 @@ test.describe('Redmine suggestion timers', () => {
       ),
     );
     await page.route('**/api/myBoard_addMany', async (route) => {
-      boardAdds.push(route.request().postDataJSON());
+      const body = route.request().postDataJSON();
+      boardAdds.push(body);
+      for (const ref of body.refs ?? []) board.push(String(ref.ticketId));
       await route.fulfill(json({ addedCount: 1 }));
     });
     return { bodies, boardAdds };
