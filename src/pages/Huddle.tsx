@@ -1,6 +1,11 @@
-import { faBell, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
+import {
+  faBell,
+  faCheck,
+  faChevronDown,
+  faMagnifyingGlass,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Input, Tabs, TabsList, TabsTrigger } from '@mieweb/ui';
+import { Button, Dropdown, DropdownItem, Input, Tabs, TabsList, TabsTrigger } from '@mieweb/ui';
 import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
 import type { ComposerAttachment, SuperChatConversation } from '@mieweb/ui/components/SuperChat';
 import {
@@ -489,6 +494,30 @@ export default function Huddle() {
           </Tabs>
           <div className="ml-auto flex items-center gap-2">
             {feedTab === 'feed' && (
+              <Dropdown
+                trigger={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Group by: ${THREAD_BY_LABELS[threadBy]}`}
+                  >
+                    {THREAD_BY_LABELS[threadBy]}
+                    <FontAwesomeIcon icon={faChevronDown} className="ms-1.5 text-xs" />
+                  </Button>
+                }
+              >
+                {THREAD_BY_OPTIONS.map((option) => (
+                  <DropdownItem
+                    key={option}
+                    icon={option === threadBy ? <FontAwesomeIcon icon={faCheck} /> : undefined}
+                    onClick={() => setThreadBy(option)}
+                  >
+                    {THREAD_BY_LABELS[option]}
+                  </DropdownItem>
+                ))}
+              </Dropdown>
+            )}
+            {feedTab === 'feed' && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -523,25 +552,13 @@ export default function Huddle() {
           />
         )}
 
-        {/* Thread by (grouping) + Scope (team) tabs for the inbox. Switching
-            Thread by only re-runs postsToConversations above — it never
-            refetches. Scope keeps the rest of the app in sync by calling the
-            same setSelectedTeamId the header team switcher uses. */}
+        {/* Scope (team) tabs for the inbox. Scope keeps the rest of the app
+            in sync by calling the same setSelectedTeamId the header team
+            switcher uses. Thread by (grouping) moved to the Group by dropdown
+            above, beside search — switching it only re-runs
+            postsToConversations, it never refetches. */}
         {feedTab === 'feed' && (
           <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2">
-            <Tabs
-              variant="pills"
-              value={threadBy}
-              onValueChange={(v) => setThreadBy(v as ThreadBy)}
-            >
-              <TabsList aria-label="Thread by" className="flex-wrap">
-                {THREAD_BY_OPTIONS.map((option) => (
-                  <TabsTrigger key={option} value={option}>
-                    {THREAD_BY_LABELS[option]}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
             <Tabs
               variant="pills"
               value={scope === 'me' ? 'me' : (selectedTeamId ?? '')}
