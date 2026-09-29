@@ -2,10 +2,16 @@
  * Pure builders for a ticket page's Activity timeline.
  *
  * Each detail page gathers different kinds of history — Huddle's activity log,
- * the viewer's own timer sessions, Redmine's journals — and maps each into one
- * `ActivityEntry` shape so `TicketActivityCard` renders them as one timeline.
+ * the viewer's own timer sessions, Redmine's journals and time entries — and
+ * maps each into one `ActivityEntry` shape so `TicketActivityCard` renders them
+ * as one timeline.
  */
-import type { ActivityLogItem, RedmineJournal, TicketSession } from '../../../lib/api';
+import type {
+  ActivityLogItem,
+  RedmineJournal,
+  RedmineTimeEntry,
+  TicketSession,
+} from '../../../lib/api';
 import { formatDuration, formatTime } from '../../../lib/timeUtils';
 
 export interface ActivityEntry {
@@ -18,7 +24,9 @@ export interface ActivityEntry {
   text: string;
   /** Secondary line: a session's clock times, or a comment's body. */
   detail?: string;
-  kind: 'event' | 'session' | 'comment';
+  kind: 'event' | 'session' | 'comment' | 'time';
+  /** The viewer did this, for a "My activity" filter. */
+  mine?: boolean;
 }
 
 function huddleEventLabel(event: ActivityLogItem): string {
@@ -68,6 +76,7 @@ export function fromSessions(sessions: TicketSession[], actorName: string): Acti
         ? `Since ${formatTime(start)}`
         : `${formatTime(start)} – ${formatTime(new Date(session.endTime as number))}`,
       kind: 'session',
+      mine: true,
     };
   });
 }
@@ -80,8 +89,14 @@ function describeChange({ field, from, to }: RedmineJournal['changes'][number]):
   return field;
 }
 
-/** An issue's Redmine history: field changes, comments, or both in one entry. */
-export function fromJournals(journals: RedmineJournal[]): ActivityEntry[] {
+/**
+ * An issue's Redmine history: field changes, comments, or both in one entry.
+ * `me` is the viewer's Redmine user id, which marks their own entries.
+ */
+export function fromJournals(
+  journals: RedmineJournal[],
+  me: number | null = null,
+): ActivityEntry[] {
   return journals
     .filter((journal) => journal.createdAt)
     .map((journal) => {
@@ -95,6 +110,43 @@ export function fromJournals(journals: RedmineJournal[]): ActivityEntry[] {
         text: changed || 'commented',
         detail: journal.notes || undefined,
         kind: changed ? 'event' : 'comment',
+        mine: me != null && journal.user?.id === me,
+      };
+    });
+}
+
+/** "Sep 28" for a `YYYY-MM-DD` day, read as a local date (no timezone shift). */
+function formatDay(day: string): string {
+  const [year, month, date] = day.split('-').map(Number);
+  return new Date(year, month - 1, date).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+/**
+ * Time logged on the issue in Redmine: "logged 1h 30m in Redmine", with the
+ * activity and the day it was for, then the comment. Placed on the timeline
+ * when it was logged (the day it was for when Redmine gives no time).
+ */
+export function fromRedmineTimeEntries(
+  entries: RedmineTimeEntry[],
+  me: number | null = null,
+): ActivityEntry[] {
+  return entries
+    .filter((entry) => entry.createdAt || entry.spentOn)
+    .map((entry) => {
+      const about = [entry.activity?.name, entry.spentOn && `for ${formatDay(entry.spentOn)}`]
+        .filter(Boolean)
+        .join(', ');
+      return {
+        id: `time:${entry.id}`,
+        at: entry.createdAt ?? new Date(`${entry.spentOn}T12:00:00`).toISOString(),
+        actorName: entry.user?.name ?? 'Someone',
+        text: `logged ${formatDuration(Math.round(entry.hours * 3600))} in Redmine`,
+        detail: [about, entry.comments].filter(Boolean).join(' — ') || undefined,
+        kind: 'time',
+        mine: me != null && entry.user?.id === me,
       };
     });
 }

@@ -87,6 +87,8 @@ export interface RedmineOutcomeShape {
   hours?: number;
   ok: boolean;
   reason?: string;
+  /** Redmine's own messages on a `rejected-by-redmine`. */
+  detail?: string[];
   entryId?: number;
   storedHours?: number;
 }

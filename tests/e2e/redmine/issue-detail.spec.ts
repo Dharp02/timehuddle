@@ -106,6 +106,53 @@ test.describe('Redmine issue detail', () => {
     await expect(activity).toContainText('Reproduced on staging.');
   });
 
+  test('shows time logged in Redmine, and filters to your own activity', async ({ page }) => {
+    await openIssue(page, {
+      'issues.get': {
+        ...detailResponse(),
+        me: 8,
+        timeEntries: [
+          {
+            id: 900,
+            user: { id: 3, name: 'Priya Patel' },
+            hours: 1.5,
+            activity: { id: 9, name: 'Development' },
+            comments: 'Paired on the fix',
+            spentOn: '2026-02-02',
+            createdAt: '2026-02-02T16:20:00.000Z',
+          },
+          {
+            id: 901,
+            user: { id: 8, name: 'Test User' },
+            hours: 0.25,
+            activity: { id: 9, name: 'Development' },
+            comments: '',
+            spentOn: '2026-02-03',
+            createdAt: '2026-02-03T10:00:00.000Z',
+          },
+        ],
+      },
+    });
+
+    const activity = page.getByRole('list', { name: 'Ticket activity' });
+    await expect(activity).toContainText('logged 1h 30m in Redmine');
+    await expect(activity).toContainText('Paired on the fix');
+    await expect(activity).toContainText('logged 15m in Redmine');
+    await expect(activity).toContainText('Reproduced on staging.');
+
+    await page.getByRole('button', { name: 'My activity' }).click();
+    await expect(page.getByRole('button', { name: 'My activity' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(activity).toContainText('logged 15m in Redmine');
+    await expect(activity).not.toContainText('Paired on the fix');
+    await expect(activity).not.toContainText('Reproduced on staging.');
+
+    await page.getByRole('button', { name: 'All' }).click();
+    await expect(activity).toContainText('Paired on the fix');
+  });
+
   test('Back to tickets returns to the table', async ({ page }) => {
     await openIssue(page, { 'issues.get': detailResponse() });
 

@@ -1169,6 +1169,19 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: {} },
   });
 
+  Wormhole.expose('redmine.timeEntries.discard', {
+    description:
+      "Never send one ticket-day's unsent time to Redmine. Writes nothing to Redmine; the time stays in TimeHuddle.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string', description: 'Redmine issue id' },
+        date: { type: 'string', description: 'The day, YYYY-MM-DD' },
+      },
+      required: ['ticketId', 'date'],
+    },
+  });
+
   Wormhole.expose('redmine.timeEntries.push', {
     description:
       'Create one Redmine time entry per confirmed ticket-day. Irreversible: entries cannot be edited or deleted afterwards.',

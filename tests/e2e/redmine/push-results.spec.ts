@@ -226,4 +226,80 @@ test.describe('Redmine push results', () => {
     await expect(page.getByRole('heading', { name: 'Send work entries to Redmine' })).toBeVisible();
     await expect(entriesTable(page)).not.toContainText('Could not reach Redmine');
   });
+
+  test("a rejection shows Redmine's own reason", async ({ page }) => {
+    await openClock(page, {
+      'timeEntries.preview': preview({ rows: [previewRow({ ticketId: '15' })] }),
+      'timeEntries.push': () =>
+        pushResult(
+          pushOutcome({
+            ticketId: '15',
+            ok: false,
+            reason: 'rejected-by-redmine',
+            detail: ['Activity is not included in the list'],
+          }),
+        ),
+    });
+
+    await sendAll(page);
+
+    await expect(rowFor(page, '15')).toContainText(
+      'Redmine: Activity is not included in the list',
+      { timeout: 15000 },
+    );
+  });
+
+  test('"Issue is invalid" is explained, not echoed', async ({ page }) => {
+    await openClock(page, {
+      'timeEntries.preview': preview({ rows: [previewRow({ ticketId: '15' })] }),
+      'timeEntries.push': () =>
+        pushResult(
+          pushOutcome({
+            ticketId: '15',
+            ok: false,
+            reason: 'rejected-by-redmine',
+            detail: ['Issue is invalid'],
+          }),
+        ),
+    });
+
+    await sendAll(page);
+
+    await expect(rowFor(page, '15')).toContainText('time tracking switched off', {
+      timeout: 15000,
+    });
+    await expect(rowFor(page, '15')).not.toContainText('Issue is invalid');
+  });
+
+  test('"Never send" discards a row after confirming, and it stops being offered', async ({
+    page,
+  }) => {
+    let discarded = false;
+    const rm = await openClock(page, {
+      'timeEntries.preview': () =>
+        preview({
+          rows: discarded ? [previewRow({ ticketId: '23' })] : TWO_ROWS,
+        }),
+      'timeEntries.discard': () => {
+        discarded = true;
+        return { discardedSeconds: 1500 };
+      },
+    });
+
+    await sendButton(page).click();
+    const row = rowFor(page, '15');
+    await row.getByRole('button', { name: /Never send #15/ }).click();
+
+    // Nothing happens until it is confirmed; "Keep it" backs out.
+    await page.getByRole('button', { name: 'Keep it' }).click();
+    expect(rm.callCount('timeEntries.discard')).toBe(0);
+    await expect(row).toBeVisible();
+
+    await row.getByRole('button', { name: /Never send #15/ }).click();
+    await page.getByRole('button', { name: 'Never send', exact: true }).click();
+
+    await expect(rowFor(page, '15')).toHaveCount(0);
+    await expect(rowFor(page, '23')).toBeVisible();
+    expect(rm.calls('timeEntries.discard')[0]).toMatchObject({ ticketId: '15' });
+  });
 });
