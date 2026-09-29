@@ -7,6 +7,7 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Input, Tabs, TabsList, TabsTrigger } from '@mieweb/ui';
 import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
+import type { ComposerAttachment, SuperChatConversation } from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
   createImagePlugin,
@@ -16,10 +17,16 @@ import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { DraftsPanel } from '../features/huddle/DraftsPanel';
 import { PostCard } from '../features/huddle/PostCard';
-import { toPostAttachment } from '../features/huddle/api';
+import { fileFromDataUrl, toPostAttachment, uploadMedia } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
+import { composerErrorMessage } from '../features/huddle/composerErrors';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
-import { postsToConversations, type ThreadBy } from '../features/huddle/superChatFeed';
+import {
+  canPostIn,
+  conversationGroupKey,
+  postsToConversations,
+  type ThreadBy,
+} from '../features/huddle/superChatFeed';
 import type { ComposerContent } from '../features/huddle/types';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
@@ -55,7 +62,7 @@ export default function Huddle() {
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // A failed inline edit from the feed. Separate from `error` above, which is
+  // A failed inbox send or inline edit. Separate from `error` above, which is
   // a feed-load failure and takes the feed's place on screen.
   const [editError, setEditError] = useState<string | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
@@ -391,6 +398,69 @@ export default function Huddle() {
     [],
   );
 
+  // The conversation the inbox has open (controlled — see onConversationOpened
+  // below). Resetting it when the grouping/scope changes avoids pointing at an
+  // id from the previous Thread by option, which would just show nothing open.
+  const [activeConversationId, setActiveConversationId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    setActiveConversationId(undefined);
+  }, [threadBy, selectedTeamId]);
+  const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  const inboxReadOnly = !activeConversation || !canPostIn(activeConversation, threadBy, viewer);
+
+  // Send from the inbox's message box → huddle.createPost, routed by how the
+  // open conversation is grouped (its own clock session, its own ticket, or
+  // just the calendar day it represents).
+  async function handleInboxMessageSent(
+    text: string,
+    meta: {
+      conversation: SuperChatConversation;
+      mentions: string[];
+      attachments: ComposerAttachment[];
+    },
+  ) {
+    if (!user || !selectedTeamId) throw new Error('Select a team before posting.');
+    setEditError(null);
+    try {
+      const key = conversationGroupKey(meta.conversation.id);
+      const postDate = threadBy === 'day' ? key : toDateString(new Date());
+      const attachments = await Promise.all(
+        meta.attachments.map(async (att) =>
+          toPostAttachment(
+            await uploadMedia(await fileFromDataUrl(att.name, att.type, att.dataUrl)),
+          ),
+        ),
+      );
+      await huddleApi.createPost({
+        teamId: selectedTeamId,
+        content: { text, mentions: meta.mentions },
+        postDate,
+        attachments,
+        ...(threadBy === 'session' && !key.startsWith('nosession:') ? { clockEventId: key } : {}),
+        ...(threadBy === 'ticket' && key !== 'none' ? { ticketId: key } : {}),
+      });
+      await refreshFeed();
+    } catch (err) {
+      console.error('[Huddle] Failed to send message:', err);
+      setEditError(composerErrorMessage(err, 'Failed to send. Please try again.'));
+      // Rejecting restores the typed text into the composer (SuperChatInbox's
+      // onMessageSent contract).
+      throw err;
+    }
+  }
+
+  // Inline edit from the feed (self-authored messages only) → huddle.updatePost
+  async function handleMessageEdited(messageId: string, text: string) {
+    const post = posts.find((p) => p.id === messageId);
+    if (!post) return;
+    try {
+      await huddleApi.updatePost(messageId, { text, mentions: post.content.mentions });
+    } catch (err) {
+      console.error('[Huddle] Failed to save edit:', err);
+      setEditError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
+    }
+  }
+
   return (
     <AppPage fill flush>
       <div className="huddle flex h-full min-h-0 flex-col gap-4 md:mx-auto md:w-full md:max-w-4xl md:px-6 md:pb-6">
@@ -557,16 +627,23 @@ export default function Huddle() {
                   </div>
                 )}
 
-                {/* Chat view — SuperChatInbox, one conversation per clock
-                  session for now (Thread by/Scope tabs land in Milestone 4;
-                  posting from the inbox lands in Milestone 5). */}
+                {/* Chat view — SuperChatInbox, grouped by the selected
+                  Thread by option. Writable only where posting makes sense
+                  (see canPostIn): the composer is read-only everywhere else,
+                  and the component shows its own read-only placeholder. */}
                 {!loading && !error && user && posts.length > 0 && feedView === 'chat' && (
                   <SuperChatInbox
                     conversations={conversations}
+                    activeConversationId={activeConversationId}
+                    onConversationOpened={(conversation) =>
+                      setActiveConversationId(conversation.id)
+                    }
                     currentParticipantId={user.id}
-                    readOnly
+                    readOnly={inboxReadOnly}
                     virtualized
                     renderPlugins={renderPlugins}
+                    onMessageSent={(text, meta) => handleInboxMessageSent(text, meta)}
+                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
                     className="h-full"
                   />
                 )}

@@ -307,3 +307,30 @@ export function postsToConversations(
 
   return conversations;
 }
+
+/** The raw group key encoded after the `${threadBy}:` prefix in a conversation
+ *  id built by {@link postsToConversations} (e.g. a clockEventId, a ticketId,
+ *  a "YYYY-MM-DD" day, or the `nosession:<userId>:<day>` fallback key). */
+export function conversationGroupKey(conversationId: string): string {
+  return conversationId.slice(conversationId.indexOf(':') + 1);
+}
+
+/**
+ * Whether the viewer can post into a conversation, given how the inbox is
+ * currently grouped:
+ * - Day and ticket threads are writable by everyone (sending creates the
+ *   viewer's own post).
+ * - Session and person threads are single-author by construction — writable
+ *   only by that author.
+ */
+export function canPostIn(
+  conversation: SuperChatConversation,
+  threadBy: ThreadBy,
+  viewer: InboxViewer,
+): boolean {
+  if (threadBy === 'day' || threadBy === 'ticket') return true;
+  const humanParticipantIds = conversation.participants
+    .filter((p) => p.kind === 'human')
+    .map((p) => p.id);
+  return humanParticipantIds.length > 0 && humanParticipantIds.every((id) => id === viewer.userId);
+}

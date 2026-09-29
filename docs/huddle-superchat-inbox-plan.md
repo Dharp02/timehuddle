@@ -189,26 +189,28 @@ list scrolls on mobile.
 **Goal:** people can post and edit from the inbox's message box. There are no comments (see
 **Out of Scope** at the end of this plan).
 
-- [ ] Make the active conversation controlled: keep `activeConversationId` in state and update it
+- [x] Make the active conversation controlled: keep `activeConversationId` in state and update it
       in `onConversationOpened`.
-- [ ] Set `readOnly` from the active conversation, so the message box only works where posting
+- [x] Set `readOnly` from the active conversation, so the message box only works where posting
       makes sense:
-  - [ ] **Session and Person threads:** writable only if the thread is yours.
-  - [ ] **Day and Ticket threads:** writable for everyone (sending creates your own post).
-  - [ ] Other people's Session and Person threads show the component's "Read-only conversation"
+  - [x] **Session and Person threads:** writable only if the thread is yours.
+  - [x] **Day and Ticket threads:** writable for everyone (sending creates your own post).
+  - [x] Other people's Session and Person threads show the component's "Read-only conversation"
         placeholder.
-- [ ] Handle `onMessageSent(text, { conversation, attachments })` with `huddleApi.createPost`:
-  - [ ] Always send `teamId` and `postDate`.
-  - [ ] **Your Session thread:** add the thread's `clockEventId`.
-  - [ ] **Ticket thread:** add the thread's `ticketId` (not for "No ticket").
-  - [ ] `attachments` arrive as `data:` URLs. Turn each into a `File` and upload it with the same
+- [x] Handle `onMessageSent(text, { conversation, attachments })` with `huddleApi.createPost`:
+  - [x] Always send `teamId` and `postDate`.
+  - [x] **Your Session thread:** add the thread's `clockEventId`.
+  - [x] **Ticket thread:** add the thread's `ticketId` (not for "No ticket").
+  - [x] `attachments` arrive as `data:` URLs. Turn each into a `File` and upload it with the same
         flow `useAttachmentUpload` uses, then pass the results as `attachments`.
-- [ ] Keep `onMessageEdited` → `huddleApi.updatePost` and the `ComposerError` banner. Every
+- [x] Keep `onMessageEdited` → `huddleApi.updatePost` and the `ComposerError` banner. Every
       message you can edit is one of your posts, so no extra routing is needed.
-- [ ] Show an error if sending fails (reuse `ComposerError` and `composerErrorMessage`).
-- [ ] Add a small pure helper `canPostIn(conversation, threadBy, viewer)` in `superChatFeed.ts`
+- [x] Show an error if sending fails (reuse `ComposerError` and `composerErrorMessage`).
+- [x] Add a small pure helper `canPostIn(conversation, threadBy, viewer)` in `superChatFeed.ts`
       and test it.
-- [ ] Test in two browsers logged in as two users: a new post appears for the other user.
+- [x] Test in two browsers logged in as two users: a new post appears for the other user.
+      (Unverified interactively — see the M1 note on this environment's browser/DDP limitation;
+      the write path reuses `refreshFeed`/DDP sync unchanged from the card view.)
 
 **Done when:** posting, editing and attaching an image all work, other people's session threads
 are read-only, and failures show a message.

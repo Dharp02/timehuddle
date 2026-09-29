@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
-import { postsToConversations } from './superChatFeed';
+import { canPostIn, postsToConversations } from './superChatFeed';
 
 /** Build an epoch ms from local calendar components, so fixtures and their
  *  expected "HH:MM" / weekday output stay identical regardless of the test
@@ -203,5 +203,32 @@ describe('postsToConversations', () => {
       expect(conversation.thread.some((m) => m.type === 'system')).toBe(false);
       expect(conversation.participants.some((p) => p.kind === 'system')).toBe(false);
     });
+  });
+});
+
+describe('canPostIn', () => {
+  it('is always writable for day and ticket threads', () => {
+    const posts = [makePost({ id: 'p1', ticketId: 'tkt-1', ticketTitle: 'Onboarding checklist' })];
+    const [dayThread] = postsToConversations(posts, 'day', VIEWER_OTHER_MEMBER, NOW);
+    const [ticketThread] = postsToConversations(posts, 'ticket', VIEWER_OTHER_MEMBER, NOW);
+    expect(canPostIn(dayThread, 'day', VIEWER_OTHER_MEMBER)).toBe(true);
+    expect(canPostIn(ticketThread, 'ticket', VIEWER_OTHER_MEMBER)).toBe(true);
+  });
+
+  it('is writable only by the author for session and person threads', () => {
+    const posts = [
+      makePost({
+        id: 'p1',
+        userId: 'user-aisha',
+        clockEventId: 'evt-1',
+        session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
+      }),
+    ];
+    const [sessionThread] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
+    const [personThread] = postsToConversations(posts, 'person', VIEWER_MEMBER, NOW);
+    expect(canPostIn(sessionThread, 'session', VIEWER_MEMBER)).toBe(true);
+    expect(canPostIn(personThread, 'person', VIEWER_MEMBER)).toBe(true);
+    expect(canPostIn(sessionThread, 'session', VIEWER_OTHER_MEMBER)).toBe(false);
+    expect(canPostIn(personThread, 'person', VIEWER_OTHER_MEMBER)).toBe(false);
   });
 });

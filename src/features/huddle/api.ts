@@ -65,6 +65,22 @@ export function isInlineImage(media: MediaItem): boolean {
 }
 
 /**
+ * The SuperChat inbox composer hands back pasted/dropped attachments as
+ * base64 `data:` URLs (`ComposerAttachment`), not `File`s — convert one back
+ * into a `File` so it can go through the same {@link uploadMedia} path as
+ * every other Huddle attachment.
+ */
+export async function fileFromDataUrl(
+  name: string,
+  mimeType: string,
+  dataUrl: string,
+): Promise<File> {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], name, { type: mimeType || blob.type });
+}
+
+/**
  * A filename as markdown alt text. `[` and `]` would close the alt early and
  * leave the rest of the name as stray document content.
  */
