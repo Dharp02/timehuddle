@@ -9,22 +9,24 @@
  * Redmine is refused as stale, with a Reload.
  *
  * The header's timer does what a start from the search suggestions does: the
- * issue is pinned into the Tickets table and put on My Board, then timed.
+ * issue is pinned into the Tickets table and put on My Board, then timed. It
+ * starts through `TicketStartProvider`, so being clocked out opens the same
+ * clock-in prompt as everywhere else.
  */
-import { faArrowLeft, faExternalLink, faPen } from '@fortawesome/free-solid-svg-icons';
+import { faExternalLink, faPen } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
   AlertDescription,
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   Select,
   Spinner,
   Text,
   Textarea,
-  useToast,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -37,9 +39,11 @@ import {
   type RedmineIssueDetail,
   type RedmineIssueEdits,
   type RedmineJournal,
+  type RedmineTimeEntry,
   type TicketSession,
 } from '../../../lib/api';
 import { useRefresh } from '../../../lib/RefreshContext';
+import { useBackgroundRefresh } from '../../../lib/useBackgroundRefresh';
 import { useRunningTicket } from '../../../lib/useRunningTicket';
 import { AppPage } from '../../../ui/AppPage';
 import { MarkdownContent } from '../../../ui/MarkdownContent';
@@ -56,15 +60,11 @@ import {
   toOptions,
 } from '../redmine/redmineForm';
 import { invalidateRedmineCache } from '../sources';
-import {
-  STOP_TIMER_ERROR,
-  startTicketTimer,
-  timerErrorMessage,
-  toastTimerOutcome,
-  type TicketTimerOutcome,
-} from '../startTicketTimer';
+import { useTicketStart } from '../../timers/TicketStartProvider';
+import { timerLabel } from '../../timers/ticketTimerStrings';
 
-import { fromJournals, fromSessions, mergeByTime } from './activityEntries';
+import { fromJournals, fromRedmineTimeEntries, fromSessions, mergeByTime } from './activityEntries';
+import { BackToTicketsButton } from './BackToTicketsButton';
 import { TicketActivityCard } from './TicketActivityCard';
 
 function formatDate(iso: string | null): string {
@@ -78,9 +78,13 @@ function formatDate(iso: string | null): string {
 
 interface LoadedIssue {
   baseUrl: string | null;
+  me: number | null;
   issue: RedmineIssueDetail;
   journals: RedmineJournal[];
+  timeEntries: RedmineTimeEntry[] | null;
 }
+
+type ActivityFilter = 'mine' | 'all';
 
 /** A read-only sidebar row: label over value. */
 function SidebarField({ label, children }: { label: string; children: React.ReactNode }) {
@@ -100,8 +104,8 @@ export interface RedmineIssueDetailPageProps {
 
 export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ issueId }) => {
   const { navigate } = useRouter();
-  const toast = useToast();
   const runningTicket = useRunningTicket(true);
+  const { start: startTimer, stop: stopTimer, busyKey } = useTicketStart();
 
   const [loaded, setLoaded] = useState<LoadedIssue | null>(null);
   const [options, setOptions] = useState<RedmineFormOptions | null>(null);
@@ -117,14 +121,18 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
   const [descDraft, setDescDraft] = useState('');
 
   const [onBoard, setOnBoard] = useState(false);
-  const [timerBusy, setTimerBusy] = useState(false);
-  const [timerError, setTimerError] = useState<string | null>(null);
 
-  /** Load everything; `quiet` refreshes in place without the page spinner. */
+  /**
+   * Load everything. `quiet` refreshes in place: no page spinner, and a failure
+   * keeps what is on screen rather than replacing the page with an error.
+   * Resolves whether it worked, for the background refresh's backoff.
+   */
   const load = useCallback(
-    async (quiet = false) => {
-      if (!quiet) setLoading(true);
-      setLoadError(null);
+    async (quiet = false): Promise<boolean> => {
+      if (!quiet) {
+        setLoading(true);
+        setLoadError(null);
+      }
       try {
         const [result, mySessions, boardEntries] = await Promise.all([
           redmineApi.issues.get(issueId),
@@ -141,11 +149,15 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
         );
         setOptions(formOptions);
         setStale(false);
+        return true;
       } catch (err) {
-        setLoadError({
-          code: err instanceof ApiError ? err.code : undefined,
-          message: redmineErrorMessage(err),
-        });
+        if (!quiet) {
+          setLoadError({
+            code: err instanceof ApiError ? err.code : undefined,
+            message: redmineErrorMessage(err),
+          });
+        }
+        return false;
       } finally {
         setLoading(false);
       }
@@ -157,14 +169,24 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
     void load();
   }, [load]);
 
-  useRefresh(useCallback(() => load(true), [load]));
+  useRefresh(
+    useCallback(async () => {
+      await load(true);
+    }, [load]),
+  );
 
   const issue = loaded?.issue ?? null;
 
-  const activityEntries = useMemo(
-    () => mergeByTime(fromJournals(loaded?.journals ?? []), fromSessions(sessions, 'You')),
-    [loaded?.journals, sessions],
-  );
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
+  const activityEntries = useMemo(() => {
+    const me = loaded?.me ?? null;
+    const all = mergeByTime(
+      fromJournals(loaded?.journals ?? [], me),
+      fromRedmineTimeEntries(loaded?.timeEntries ?? [], me),
+      fromSessions(sessions, 'You'),
+    );
+    return activityFilter === 'mine' ? all.filter((entry) => entry.mine) : all;
+  }, [loaded?.journals, loaded?.timeEntries, loaded?.me, sessions, activityFilter]);
 
   /**
    * Save one change to Redmine. Only the edited field is sent, and the save is
@@ -195,41 +217,64 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
     [issue, load],
   );
 
-  const isTiming = runningTicket?.key === `redmine:${issueId}`;
+  const ticketKey = `redmine:${issueId}`;
+  const isTiming = runningTicket?.key === ticketKey;
+
+  // Redmine can't tell us when the issue changes (no webhooks), so the page asks
+  // again: on returning to the tab, and every few minutes while you're active
+  // on it. Never while an edit is open or a save is stale: a refresh would move
+  // `updatedAt` under the edit and defeat the stale-save check.
+  const refreshPaused = editingDesc || saving || stale;
+  const refreshPausedRef = React.useRef(refreshPaused);
+  refreshPausedRef.current = refreshPaused;
+  useBackgroundRefresh(
+    useCallback(() => load(true), [load]),
+    { paused: refreshPaused },
+  );
+
+  // Any timer start or stop (here, or one that waited for a clock-in) fires
+  // tickets:refetch: reload in place for the new session and board state, and
+  // any time logged since. Mid-edit, only the timer state is refreshed.
+  useEffect(() => {
+    const refreshTimerState = () => {
+      if (!refreshPausedRef.current) {
+        void load(true);
+        return;
+      }
+      void timerApi
+        .getTicketSessions(String(issueId), 'redmine')
+        .then(setSessions)
+        .catch(() => {});
+      void myBoardApi
+        .list()
+        .then((entries) =>
+          setOnBoard(
+            entries.some((e) => e.sourceId === 'redmine' && e.ticketId === String(issueId)),
+          ),
+        )
+        .catch(() => {});
+    };
+    window.addEventListener('tickets:refetch', refreshTimerState);
+    return () => window.removeEventListener('tickets:refetch', refreshTimerState);
+  }, [issueId, load]);
 
   /** Stop this issue's timer, or start one: pinned into the table and on My Board. */
-  const toggleTimer = async () => {
-    setTimerBusy(true);
-    setTimerError(null);
-    let outcome: TicketTimerOutcome;
-    try {
-      if (isTiming && runningTicket) {
-        await timerApi.stopSession(runningTicket.sessionId);
-        outcome = 'stopped';
-      } else {
-        // Assigned to me means the table already has it. A watched issue does
-        // too, but the page can't tell; pinning one again is harmless.
-        const assignedToMe = !!options?.me && issue?.assignedTo?.id === options.me;
-        outcome = await startTicketTimer(
-          { sourceId: 'redmine', id: String(issueId) },
-          { inTable: assignedToMe, onBoard },
-        );
-      }
-    } catch (err) {
-      setTimerError(isTiming ? STOP_TIMER_ERROR : timerErrorMessage(err));
-      outcome = 'failed';
+  const toggleTimer = () => {
+    const label = timerLabel('redmine', String(issueId));
+    if (isTiming && runningTicket) {
+      void stopTimer({ sessionId: runningTicket.sessionId, ticketKey, label });
+      return;
     }
-    if (outcome === 'started-and-added') setOnBoard(true);
-    if (toastTimerOutcome(toast, outcome, issueId)) {
-      // The Tickets table and the running-timer state pick up the pin and the timer.
-      invalidateRedmineCache();
-      window.dispatchEvent(new CustomEvent('tickets:refetch'));
-      // Activity shows the session just opened or closed.
-      setSessions(
-        await timerApi.getTicketSessions(String(issueId), 'redmine').catch(() => sessions),
-      );
-    }
-    setTimerBusy(false);
+    // Assigned to me means the table already has it. A watched issue does too,
+    // but the page can't tell; pinning one again is harmless.
+    const assignedToMe = !!options?.me && issue?.assignedTo?.id === options.me;
+    void startTimer({
+      kind: 'ticket',
+      ticket: { sourceId: 'redmine', id: String(issueId) },
+      label,
+      inTable: assignedToMe,
+      onBoard,
+    });
   };
 
   const saveDescription = async () => {
@@ -238,19 +283,7 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
 
   // ── Render ──
 
-  const backButton = (
-    <div className="redmine-issue-back mb-4">
-      <Button
-        variant="outline"
-        size="sm"
-        aria-label="Back to tickets"
-        leftIcon={<FontAwesomeIcon icon={faArrowLeft} />}
-        onClick={() => navigate('/app/tickets')}
-      >
-        TICKETS
-      </Button>
-    </div>
-  );
+  const backButton = <BackToTicketsButton />;
 
   if (loading) {
     return (
@@ -305,8 +338,8 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
           </h1>
           <TimerToggleButton
             isRunning={isTiming}
-            isLoading={timerBusy}
-            onClick={() => void toggleTimer()}
+            isLoading={busyKey === ticketKey}
+            onClick={toggleTimer}
             label={isTiming ? 'Stop timer' : 'Start timer'}
             ariaLabel={
               isTiming ? `Stop the timer on #${issue.id}` : `Start a timer on #${issue.id}`
@@ -345,11 +378,6 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
 
       {/* Save feedback */}
       <div className="redmine-issue-messages mb-3 space-y-2" aria-live="polite">
-        {timerError && (
-          <Alert variant="danger" role="alert" className="redmine-issue-timer-error">
-            <AlertDescription>{timerError}</AlertDescription>
-          </Alert>
-        )}
         {actionError && (
           <Alert variant={stale ? 'warning' : 'danger'} role="alert">
             <AlertDescription>
@@ -431,10 +459,35 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
             </CardContent>
           </Card>
 
-          {/* Activity: Redmine's history plus your own timer sessions */}
+          {/* Activity: Redmine's history and logged time, plus your own timer sessions */}
           <TicketActivityCard
             entries={activityEntries}
-            note="Redmine's history for this issue, plus the time you logged on it in TimeHuddle."
+            note={
+              loaded.timeEntries === null
+                ? "Redmine's history for this issue and the time you logged on it in TimeHuddle. Time logged in Redmine couldn't be loaded."
+                : "Redmine's history and the latest time logged on this issue, plus the time you logged on it in TimeHuddle."
+            }
+            emptyText={activityFilter === 'mine' ? 'No activity of yours yet.' : 'No activity yet.'}
+            headerAction={
+              <ButtonGroup className="redmine-activity-filter" aria-label="Show activity">
+                {(
+                  [
+                    ['mine', 'My activity'],
+                    ['all', 'All'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Button
+                    key={value}
+                    size="sm"
+                    variant={activityFilter === value ? 'secondary' : 'ghost'}
+                    aria-pressed={activityFilter === value}
+                    onClick={() => setActivityFilter(value)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </ButtonGroup>
+            }
           />
         </div>
 

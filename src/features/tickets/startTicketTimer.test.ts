@@ -97,20 +97,39 @@ describe('timerErrorMessage', () => {
 describe('toastTimerOutcome', () => {
   const makeToast = () => ({ success: vi.fn(), warning: vi.fn(), info: vi.fn() });
 
-  it('confirms a start that added the issue to My Board', () => {
+  it('names a Redmine issue by number and a Huddle ticket by title', () => {
     const toast = makeToast();
-    expect(toastTimerOutcome(toast as never, 'started-and-added', 1234)).toBe(true);
-    expect(toast.success).toHaveBeenCalledWith('Timer started on #1234 and added to My Board');
+    expect(toastTimerOutcome(toast as never, 'started-and-added', '#1234')).toBe(true);
+    toastTimerOutcome(toast as never, 'started', 'Fix login');
+    expect(toast.success).toHaveBeenNthCalledWith(
+      1,
+      'Timer started on #1234 and added to My Board',
+    );
+    expect(toast.success).toHaveBeenNthCalledWith(2, 'Timer started on Fix login');
+  });
+
+  it('names the ticket whose timer the start stopped', () => {
+    const toast = makeToast();
+    toastTimerOutcome(toast as never, 'started-on-board', '#1234', 'Fix login');
+    expect(toast.success).toHaveBeenCalledWith(
+      "Stopped Fix login. Timer started on #1234. It's on My Board",
+    );
   });
 
   it('warns at the pin cap', () => {
     const toast = makeToast();
-    toastTimerOutcome(toast as never, 'started-pin-limit', 1234);
+    toastTimerOutcome(toast as never, 'started-pin-limit', '#1234');
     expect(toast.warning).toHaveBeenCalled();
   });
 
+  it('confirms a stop without a switch message', () => {
+    const toast = makeToast();
+    toastTimerOutcome(toast as never, 'stopped', '#1234', 'ignored');
+    expect(toast.info).toHaveBeenCalledWith('Timer stopped on #1234');
+  });
+
   it('shows nothing for a failed start or a pending clock-in', () => {
-    expect(toastTimerOutcome(makeToast() as never, 'failed', 1)).toBe(false);
-    expect(toastTimerOutcome(makeToast() as never, 'clock-in', 1)).toBe(false);
+    expect(toastTimerOutcome(makeToast() as never, 'failed', '#1')).toBe(false);
+    expect(toastTimerOutcome(makeToast() as never, 'clock-in', '#1')).toBe(false);
   });
 });

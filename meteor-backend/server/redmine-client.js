@@ -611,6 +611,19 @@ export async function getIssueDetail(account, issueId) {
 }
 
 /**
+ * The newest time entries logged on one issue, by anyone the caller's key can
+ * see (`GET /time_entries.json?issue_id=`), newest `spent_on` first — Redmine's
+ * default order. Redmine keeps time entries apart from an issue's journals, so
+ * the issue page asks for them separately. Depending on the Redmine version the
+ * `issue_id` filter can include subtasks; the caller keeps only the issue's own.
+ */
+export async function listIssueTimeEntries(account, issueId, { limit = 50 } = {}) {
+  const params = new URLSearchParams({ issue_id: String(issueId), limit: String(limit) });
+  const data = await redmineRequest(`/time_entries.json?${params.toString()}`, { account });
+  return data?.time_entries ?? [];
+}
+
+/**
  * Create an issue via `POST /issues.json`, authored by the owner of `account`'s key.
  * `fields` are already in Redmine's names (`project_id`, `subject`, …).
  * @returns {Promise<object|null>} the created issue as Redmine echoes it back

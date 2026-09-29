@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ActivityLogItem, RedmineJournal, TicketSession } from '../../../lib/api';
+import type {
+  ActivityLogItem,
+  RedmineJournal,
+  RedmineTimeEntry,
+  TicketSession,
+} from '../../../lib/api';
 
-import { fromHuddleEvents, fromJournals, fromSessions, mergeByTime } from './activityEntries';
+import {
+  fromHuddleEvents,
+  fromJournals,
+  fromRedmineTimeEntries,
+  fromSessions,
+  mergeByTime,
+} from './activityEntries';
 
 const event = (id: string, type: string, occurredAt: string, payload = {}): ActivityLogItem =>
   ({
@@ -92,6 +103,81 @@ describe('fromJournals', () => {
 
   it('skips a journal with no timestamp', () => {
     expect(fromJournals([journal({ createdAt: null })])).toEqual([]);
+  });
+});
+
+describe('fromRedmineTimeEntries', () => {
+  const entry = (overrides: Partial<RedmineTimeEntry> = {}): RedmineTimeEntry => ({
+    id: 900,
+    user: { id: 42, name: 'Jane Doe' },
+    hours: 1.5,
+    activity: { id: 9, name: 'Development' },
+    comments: 'Paired on the fix',
+    spentOn: '2026-09-28',
+    createdAt: '2026-09-28T16:20:00.000Z',
+    ...overrides,
+  });
+
+  it('reads as time logged in Redmine, with the activity, day and comment', () => {
+    const [time] = fromRedmineTimeEntries([entry()]);
+    expect(time).toMatchObject({
+      id: 'time:900',
+      at: '2026-09-28T16:20:00.000Z',
+      actorName: 'Jane Doe',
+      text: 'logged 1h 30m in Redmine',
+      kind: 'time',
+      mine: false,
+    });
+    expect(time.detail).toMatch(/^Development, for .+ — Paired on the fix$/);
+  });
+
+  it("marks the viewer's own entries", () => {
+    const [mine, theirs] = fromRedmineTimeEntries(
+      [entry(), entry({ id: 901, user: { id: 7, name: 'Sam' } })],
+      42,
+    );
+    expect(mine.mine).toBe(true);
+    expect(theirs.mine).toBe(false);
+  });
+
+  it('falls back to the day it was for, and skips undated entries', () => {
+    const entries = fromRedmineTimeEntries([
+      entry({ createdAt: null, comments: '', activity: null }),
+      entry({ id: 2, createdAt: null, spentOn: null }),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].at).toBe(new Date('2026-09-28T12:00:00').toISOString());
+    expect(entries[0].detail).toMatch(/^for /);
+  });
+});
+
+describe('the "mine" marker', () => {
+  it("marks the viewer's journals and always their own sessions", () => {
+    const journals = [
+      {
+        id: 1,
+        user: { id: 42, name: 'Me' },
+        createdAt: '2026-09-01T00:00:00Z',
+        notes: 'hi',
+        changes: [],
+      },
+      {
+        id: 2,
+        user: { id: 7, name: 'Sam' },
+        createdAt: '2026-09-01T00:00:00Z',
+        notes: 'yo',
+        changes: [],
+      },
+    ] as RedmineJournal[];
+    expect(fromJournals(journals, 42).map((j) => j.mine)).toEqual([true, false]);
+    expect(fromJournals(journals).map((j) => j.mine)).toEqual([false, false]);
+    const session = {
+      id: 's',
+      startTime: 0,
+      endTime: 60_000,
+      durationSeconds: 60,
+    } as TicketSession;
+    expect(fromSessions([session], 'You')[0].mine).toBe(true);
   });
 });
 

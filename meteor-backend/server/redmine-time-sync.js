@@ -14,6 +14,11 @@
  *   lastAttemptAt       when it was pushed
  *   failureReason       set if the read-back disagreed ('hours-mismatch'),
  *                       otherwise null. The entry still exists either way.
+ *   discardedAt         set instead of `redmineTimeEntryId` when the user chose
+ *                       never to send this time ("Never send" in the push
+ *                       dialog). `syncedSeconds` is the time discarded, which
+ *                       counts as handled so it is never offered again; no
+ *                       entry exists in Redmine.
  *
  * **Why one row per entry, not per ticket-day (D5).** The first design allowed
  * exactly one entry per ticket-day, enforced by a unique index. Combined with
@@ -91,8 +96,12 @@ async function backfillSyncedSeconds() {
  *   can contain the separator. Must match the keys built in redmine-time-entries.js.
  */
 export async function sentSecondsFor(userId) {
+  // Discarded time counts too: "handled" is what keeps it out of the dialog.
   const rows = await RedmineTimeSyncs.find(
-    { userId, redmineTimeEntryId: { $type: 'number' } },
+    {
+      userId,
+      $or: [{ redmineTimeEntryId: { $type: 'number' } }, { discardedAt: { $type: 'date' } }],
+    },
     { fields: { ticketId: 1, date: 1, syncedSeconds: 1 } },
   ).fetchAsync();
 
@@ -102,6 +111,20 @@ export async function sentSecondsFor(userId) {
     byKey.set(key, (byKey.get(key) ?? 0) + (row.syncedSeconds ?? 0));
   }
   return byKey;
+}
+
+/**
+ * The ids of the Redmine time entries TimeHuddle pushed for one user on one
+ * issue. Their time already shows on the issue page as that user's own timer
+ * sessions, so the page leaves these Redmine copies out.
+ * @returns {Promise<Set<number>>}
+ */
+export async function pushedEntryIdsFor(userId, ticketId) {
+  const rows = await RedmineTimeSyncs.find(
+    { userId, ticketId: String(ticketId), redmineTimeEntryId: { $type: 'number' } },
+    { fields: { redmineTimeEntryId: 1 } },
+  ).fetchAsync();
+  return new Set(rows.map((row) => row.redmineTimeEntryId));
 }
 
 /** Record an entry Redmine has just created. */
@@ -115,6 +138,26 @@ export function recordEntry(userId, ticketId, date, { redmineTimeEntryId, second
     syncedSeconds: seconds,
     syncedHours: hours,
     lastAttemptAt: new Date(),
+    failureReason: null,
+  });
+}
+
+/**
+ * Record that the user chose never to send `seconds` of a ticket-day's time to
+ * Redmine. Nothing is written to Redmine; the time stays in TimeHuddle, and
+ * only time tracked on that day later is offered again.
+ */
+export function recordDiscard(userId, ticketId, date, seconds) {
+  return RedmineTimeSyncs.insertAsync({
+    userId,
+    ticketId,
+    date,
+    source: 'redmine',
+    redmineTimeEntryId: null,
+    syncedSeconds: seconds,
+    syncedHours: 0,
+    discardedAt: new Date(),
+    lastAttemptAt: null,
     failureReason: null,
   });
 }

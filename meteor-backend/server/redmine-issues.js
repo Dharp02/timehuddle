@@ -23,7 +23,7 @@
  * stays lean: `toIssueDetail` (one issue, with `description`, `author` and the
  * status transitions the caller may make), `toNamedList` (projects, trackers)
  * and `toFormOptions` (a project's trackers, assignable members, priorities),
- * plus `toJournals` for the issue page's history.
+ * plus `toJournals` and `toTimeEntries` for the issue page's history.
  */
 
 /** Shape a Redmine `{ id, name }` sub-object, or null when absent. */
@@ -236,6 +236,26 @@ export function toJournals(raw, lookups = {}) {
         : [],
     }))
     .filter((journal) => journal.notes || journal.changes.length > 0);
+}
+
+/**
+ * An issue's Redmine time entries for its page's Activity: who logged how many
+ * hours, under which activity, on which day, with their comment. Shown on the
+ * issue's own page, like its journals' notes — not on any list or search.
+ */
+export function toTimeEntries(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && entry.id != null)
+    .map((entry) => ({
+      id: entry.id,
+      user: toNamed(entry.user),
+      hours: Number(entry.hours) || 0,
+      activity: toNamed(entry.activity),
+      comments: normalizeText(entry.comments).trim(),
+      spentOn: typeof entry.spent_on === 'string' ? entry.spent_on : null,
+      createdAt: toIsoDate(entry.created_on),
+    }));
 }
 
 /** An id → name map from `{ id, name }` items, for `toJournals` lookups. */

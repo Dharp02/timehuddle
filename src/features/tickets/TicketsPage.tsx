@@ -42,7 +42,6 @@ import {
   redmineApi,
   teamApi,
   ticketApi,
-  timerApi,
   type RedmineIssue,
   type Team,
   type TeamMember,
@@ -51,7 +50,6 @@ import {
 import { useTeam } from '../../lib/TeamContext';
 import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
 import { useSession } from '../../lib/useSession';
-import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
@@ -73,13 +71,10 @@ import {
   useUnifiedTickets,
   type UnifiedTicket,
 } from './sources';
-import {
-  STOP_TIMER_ERROR,
-  startTicketTimer,
-  timerErrorMessage,
-  type TicketTimerOutcome,
-} from './startTicketTimer';
+import type { TicketTimerOutcome } from './startTicketTimer';
 import { useMeAssigneeKeys } from './useMeAssigneeKeys';
+import { useTicketStart } from '../timers/TicketStartProvider';
+import { timerLabel } from '../timers/ticketTimerStrings';
 import { useTicketTableView } from './useTicketTableView';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -96,7 +91,6 @@ export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
   const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
-  const { isClockedIn, clockIn } = useClockToggle();
   const { navigate, pathname } = useRouter();
 
   // Map from teamId → members for cross-team member lookups
@@ -106,11 +100,8 @@ export const TicketsPage: React.FC = () => {
   // Keyed by `${sourceId}:${id}`, not id: a Redmine issue #42 and a Huddle
   // ticket are different rows that can share neither state nor identity.
   const runningTicket = useRunningTicket(true);
-  const [timerLoadingKey, setTimerLoadingKey] = useState<string | null>(null);
-  const [timerError, setTimerError] = useState<string | null>(null);
-  const [pendingStartTicket, setPendingStartTicket] = useState<UnifiedTicket | null>(null);
-  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
-  const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
+  // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
+  const { start: startTimer, stop: stopTimer, busyKey: timerLoadingKey } = useTicketStart();
 
   // Fetch members for all teams
   useEffect(() => {
@@ -263,10 +254,16 @@ export const TicketsPage: React.FC = () => {
   // UnifiedTicket.key). Display fields are resolved by filtering allTickets,
   // never snapshotted server-side (Core Model Data Discipline).
   const [boardKeys, setBoardKeys] = useState<Set<string>>(new Set());
+  // Reloaded on tickets:refetch too: a timer start (from anywhere, including
+  // one that waited for a clock-in) can add a ticket to the board.
   useEffect(() => {
-    void myBoardApi.list().then((entries) => {
-      setBoardKeys(new Set(entries.map((e) => `${e.sourceId}:${e.ticketId}`)));
-    });
+    const loadBoard = () =>
+      void myBoardApi.list().then((entries) => {
+        setBoardKeys(new Set(entries.map((e) => `${e.sourceId}:${e.ticketId}`)));
+      });
+    loadBoard();
+    window.addEventListener('tickets:refetch', loadBoard);
+    return () => window.removeEventListener('tickets:refetch', loadBoard);
   }, []);
   const boardTickets = useMemo(
     () => allTickets.filter((t) => boardKeys.has(t.key)),
@@ -370,76 +367,23 @@ export const TicketsPage: React.FC = () => {
 
   // ── Ticket timers (started from My Board — M3 D1 — and Redmine suggestions) ──
 
-  // Read inside the timer start below without making it depend on every board change.
-  const boardKeysRef = React.useRef(boardKeys);
-  useEffect(() => {
-    boardKeysRef.current = boardKeys;
-  }, [boardKeys]);
-
-  const startTimerForTicket = useCallback(
-    async (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
-      setTimerLoadingKey(ticket.key);
-      setTimerError(null);
-      // A Redmine suggestion is not a table row yet; the helper pins it into the table.
-      const inTable = ticketByKey.has(ticket.key);
-      try {
-        const outcome = await startTicketTimer(ticket, {
-          inTable,
-          onBoard: boardKeysRef.current.has(ticket.key),
-        });
-        if (outcome === 'failed') return outcome;
-        if (outcome === 'started-and-added') {
-          setBoardKeys((prev) => new Set([...prev, ticket.key]));
-        }
-        if (ticket.sourceId === 'redmine' && !inTable) {
-          // Reload the table past the session cache so the pinned issue shows.
-          refetchAfterRedmineWrite();
-        } else {
-          // Hook refreshes via DDP / tickets:refetch once the open timer lands.
-          window.dispatchEvent(new CustomEvent('tickets:refetch'));
-        }
-        return outcome;
-      } catch (err) {
-        setTimerError(timerErrorMessage(err));
-        return 'failed';
-      } finally {
-        setTimerLoadingKey(null);
-      }
-    },
-    [ticketByKey, refetchAfterRedmineWrite],
-  );
-
   const handleToggleTimer = useCallback(
-    async (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
-      // Starting a second ticket's timer auto-stops the first (M3 D5) — that is
-      // `closeRunningSession` server-side, and needs no confirmation here.
+    (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
+      const label = timerLabel(ticket.sourceId, ticket.id, ticket.title);
       if (runningTicket?.key === ticket.key && runningTicket.sessionId) {
-        setTimerLoadingKey(ticket.key);
-        setTimerError(null);
-        try {
-          await timerApi.stopSession(runningTicket.sessionId);
-          window.dispatchEvent(new CustomEvent('tickets:refetch'));
-          return 'stopped';
-        } catch {
-          setTimerError(STOP_TIMER_ERROR);
-          return 'failed';
-        } finally {
-          setTimerLoadingKey(null);
-        }
+        return stopTimer({ sessionId: runningTicket.sessionId, ticketKey: ticket.key, label });
       }
-
-      // A ticket timer requires an active shift (M3 D3). Offer to clock in
-      // rather than letting the server reject the start.
-      if (!isClockedIn) {
-        setPendingStartTicket(ticket);
-        setClockInPromptError(null);
-        setShowClockInPrompt(true);
-        return 'clock-in';
-      }
-
-      return startTimerForTicket(ticket);
+      // Clocked out, this opens the clock-in prompt; a Redmine suggestion that
+      // is not a table row yet is pinned into the table (`startTicketTimer`).
+      return startTimer({
+        kind: 'ticket',
+        ticket,
+        label,
+        inTable: ticketByKey.has(ticket.key),
+        onBoard: boardKeys.has(ticket.key),
+      });
     },
-    [runningTicket, isClockedIn, startTimerForTicket],
+    [runningTicket, startTimer, stopTimer, ticketByKey, boardKeys],
   );
 
   // A suggestion is a Redmine issue, not yet a table row: shape it the way the
@@ -457,29 +401,6 @@ export const TicketsPage: React.FC = () => {
   );
   const runningRedmineIssueId =
     runningTicket?.source === 'redmine' ? Number(runningTicket.id) : null;
-
-  const handleClockInAndStart = useCallback(async () => {
-    if (!pendingStartTicket) return;
-
-    if (!selectedTeamId) {
-      setClockInPromptError('Select a team before clocking in.');
-      return;
-    }
-
-    setClockInPromptError(null);
-    const clockedIn = await clockIn();
-    if (!clockedIn) {
-      // Plan-first gate: today's plan post is required before clocking in.
-      setClockInPromptError('Write today’s plan first — see the Clock page or Huddle.');
-      return;
-    }
-
-    const ticket = pendingStartTicket;
-    setShowClockInPrompt(false);
-    setPendingStartTicket(null);
-
-    await startTimerForTicket(ticket);
-  }, [pendingStartTicket, selectedTeamId, clockIn, startTimerForTicket]);
 
   const startHuddleCreate = useCallback(() => {
     setNewTicketMenuOpen(false);
@@ -906,13 +827,8 @@ export const TicketsPage: React.FC = () => {
               />
             )}
 
-            {/* Timer failures and unresolvable board entries, announced politely. */}
+            {/* Unresolvable board entries, announced politely. */}
             <div role="status" aria-live="polite" className="empty:hidden">
-              {timerError && (
-                <Text size="xs" className="block text-danger">
-                  {timerError}
-                </Text>
-              )}
               {unresolvedBoardNotice && (
                 <Text size="xs" variant="muted" className="block">
                   {unresolvedBoardNotice}
@@ -1156,52 +1072,6 @@ export const TicketsPage: React.FC = () => {
             </Button>
             <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
               Delete
-            </Button>
-          </ModalFooter>
-        </Modal>
-
-        {/* Clock-In Prompt Modal */}
-        <Modal
-          open={showClockInPrompt}
-          onOpenChange={(open) => {
-            setShowClockInPrompt(open);
-            if (!open) {
-              setPendingStartTicket(null);
-              setClockInPromptError(null);
-            }
-          }}
-          size="sm"
-          aria-labelledby="clock-in-prompt-title"
-        >
-          <ModalHeader>
-            <ModalTitle id="clock-in-prompt-title">Clock In Required</ModalTitle>
-            <ModalClose />
-          </ModalHeader>
-          <ModalBody>
-            <div className="space-y-2">
-              <Text size="sm">
-                You must be clocked in before starting a timer. Do you want to clock in now?
-              </Text>
-              {clockInPromptError && (
-                <Text size="xs" className="text-danger">
-                  {clockInPromptError}
-                </Text>
-              )}
-            </div>
-          </ModalBody>
-          <ModalFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowClockInPrompt(false);
-                setPendingStartTicket(null);
-                setClockInPromptError(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleClockInAndStart}>
-              Clock In Now
             </Button>
           </ModalFooter>
         </Modal>

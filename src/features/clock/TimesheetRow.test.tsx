@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { type ClockEvent } from '../../lib/api';
+import { RouterContext } from '../../ui/router';
 import { TimesheetRow } from './TimesheetRow';
 
 afterEach(() => {
@@ -231,13 +232,15 @@ describe('TimesheetRow', () => {
     const toggle = screen.getByRole('button', { name: /Show 2 ticket timers for this shift/i });
     fireEvent.click(toggle);
 
+    // Both open the ticket's page inside TimeHuddle; a Redmine issue's page
+    // links on to Redmine itself.
     const huddleLink = screen.getByText('Fix the thing') as HTMLAnchorElement;
     expect(huddleLink.getAttribute('href')).toBe('/app/tickets/tkt1');
     expect(huddleLink.getAttribute('target')).toBeNull();
 
     const redmineLink = screen.getByText('Upstream bug') as HTMLAnchorElement;
-    expect(redmineLink.getAttribute('href')).toBe('https://redmine.example.com/issues/4242');
-    expect(redmineLink.getAttribute('target')).toBe('_blank');
+    expect(redmineLink.getAttribute('href')).toBe('/app/tickets/redmine/4242');
+    expect(redmineLink.getAttribute('target')).toBeNull();
 
     expect(screen.getByText('15m')).toBeTruthy();
     expect(screen.getByText('Redmine')).toBeTruthy();
@@ -309,5 +312,47 @@ describe('TimesheetRow', () => {
 
     expect(screen.getAllByText('Change declined').length).toBeGreaterThan(0);
     expect(screen.queryByText('Pending approval')).toBeNull();
+  });
+
+  it('opens a Redmine ticket session on its TimeHuddle page, not in Redmine', () => {
+    const navigate = vi.fn();
+    const session: ClockEvent = {
+      ...buildSession(),
+      ticketSessions: [
+        {
+          id: 'ts2',
+          workItemId: 'wi2',
+          source: 'redmine',
+          ticketId: '4242',
+          title: 'Upstream bug',
+          url: 'https://redmine.example.com/issues/4242',
+          startTime: new Date('2026-05-19T10:45:00').getTime(),
+          endTime: new Date('2026-05-19T11:00:00').getTime(),
+          durationSeconds: 900,
+        },
+      ],
+    };
+
+    render(
+      <RouterContext.Provider value={{ pathname: '/app', search: '', navigate, replace: vi.fn() }}>
+        <table>
+          <tbody>
+            <TimesheetRow
+              session={session}
+              teams={[{ id: 'team-1', name: 'Mobile test' }]}
+              onEdit={vi.fn()}
+            />
+          </tbody>
+        </table>
+      </RouterContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Show 1 ticket timer/i }));
+
+    const link = screen.getByText('Upstream bug');
+    // Cmd-click is left to the browser (new tab); a plain click routes in-app.
+    fireEvent.click(link, { metaKey: true });
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(link);
+    expect(navigate).toHaveBeenCalledWith('/app/tickets/redmine/4242');
   });
 });

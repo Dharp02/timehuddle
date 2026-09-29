@@ -28,6 +28,7 @@ import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
 import { RedmineIssueDetailPage } from '../features/tickets/detail/RedmineIssueDetailPage';
 import { TicketDetailPage } from '../features/tickets/detail/TicketDetailPage';
+import { TicketStartProvider } from '../features/timers/TicketStartProvider';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
@@ -420,102 +421,104 @@ const AppLayoutContent: React.FC = () => {
           <CommandPalette />
           <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
           <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-          <ShiftReminderProvider>
-            <AppFeedbackContext.Provider
-              value={{
-                openReportIssue: () => setReportIssueOpen(true),
-                openFeedback: () => setFeedbackOpen(true),
-              }}
-            >
-              <SidebarContext.Provider
-                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+          <TicketStartProvider>
+            <ShiftReminderProvider>
+              <AppFeedbackContext.Provider
+                value={{
+                  openReportIssue: () => setReportIssueOpen(true),
+                  openFeedback: () => setFeedbackOpen(true),
+                }}
               >
-                <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-                  {/* Mobile backdrop */}
-                  {isMobileOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
-                        onClick={closeMobile}
-                        aria-hidden
-                      />,
-                      document.body,
-                    )}
+                <SidebarContext.Provider
+                  value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+                >
+                  <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+                    {/* Mobile backdrop */}
+                    {isMobileOpen &&
+                      createPortal(
+                        <div
+                          className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
+                          onClick={closeMobile}
+                          aria-hidden
+                        />,
+                        document.body,
+                      )}
 
-                  {/* Foreground push notification banner (native iOS/Android) */}
-                  {foregroundNotif &&
-                    createPortal(
-                      <div
-                        onClick={() => {
-                          handleNotificationData(foregroundNotif.data);
-                          console.log(
-                            '[Banner] tapped, data:',
-                            JSON.stringify(foregroundNotif.data),
-                          );
-                          setForegroundNotif(null);
-                          if (dismissTimer.current) clearTimeout(dismissTimer.current);
-                        }}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
+                    {/* Foreground push notification banner (native iOS/Android) */}
+                    {foregroundNotif &&
+                      createPortal(
+                        <div
+                          onClick={() => {
+                            handleNotificationData(foregroundNotif.data);
+                            console.log(
+                              '[Banner] tapped, data:',
+                              JSON.stringify(foregroundNotif.data),
+                            );
+                            setForegroundNotif(null);
+                            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+                          }}
+                          className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
                                    bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
                                    shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
                                    border border-white/10"
-                        role="alert"
-                      >
-                        <span className="font-semibold text-sm leading-tight">
-                          {foregroundNotif.title}
-                        </span>
-                        <span className="text-xs text-neutral-300 leading-snug">
-                          {foregroundNotif.body}
-                        </span>
-                      </div>,
-                      document.body,
-                    )}
+                          role="alert"
+                        >
+                          <span className="font-semibold text-sm leading-tight">
+                            {foregroundNotif.title}
+                          </span>
+                          <span className="text-xs text-neutral-300 leading-snug">
+                            {foregroundNotif.body}
+                          </span>
+                        </div>,
+                        document.body,
+                      )}
 
-                  <Sidebar />
+                    <Sidebar />
 
-                  {/* Content column */}
-                  <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                    <AppHeader />
-                    <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
-                      <PullToRefresh>
-                        {/* TicketsPage stays mounted to preserve its state, and
+                    {/* Content column */}
+                    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                      <AppHeader />
+                      <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
+                        <PullToRefresh>
+                          {/* TicketsPage stays mounted to preserve its state, and
                             is only hidden when another route is showing. The
                             tickets page renders its own heading, so the registry
                             title is always withheld from this instance to avoid
                             a duplicate h1. */}
-                        <PageTitleContext.Provider value={null}>
-                          <div
-                            className={
-                              isTicketsRoute
-                                ? 'h-full w-full flex flex-col'
-                                : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
-                            }
-                          >
-                            <TicketsPage />
-                          </div>
-                        </PageTitleContext.Provider>
-                        {profileUserId ? (
-                          <ProfilePage key={profileUserId} userId={profileUserId} />
-                        ) : profileUsername ? (
-                          <ProfilePage key={profileUsername} username={profileUsername} />
-                        ) : ticketDetailId ? (
-                          <TicketDetailPage ticketId={ticketDetailId} />
-                        ) : redmineIssueId ? (
-                          <RedmineIssueDetailPage issueId={redmineIssueId} />
-                        ) : (
-                          route &&
-                          route.component !== TicketsPage &&
-                          React.createElement(route.component)
-                        )}
-                      </PullToRefresh>
-                    </main>
-                  </div>
+                          <PageTitleContext.Provider value={null}>
+                            <div
+                              className={
+                                isTicketsRoute
+                                  ? 'h-full w-full flex flex-col'
+                                  : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                              }
+                            >
+                              <TicketsPage />
+                            </div>
+                          </PageTitleContext.Provider>
+                          {profileUserId ? (
+                            <ProfilePage key={profileUserId} userId={profileUserId} />
+                          ) : profileUsername ? (
+                            <ProfilePage key={profileUsername} username={profileUsername} />
+                          ) : ticketDetailId ? (
+                            <TicketDetailPage ticketId={ticketDetailId} />
+                          ) : redmineIssueId ? (
+                            <RedmineIssueDetailPage issueId={redmineIssueId} />
+                          ) : (
+                            route &&
+                            route.component !== TicketsPage &&
+                            React.createElement(route.component)
+                          )}
+                        </PullToRefresh>
+                      </main>
+                    </div>
 
-                  <BottomNav />
-                </div>
-              </SidebarContext.Provider>
-            </AppFeedbackContext.Provider>
-          </ShiftReminderProvider>
+                    <BottomNav />
+                  </div>
+                </SidebarContext.Provider>
+              </AppFeedbackContext.Provider>
+            </ShiftReminderProvider>
+          </TicketStartProvider>
         </RefreshProvider>
       </PageTitleContext.Provider>
     </RouterContext.Provider>
