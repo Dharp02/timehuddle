@@ -479,7 +479,10 @@ export default function Huddle() {
 
   return (
     <AppPage fill width="wide">
-      <div className="huddle flex h-full min-h-0 flex-col gap-4">
+      {/* AppPage's own px-4 md:px-6 covers small screens; these extra
+          breakpoints widen the side margins further as the viewport grows,
+          instead of leaving them flat past md. */}
+      <div className="huddle flex h-full min-h-0 flex-col gap-4 lg:px-6 xl:px-10 2xl:px-16">
         {/* Feed / Drafts tabs + actions */}
         <div className="huddle-actions flex shrink-0 items-center gap-2">
           <Tabs
