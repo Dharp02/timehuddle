@@ -5,7 +5,16 @@ import {
   faMagnifyingGlass,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Dropdown, DropdownItem, Input, Tabs, TabsList, TabsTrigger } from '@mieweb/ui';
+import {
+  Button,
+  Dropdown,
+  DropdownItem,
+  EmptyState,
+  Input,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from '@mieweb/ui';
 import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
 import type { ComposerAttachment, SuperChatConversation } from '@mieweb/ui/components/SuperChat';
 import {
@@ -629,11 +638,10 @@ export default function Huddle() {
                 {!(scope === 'me' ? myPostsLoading : loading) &&
                   !(scope === 'me' ? myPostsError : error) &&
                   activePosts.length === 0 && (
-                    <div className="flex items-center justify-center py-16 px-4">
-                      <p className="text-sm text-gray-500 dark:text-neutral-400">
-                        No posts yet. Be the first to share!
-                      </p>
-                    </div>
+                    <EmptyState
+                      title="No posts yet"
+                      description="Be the first to share an update."
+                    />
                   )}
 
                 {/* SuperChatInbox, grouped by the selected Thread by option.
