@@ -25,6 +25,23 @@ function attachmentMarkdown(att: HuddlePost['attachments'][number]): string {
   return `[📎 ${name}](${url})`;
 }
 
+/** The `/uploads/…` path of a media URL, however it was stored. */
+function mediaPathOf(url: string): string {
+  try {
+    return new URL(url, 'http://placeholder.invalid').pathname;
+  } catch {
+    return url;
+  }
+}
+
+/** Attachments not already embedded in the post's text (pasted/dropped images
+ *  are written inline and still recorded as attachments). */
+function attachmentsNotInlined(post: HuddlePost): HuddlePost['attachments'] {
+  const text = post.content.text;
+  if (!text) return post.attachments;
+  return post.attachments.filter((att) => !text.includes(mediaPathOf(att.url)));
+}
+
 // ─── SuperChatInbox grouping (postsToConversations) ────────────────────────
 
 export type ThreadBy = 'session' | 'day' | 'person' | 'ticket';
@@ -138,8 +155,9 @@ function postLabelParts(post: HuddlePost, teamName?: string): string[] {
  *  first line), then attachments, then an italic plan/ticket label. */
 function postToInboxMessageText(post: HuddlePost, teamName?: string): string {
   const parts = [post.content.text];
-  if (post.attachments.length > 0) {
-    parts.push(post.attachments.map(attachmentMarkdown).join('\n\n'));
+  const attachments = attachmentsNotInlined(post);
+  if (attachments.length > 0) {
+    parts.push(attachments.map(attachmentMarkdown).join('\n\n'));
   }
   const label = postLabelParts(post, teamName);
   if (label.length > 0) {
@@ -292,4 +310,18 @@ export function canPostIn(
     .filter((p) => p.kind === 'human')
     .map((p) => p.id);
   return humanParticipantIds.length > 0 && humanParticipantIds.every((id) => id === viewer.userId);
+}
+
+/**
+ * The one team every post in a conversation belongs to, or undefined when the
+ * posts span several teams (possible in the Personal scope) — a reply there
+ * has no unambiguous audience.
+ */
+export function singleTeamOf(
+  conversation: SuperChatConversation,
+  posts: HuddlePost[],
+): string | undefined {
+  const messageIds = new Set(conversation.thread.map((m) => m.id));
+  const teamIds = new Set(posts.filter((p) => messageIds.has(p.id)).map((p) => p.teamId));
+  return teamIds.size === 1 ? [...teamIds][0] : undefined;
 }

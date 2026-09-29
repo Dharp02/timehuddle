@@ -33,6 +33,7 @@ import {
   canPostIn,
   conversationGroupKey,
   postsToConversations,
+  singleTeamOf,
   type ThreadBy,
 } from '../features/huddle/superChatFeed';
 import type { ComposerContent } from '../features/huddle/types';
@@ -40,7 +41,7 @@ import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
-import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
+import { huddleApi, type HuddlePost } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
@@ -73,7 +74,6 @@ export default function Huddle() {
   // A failed inbox send or inline edit. Separate from `error` above, which is
   // a feed-load failure and takes the feed's place on screen.
   const [editError, setEditError] = useState<string | null>(null);
-  const [team, setTeam] = useState<Team | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // Top-level tab: the team feed or the user's private drafts.
@@ -92,8 +92,15 @@ export default function Huddle() {
     }
   }, []);
   const { user } = useSession();
-  const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
-    useTeam();
+  const {
+    selectedTeamId,
+    setSelectedTeamId,
+    teams,
+    allTeams,
+    setSelectedOrgId,
+    teamsReady,
+    isAdmin,
+  } = useTeam();
 
   // Scope follows the selected team: the Personal team shows "me" — the
   // caller's own posts across every team, fetched separately (no per-team DDP
@@ -190,26 +197,6 @@ export default function Huddle() {
     [scope, allTeams, selectedTeamId],
   );
   const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
-
-  // Load team data for permission checks
-  useEffect(() => {
-    async function loadTeam() {
-      if (!selectedTeamId) {
-        setTeam(null);
-        return;
-      }
-
-      try {
-        const teams = await teamApi.getTeamsOnly();
-        const foundTeam = teams.find((t) => t.id === selectedTeamId);
-        setTeam(foundTeam || null);
-      } catch (err) {
-        console.error('[Huddle] Failed to load team:', err);
-      }
-    }
-
-    loadTeam();
-  }, [selectedTeamId]);
 
   // Last REST snapshot for the team, replaced wholesale on every refetch (not
   // merged) so an edit or delete that happened while DDP was disconnected is
@@ -381,10 +368,8 @@ export default function Huddle() {
     );
   });
 
-  // The selected team's admins list gates the extra title detail
-  // (hours, no-wrap-up warning) postsToConversations shows admins on session
-  // threads.
-  const isAdmin = !!(user && team?.admins.includes(user.id));
+  // Team admins (and org owners) get the extra session-title detail (hours,
+  // no-wrap-up warning).
   const viewer = useMemo(() => ({ userId: user?.id ?? '', isAdmin }), [user?.id, isAdmin]);
 
   // Only the Personal ("me") scope labels messages with their team — a
@@ -416,7 +401,14 @@ export default function Huddle() {
     setActiveConversationId(undefined);
   }, [threadBy, selectedTeamId]);
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
-  const inboxReadOnly = !activeConversation || !canPostIn(activeConversation, threadBy, viewer);
+  // A Personal-scope conversation spanning several teams has no single team
+  // to post to, so it's read-only.
+  const teamToPostIn = (conversation: SuperChatConversation) =>
+    scope === 'me' ? singleTeamOf(conversation, myPosts) : (selectedTeamId ?? undefined);
+  const inboxReadOnly =
+    !activeConversation ||
+    !teamToPostIn(activeConversation) ||
+    !canPostIn(activeConversation, threadBy, viewer);
 
   // Deep link (see the targetPostId/threadBy effect above): once the post has
   // loaded and the grouping has switched to session, open the conversation
@@ -442,13 +434,7 @@ export default function Huddle() {
       attachments: ComposerAttachment[];
     },
   ) {
-    // In the "Me" scope a conversation can mix posts from several teams, so
-    // the target team comes from one of its own messages, not the header's
-    // selectedTeamId.
-    const targetTeamId =
-      scope === 'me'
-        ? myPosts.find((p) => meta.conversation.thread.some((m) => m.id === p.id))?.teamId
-        : selectedTeamId;
+    const targetTeamId = teamToPostIn(meta.conversation);
     if (!user || !targetTeamId) throw new Error('Select a team before posting.');
     setEditError(null);
     try {
@@ -493,7 +479,7 @@ export default function Huddle() {
   }
 
   return (
-    <AppPage fill width="wide">
+    <AppPage fill width="wide" hideTitle>
       {/* AppPage's own px-4 md:px-6 covers small screens; these extra
           breakpoints widen the side margins further as the viewport grows,
           instead of leaving them flat past md. */}
@@ -661,6 +647,13 @@ export default function Huddle() {
                     />
                   )}
 
+                {!(scope === 'me' ? myPostsLoading : loading) &&
+                  !(scope === 'me' ? myPostsError : error) &&
+                  activePosts.length > 0 &&
+                  filteredPosts.length === 0 && (
+                    <EmptyState title="No matching posts" description="Try a different search." />
+                  )}
+
                 {/* SuperChatInbox, grouped by the selected Thread by option.
                   Writable only where posting makes sense (see canPostIn):
                   the composer is read-only everywhere else, and the
@@ -668,7 +661,7 @@ export default function Huddle() {
                 {!(scope === 'me' ? myPostsLoading : loading) &&
                   !(scope === 'me' ? myPostsError : error) &&
                   user &&
-                  activePosts.length > 0 && (
+                  filteredPosts.length > 0 && (
                     <SuperChatInbox
                       conversations={conversations}
                       activeConversationId={activeConversationId}

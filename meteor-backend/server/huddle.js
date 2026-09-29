@@ -339,7 +339,8 @@ Meteor.methods({
         { projection: { _id: 1 } },
       )
       .toArray();
-    const teamIds = myTeams.map((t) => String(t._id));
+    // Legacy posts store teamId as an ObjectId — match both forms.
+    const teamIds = myTeams.flatMap((t) => [String(t._id), toId(String(t._id))]);
 
     const posts = await rawDb()
       .collection('huddlePosts')
@@ -353,7 +354,9 @@ Meteor.methods({
       .toArray();
 
     await attachSessions(posts);
-    const enriched = await Promise.all(posts.map((post) => enrichPost(post)));
+    const enriched = await Promise.all(
+      posts.map((post) => enrichPost({ ...post, teamId: String(post.teamId) })),
+    );
     return { posts: enriched };
   },
 

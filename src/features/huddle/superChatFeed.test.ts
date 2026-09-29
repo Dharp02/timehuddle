@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
-import { canPostIn, postsToConversations } from './superChatFeed';
+import { canPostIn, postsToConversations, singleTeamOf } from './superChatFeed';
 
 /** Build an epoch ms from local calendar components, so fixtures and their
  *  expected "HH:MM" / weekday output stay identical regardless of the test
@@ -250,5 +250,45 @@ describe('the Personal ("me") scope (posts from multiple teams)', () => {
     const byId = new Map(conversation.thread.map((m) => [m.id, m]));
     expect(byId.get('p1')?.text).toContain('Platform Team');
     expect(byId.get('p2')?.text).toContain('Support Team');
+  });
+
+  it('singleTeamOf returns the team only when every post shares it', () => {
+    const posts = [
+      makePost({ id: 'p1', teamId: 'team-1', postDate: '2026-09-29' }),
+      makePost({ id: 'p2', teamId: 'team-2', postDate: '2026-09-29' }),
+      makePost({ id: 'p3', teamId: 'team-1', postDate: '2026-09-28' }),
+    ];
+    const byId = new Map(
+      postsToConversations(posts, 'day', VIEWER_MEMBER, NOW).map((c) => [c.id, c]),
+    );
+    expect(singleTeamOf(byId.get('day:2026-09-29')!, posts)).toBeUndefined();
+    expect(singleTeamOf(byId.get('day:2026-09-28')!, posts)).toBe('team-1');
+  });
+});
+
+describe('attachments', () => {
+  it('skips attachments already embedded in the post text', () => {
+    const post = makePost({
+      id: 'p1',
+      content: { text: 'Look ![shot](/uploads/media/a.png)', mentions: [] },
+      attachments: [
+        {
+          mediaId: 'm-a',
+          type: 'image',
+          url: 'http://localhost:3100/uploads/media/a.png',
+          filename: 'a.png',
+        },
+        {
+          mediaId: 'm-b',
+          type: 'image',
+          url: 'http://localhost:3100/uploads/media/b.png',
+          filename: 'b.png',
+        },
+      ],
+    });
+    const [conversation] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW);
+    const text = conversation.thread[0].text ?? '';
+    expect(text.match(/a\.png/g)).toHaveLength(1);
+    expect(text).toContain('![b.png]');
   });
 });

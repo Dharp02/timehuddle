@@ -41,6 +41,8 @@ interface AppPageProps {
   flush?: boolean;
   /** Extra classes for the outer wrapper. Use sparingly. */
   className?: string;
+  /** Keep the title for screen readers only, freeing its row for the content. */
+  hideTitle?: boolean;
   children: React.ReactNode;
 }
 
@@ -51,16 +53,18 @@ export const AppPage: React.FC<AppPageProps> = ({
   fill,
   flush,
   className,
+  hideTitle,
   children,
 }) => {
   const title = usePageTitle();
   // Profile and ticket detail have no registry title and lead with their own
   // heading — they get no header block, and no gap where one would have been.
-  const hasHeader = Boolean(title || subtitle);
+  const hasHeader = !hideTitle && Boolean(title || subtitle);
   const column = cn('mx-auto w-full', COLUMN[width]);
 
   return (
     <div className={cn('app-page flex w-full flex-col', fill && 'h-full min-h-0', className)}>
+      {hideTitle && <PageTitle className="sr-only" />}
       {hasHeader && (
         <div className={cn('shrink-0 px-4 pt-4 md:px-6 md:pt-6', !flush && column)}>
           <div className="flex items-center justify-between gap-3">
