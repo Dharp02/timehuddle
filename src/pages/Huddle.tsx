@@ -674,9 +674,10 @@ export default function Huddle() {
           </div>
         )}
 
-        {/* Composer docked below the feed, chat-style: the thread scrolls
-            above it, this stays put. Posting here lands in whichever
-            conversation the new post groups into, above.
+        {/* Composer docked below the feed, chat-style — but only for a
+            team's very first post. Once a team has any posts, replying
+            happens from inside the conversation it belongs to; showing this
+            composer too would just be a second way to do the same thing.
             On a short viewport the expanded composer is taller than the space
             between the header and the fixed bottom nav, so it must be able to
             shrink and scroll its own overflow — otherwise its lower half (the
@@ -684,16 +685,20 @@ export default function Huddle() {
             unreachable. min-h-0 is what lets a flex child shrink below its
             content height. It only makes sense for one team at a time, so it
             hides in the "Me · all teams" scope. */}
-        {selectedTeamId && scope === 'team' && feedTab === 'feed' && (
-          <div className="huddle-composer min-h-0 max-h-[70vh] shrink-0 overflow-y-auto overscroll-contain">
-            <HuddleComposer
-              key={selectedTeamId}
-              onPost={addPost}
-              userInitials={user ? getUserInitials(user.name) : 'U'}
-              userColor={user ? getUserColor(user.id) : 'indigo'}
-            />
-          </div>
-        )}
+        {selectedTeamId &&
+          scope === 'team' &&
+          feedTab === 'feed' &&
+          !loading &&
+          posts.length === 0 && (
+            <div className="huddle-composer min-h-0 max-h-[70vh] shrink-0 overflow-y-auto overscroll-contain">
+              <HuddleComposer
+                key={selectedTeamId}
+                onPost={addPost}
+                userInitials={user ? getUserInitials(user.name) : 'U'}
+                userColor={user ? getUserColor(user.id) : 'indigo'}
+              />
+            </div>
+          )}
       </div>
     </AppPage>
   );
