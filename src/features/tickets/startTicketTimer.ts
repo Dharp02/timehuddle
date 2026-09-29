@@ -1,0 +1,122 @@
+/**
+ * Starting a ticket timer, shared by every place that offers one: the Tickets
+ * page (My Board rows, Redmine suggestions) and the Redmine issue page.
+ *
+ * A ticket being timed belongs in the Tickets table and on My Board. A Redmine
+ * issue joins the table by being pinned, so one the table doesn't have yet is
+ * pinned first, then put on the board. Both steps are best-effort: the timer is
+ * running either way, and the outcome says how far they got so the caller can
+ * tell the user.
+ *
+ * No React here: each page keeps its own loading flags and refreshes, and reads
+ * the outcome to decide what to show.
+ */
+import type { useToast } from '@mieweb/ui';
+
+import { ApiError, myBoardApi, redmineApi, timerApi, type TicketSourceId } from '../../lib/api';
+import { toLocalDateStr } from '../../lib/date';
+
+import { suggestionText as text } from './redmine/suggestionStrings';
+
+/**
+ * What starting or stopping a ticket timer came to, for the toast. A started
+ * timer's ticket is put on My Board: `started-and-added` did that,
+ * `started-on-board` found it already there, and plain `started` could not add it.
+ * `started-pin-limit` left it off the table and My Board: the user is at the pin cap.
+ */
+export type TicketTimerOutcome =
+  | 'started'
+  | 'started-and-added'
+  | 'started-on-board'
+  | 'started-pin-limit'
+  | 'stopped'
+  | 'clock-in'
+  | 'failed';
+
+export interface TimerTicket {
+  sourceId: TicketSourceId;
+  id: string;
+}
+
+export interface StartTicketTimerOptions {
+  /** The Tickets table already shows this ticket, so there's nothing to pin. */
+  inTable: boolean;
+  /** My Board already has this ticket. */
+  onBoard: boolean;
+}
+
+/**
+ * Turn a rejected timer start into something the user can act on. The shift
+ * gate is the common one: a page's clocked-in state can be stale (another tab
+ * clocked out, the 8h auto-clockout fired), so the server's answer is authoritative.
+ */
+export function timerErrorMessage(err: unknown): string {
+  const code = err instanceof ApiError ? err.code : undefined;
+  if (code === 'no-active-shift') return 'Clock in to start a ticket timer.';
+  if (code === 'not-connected')
+    return 'Connect your Redmine account in Settings to time this issue.';
+  if (code === 'unreachable' || code === 'invalid-key')
+    return 'Could not reach Redmine to start this timer.';
+  return 'Could not start the timer. Please try again.';
+}
+
+export const STOP_TIMER_ERROR = 'Could not stop the timer. Please try again.';
+
+/** Pin a Redmine issue into the Tickets table. True when the pin cap refused it. */
+function pinRedmineIssue(issueId: number): Promise<boolean> {
+  // The server pins on timer start too; this waits for it and hears the cap.
+  return redmineApi.prefs.set(issueId, 'pinned').then(
+    () => false,
+    (err: unknown) => err instanceof ApiError && err.code === 'too-many-pins',
+  );
+}
+
+/**
+ * Start a timer on the ticket, then make sure it is in the table and on My Board.
+ * Throws when the timer itself is refused; see `timerErrorMessage`.
+ */
+export async function startTicketTimer(
+  ticket: TimerTicket,
+  { inTable, onBoard }: StartTicketTimerOptions,
+): Promise<TicketTimerOutcome> {
+  const result = await timerApi.createEntry({
+    ticketId: ticket.id,
+    source: ticket.sourceId,
+    date: toLocalDateStr(new Date()),
+    startNow: true,
+    notifyAdmins: false,
+  });
+  if (!result.session) return 'failed';
+
+  // At the pin cap it never joins the table, so it stays off My Board too:
+  // My Board shows only rows the table has.
+  if (ticket.sourceId === 'redmine' && !inTable && (await pinRedmineIssue(Number(ticket.id)))) {
+    return 'started-pin-limit';
+  }
+
+  if (onBoard) return 'started-on-board';
+  try {
+    await myBoardApi.addMany([{ sourceId: ticket.sourceId, ticketId: ticket.id }]);
+    return 'started-and-added';
+  } catch {
+    return 'started';
+  }
+}
+
+/**
+ * Confirm a Redmine issue's timer start or stop in a toast. False when the
+ * outcome has nothing to confirm (it failed, or is waiting on a clock-in).
+ */
+export function toastTimerOutcome(
+  toast: ReturnType<typeof useToast>,
+  outcome: TicketTimerOutcome,
+  issueId: number,
+): boolean {
+  if (outcome === 'started-and-added') toast.success(text.timerStartedAndAdded(issueId));
+  else if (outcome === 'started-on-board') toast.success(text.timerStartedOnBoard(issueId));
+  else if (outcome === 'started') toast.success(text.timerStarted(issueId));
+  else if (outcome === 'started-pin-limit') toast.warning(text.timerStartedPinLimit(issueId));
+  else if (outcome === 'stopped') toast.info(text.timerStopped(issueId));
+  else return false;
+  return true;
+}

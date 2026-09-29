@@ -238,3 +238,176 @@ test.describe('Redmine issue detail', () => {
     await expect(sidebar(page).getByRole('combobox', { name: 'Status' })).toBeEnabled();
   });
 });
+
+test.describe('Redmine issue page timer', () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+  });
+
+  /**
+   * The test backend has no Redmine, so the timer and My Board calls are
+   * stubbed. `running` follows start and stop, so the page's own running-timer
+   * tracking drives the button, as it does for a real timer.
+   */
+  async function stubTimer(
+    page: Page,
+    { onBoard = false, startError }: { onBoard?: boolean; startError?: string } = {},
+  ) {
+    const starts: Record<string, unknown>[] = [];
+    const stops: Record<string, unknown>[] = [];
+    const boardAdds: Record<string, unknown>[] = [];
+    let running = false;
+    const json = (result: unknown) => ({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ result }),
+    });
+
+    await page.route('**/api/timers_createEntry', async (route) => {
+      starts.push(route.request().postDataJSON());
+      if (startError) {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: startError, reason: startError }),
+        });
+        return;
+      }
+      running = true;
+      await route.fulfill(json({ entry: { id: 'w1' }, session: { id: 's1' } }));
+    });
+    await page.route('**/api/timers_stopSession', async (route) => {
+      stops.push(route.request().postDataJSON());
+      running = false;
+      await route.fulfill(json({ session: { id: 's1' } }));
+    });
+    await page.route('**/api/timers_getRunning', (route) =>
+      route.fulfill(
+        json({
+          session: running
+            ? {
+                id: 's1',
+                workItemId: 'w1',
+                userId: 'u',
+                clockEventId: null,
+                date: '2026-09-28',
+                startTime: Date.now(),
+                endTime: null,
+                createdAt: '',
+              }
+            : null,
+        }),
+      ),
+    );
+    await page.route('**/api/timers_getDay', (route) =>
+      route.fulfill(
+        json({
+          entries: [
+            {
+              entry: {
+                id: 'w1',
+                source: 'redmine',
+                ticketId: String(ISSUE_ID),
+                displayTitle: 'Fix the intake form validation',
+                displayUrl: null,
+              },
+              sessions: [],
+            },
+          ],
+        }),
+      ),
+    );
+    await page.route('**/api/myBoard_list', (route) =>
+      route.fulfill(
+        json({
+          entries: onBoard
+            ? [
+                {
+                  sourceId: 'redmine',
+                  ticketId: String(ISSUE_ID),
+                  addedAt: '2026-09-01T00:00:00.000Z',
+                },
+              ]
+            : [],
+        }),
+      ),
+    );
+    await page.route('**/api/myBoard_addMany', async (route) => {
+      boardAdds.push(route.request().postDataJSON());
+      await route.fulfill(json({ addedCount: 1 }));
+    });
+    return { starts, stops, boardAdds };
+  }
+
+  const startButton = (page: Page) =>
+    page.getByRole('button', { name: `Start a timer on #${ISSUE_ID}` });
+  const stopButton = (page: Page) =>
+    page.getByRole('button', { name: `Stop the timer on #${ISSUE_ID}` });
+
+  test('starts and stops a timer from the header', async ({ page }) => {
+    const { starts, stops } = await stubTimer(page, { onBoard: true });
+    const rm = await openIssue(page, { 'issues.get': detailResponse() });
+
+    await expect(startButton(page)).toHaveText('Start timer');
+    await startButton(page).click();
+
+    // Assigned to you and already on My Board: the timer just starts.
+    await expect(page.getByText(`Timer started on #${ISSUE_ID}. It's on My Board`)).toBeVisible();
+    expect(starts[0]).toMatchObject({
+      ticketId: String(ISSUE_ID),
+      source: 'redmine',
+      startNow: true,
+    });
+    expect(rm.calls('prefs.set')).toHaveLength(0);
+    await expect(stopButton(page)).toHaveText('Stop timer');
+
+    await stopButton(page).click();
+
+    await expect(page.getByText(`Timer stopped on #${ISSUE_ID}`)).toBeVisible();
+    expect(stops[0]).toMatchObject({ sessionId: 's1' });
+    await expect(startButton(page)).toBeVisible();
+  });
+
+  test('an issue not in your table is pinned and added to My Board', async ({ page }) => {
+    const { boardAdds } = await stubTimer(page);
+    const rm = await openIssue(page, {
+      'issues.get': detailResponse({ assignedTo: { id: 3, name: 'Priya Patel' } }),
+      'prefs.set': { ok: true },
+    });
+
+    await startButton(page).click();
+
+    await expect(
+      page.getByText(`Timer started on #${ISSUE_ID} and added to My Board`),
+    ).toBeVisible();
+    expect(rm.calls('prefs.set')).toContainEqual({ issueId: ISSUE_ID, state: 'pinned' });
+    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: String(ISSUE_ID) }] });
+  });
+
+  test('at the pin limit the timer starts, and says it stayed off the table', async ({ page }) => {
+    const { boardAdds } = await stubTimer(page);
+    await openIssue(page, {
+      'issues.get': detailResponse({ assignedTo: null }),
+      'prefs.set': { error: 'too-many-pins', status: 500 },
+    });
+
+    await startButton(page).click();
+
+    await expect(page.getByText(/You've reached the 500-pin limit/)).toBeVisible();
+    expect(boardAdds).toHaveLength(0);
+  });
+
+  test('says to clock in when there is no shift, and starts nothing', async ({ page }) => {
+    const { boardAdds } = await stubTimer(page, { startError: 'no-active-shift' });
+    const rm = await openIssue(page, { 'issues.get': detailResponse({ assignedTo: null }) });
+
+    await startButton(page).click();
+
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Clock in to start a ticket timer.' }),
+    ).toBeVisible();
+    expect(rm.calls('prefs.set')).toHaveLength(0);
+    expect(boardAdds).toHaveLength(0);
+    await expect(startButton(page)).toBeVisible();
+  });
+});
