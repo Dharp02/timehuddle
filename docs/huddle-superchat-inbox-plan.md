@@ -97,7 +97,7 @@ PR 5 = M7–M10. Small PRs are easier to review and to revert.
 **Goal:** a pure function that turns posts into inbox conversations, fully tested. Doing this
 first means the hard logic is correct before any UI exists.
 
-- [ ] In `src/features/huddle/superChatFeed.ts`, add:
+- [x] In `src/features/huddle/superChatFeed.ts`, add:
   ```ts
   export type ThreadBy = 'session' | 'day' | 'person' | 'ticket';
   export function postsToConversations(
@@ -106,33 +106,33 @@ first means the hard logic is correct before any UI exists.
     viewer: { userId: string; isAdmin: boolean },
   ): SuperChatConversation[];
   ```
-- [ ] Group posts with one key function per option:
-  - [ ] **session:** `post.clockEventId`. Posts without one: key `${userId}:${postDate}`.
-  - [ ] **day:** `post.postDate` (fall back to the date part of `createdAt`).
-  - [ ] **person:** `post.userId`.
-  - [ ] **ticket:** `post.ticketId`, or `'none'` for a "No ticket" thread.
-- [ ] Build each conversation:
-  - [ ] `id`: `${threadBy}:${key}`, so ids don't clash between groupings.
-  - [ ] `title` (plain text): for sessions `Aisha Khan · Tue, Sep 29 · 08:58–now · ● Live`. Show
+- [x] Group posts with one key function per option:
+  - [x] **session:** `post.clockEventId`. Posts without one: key `${userId}:${postDate}`.
+  - [x] **day:** `post.postDate` (fall back to the date part of `createdAt`).
+  - [x] **person:** `post.userId`.
+  - [x] **ticket:** `post.ticketId`, or `'none'` for a "No ticket" thread.
+- [x] Build each conversation:
+  - [x] `id`: `${threadBy}:${key}`, so ids don't clash between groupings.
+  - [x] `title` (plain text): for sessions `Aisha Khan · Tue, Sep 29 · 08:58–now · ● Live`. Show
         `You` for the viewer's own threads. Admins also get hours (`· 8h 18m`) and `· ⚠ no wrap-up`
         when a finished session has no post with `wrapUpAt`.
-  - [ ] Clock-in / clock-out as `type: 'system'` messages from `post.session.startTime` /
+  - [x] Clock-in / clock-out as `type: 'system'` messages from `post.session.startTime` /
         `endTime` (session, day and person only; **not** ticket).
-  - [ ] Each post as a message. Body first, then the label, e.g.
+  - [x] Each post as a message. Body first, then the label, e.g.
         `Checklist UI is done.\n\n*Plan · 🎫 Onboarding checklist*`. The sidebar preview shows the
         first line, so the body must come first.
-  - [ ] Reuse the existing `postToMessageText` attachment handling (images, file links).
-  - [ ] `participants`: every post author with `color` from `getUserColor`,
+  - [x] Reuse the existing `postToMessageText` attachment handling (images, file links).
+  - [x] `participants`: every post author with `color` from `getUserColor`,
         plus a `system` participant for the clock.
-  - [ ] `lastActivity`: the newest message time; for live sessions use "now" so they sort first.
-- [ ] Keep the old `postsToConversation` for now; the page still uses it until Milestone 3.
-- [ ] Create `src/features/huddle/superChatFeed.test.ts` with fixtures. Test at least:
-  - [ ] Each grouping puts the right posts in the right conversations.
-  - [ ] A live session (no `endTime`) is marked `● Live` and has no clock-out message.
-  - [ ] Admin titles show hours; member titles don't.
-  - [ ] Posts with no `clockEventId` and posts with no ticket are handled.
-  - [ ] Ticket threads have no clock messages.
-- [ ] `npx vitest run src/features/huddle` passes. (The Vitest suite doesn't run in CI, so run it
+  - [x] `lastActivity`: the newest message time; for live sessions use "now" so they sort first.
+- [x] Keep the old `postsToConversation` for now; the page still uses it until Milestone 3.
+- [x] Create `src/features/huddle/superChatFeed.test.ts` with fixtures. Test at least:
+  - [x] Each grouping puts the right posts in the right conversations.
+  - [x] A live session (no `endTime`) is marked `● Live` and has no clock-out message.
+  - [x] Admin titles show hours; member titles don't.
+  - [x] Posts with no `clockEventId` and posts with no ticket are handled.
+  - [x] Ticket threads have no clock messages.
+- [x] `npx vitest run src/features/huddle` passes. (The Vitest suite doesn't run in CI, so run it
       yourself.)
 
 **Done when:** tests pass and a reviewer has read the function.
