@@ -48,7 +48,7 @@ import {
 import { buildRelevantIssues } from './redmine-relevance';
 import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine-query';
 import { RedmineLinks, Timers, WorkItems, isValidId } from './collections';
-import { toRedmineMeteorError } from './redmine';
+import { enforceRedmineLimit as enforceLimit, toRedmineMeteorError } from './redmine';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 
 /**
@@ -100,18 +100,6 @@ const relevantLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
  * so an unmetered loop here is an unmetered loop against Redmine.
  */
 const prefsLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
-
-/** Count this call against `limiter`, or refuse it with `too-many-requests`. */
-function enforceLimit(limiter, userId) {
-  const { allowed, retryAfterMs } = limiter.check(userId);
-  if (!allowed) {
-    throw new Meteor.Error(
-      'too-many-requests',
-      'Too many Redmine requests. Try again in a moment.',
-      { timeToReset: retryAfterMs },
-    );
-  }
-}
 
 Meteor.startup(async () => {
   try {

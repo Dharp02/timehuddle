@@ -24,6 +24,7 @@ import {
   toJournals,
   toNameMap,
   toNamedList,
+  toTimeEntries,
 } from '../server/redmine-issues';
 
 const rawIssue = {
@@ -286,6 +287,54 @@ describe('redmine-issues toJournals (M6 issue page)', () => {
   it('drops empty journals and tolerates malformed input', () => {
     expect(toJournals([{ id: 1, notes: '', details: [] }, null, { notes: 'no id' }])).toEqual([]);
     expect(toJournals(undefined)).toEqual([]);
+  });
+});
+
+describe('redmine-issues toTimeEntries (issue page activity)', () => {
+  const rawEntry = {
+    id: 900,
+    project: { id: 7, name: 'Platform' },
+    issue: { id: 101 },
+    user: { id: 42, name: 'Jane Doe' },
+    activity: { id: 9, name: 'Development' },
+    hours: 1.5,
+    comments: '  Paired on the fix  ',
+    spent_on: '2026-09-28',
+    created_on: '2026-09-28T16:20:00Z',
+    updated_on: '2026-09-28T16:20:00Z',
+    custom_fields: [{ id: 1, value: 'x' }],
+  };
+
+  it('shapes who logged how long, under which activity, on which day', () => {
+    expect(toTimeEntries([rawEntry])).toEqual([
+      {
+        id: 900,
+        user: { id: 42, name: 'Jane Doe' },
+        hours: 1.5,
+        activity: { id: 9, name: 'Development' },
+        comments: 'Paired on the fix',
+        spentOn: '2026-09-28',
+        createdAt: '2026-09-28T16:20:00.000Z',
+      },
+    ]);
+  });
+
+  it('tolerates missing fields and string hours', () => {
+    const [entry] = toTimeEntries([{ id: 1, hours: '0.25' }]);
+    expect(entry).toEqual({
+      id: 1,
+      user: null,
+      hours: 0.25,
+      activity: null,
+      comments: '',
+      spentOn: null,
+      createdAt: null,
+    });
+  });
+
+  it('drops entries without an id, and non-array input', () => {
+    expect(toTimeEntries([null, { hours: 2 }])).toEqual([]);
+    expect(toTimeEntries(undefined)).toEqual([]);
   });
 });
 

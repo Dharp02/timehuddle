@@ -22,20 +22,30 @@ import {
   createIssue,
   getIssueDetail,
   listIssuePriorities,
+  listIssueTimeEntries,
   listIssueStatuses,
   listProjectMemberships,
   listProjects,
   listProjectTrackers,
   updateIssue,
 } from './redmine-client';
-import { toFormOptions, toIssueDetail, toJournals, toNameMap, toNamedList } from './redmine-issues';
+import {
+  toFormOptions,
+  toIssueDetail,
+  toJournals,
+  toNameMap,
+  toNamedList,
+  toTimeEntries,
+} from './redmine-issues';
+import { pushedEntryIdsFor } from './redmine-time-sync';
 import {
   buildUpdatePayload,
   readBackMismatches,
   validateCreateInput,
   writeFailureReason,
 } from './redmine-issue-writes';
-import { toRedmineMeteorError } from './redmine';
+import { createRateLimiter } from './rate-limit';
+import { enforceRedmineLimit, toRedmineMeteorError } from './redmine';
 import { isRedmineIssueId } from './ticket-refs';
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -124,6 +134,39 @@ async function loadJournals(userId, account, raw) {
   return toJournals(raw.journals, lookups);
 }
 
+/**
+ * The issue page refreshes itself: when the tab regains focus, after a timer
+ * starts or stops, and every few minutes while visible. Each read is two Redmine
+ * calls, so it is metered: thirty a minute is far past a person switching tabs,
+ * and bounds a client stuck in a loop.
+ */
+const issueReadLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
+
+/** How many Redmine time entries the issue page shows. */
+export const ISSUE_TIME_ENTRY_LIMIT = 10;
+
+/**
+ * The issue's newest Redmine time entries, for its page's Activity: everyone's,
+ * except the ones TimeHuddle pushed for the caller — those already show there as
+ * the caller's own timer sessions. Counted after that, so the page gets up to
+ * `ISSUE_TIME_ENTRY_LIMIT` entries it would not otherwise show. `null` when
+ * Redmine would not list them: the rest of the page still loads.
+ */
+async function loadTimeEntries(userId, account, issueId) {
+  try {
+    const [raw, pushedIds] = await Promise.all([
+      listIssueTimeEntries(account, issueId),
+      pushedEntryIdsFor(userId, issueId),
+    ]);
+    const ownAndUnpushed = raw.filter(
+      (entry) => Number(entry?.issue?.id) === issueId && !pushedIds.has(entry.id),
+    );
+    return toTimeEntries(ownAndUnpushed).slice(0, ISSUE_TIME_ENTRY_LIMIT);
+  } catch {
+    return null;
+  }
+}
+
 Meteor.methods({
   /** Projects the caller's key can see, for the create form. */
   async 'redmine.projects.list'() {
@@ -165,18 +208,28 @@ Meteor.methods({
 
   /**
    * One issue with its description, the status changes the caller may make,
-   * and its Redmine history (`journals`, oldest first) for the issue page.
+   * its Redmine history (`journals`, oldest first), and the newest time logged
+   * on it in Redmine (`timeEntries`, see `loadTimeEntries`) for the issue page.
+   * `me` is the caller's Redmine user id, so the page can tell their own
+   * activity apart.
    */
   async 'redmine.issues.get'({ issueId } = {}) {
     const { userId } = await requireIdentity(this);
     requireIssueId(issueId);
+    enforceRedmineLimit(issueReadLimiter, userId);
     const account = await requireAccount(userId);
 
-    const raw = await loadRawIssue(account, issueId);
+    const [raw, timeEntries, link] = await Promise.all([
+      loadRawIssue(account, issueId),
+      loadTimeEntries(userId, account, issueId),
+      RedmineLinks.findOneAsync({ userId }, { fields: { redmineUserId: 1 } }),
+    ]);
     return {
       baseUrl: account.baseUrl,
+      me: link?.redmineUserId ?? null,
       issue: toIssueDetail(raw),
       journals: await loadJournals(userId, account, raw),
+      timeEntries,
     };
   },
 

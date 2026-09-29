@@ -2229,6 +2229,8 @@ export interface RedmineTimeEntryPushOutcome {
   ok: boolean;
   /** Present on failure: `no-log-time-permission`, `unreachable`, … */
   reason?: string;
+  /** Redmine's own messages for a `rejected-by-redmine`, e.g. "Activity is not included in the list". */
+  detail?: string[];
   entryId?: number;
   storedHours?: number;
 }
@@ -2324,6 +2326,20 @@ export interface RedmineJournal {
   createdAt: string | null;
   notes: string;
   changes: RedmineJournalChange[];
+}
+
+/**
+ * Time logged on an issue in Redmine, by anyone. `spentOn` is the day the work
+ * was for (`YYYY-MM-DD`); `createdAt` is when it was logged.
+ */
+export interface RedmineTimeEntry {
+  id: number;
+  user: RedmineNamed | null;
+  hours: number;
+  activity: RedmineNamed | null;
+  comments: string;
+  spentOn: string | null;
+  createdAt: string | null;
 }
 
 /** A Redmine issue priority. `isDefault` is the instance's own default. */
@@ -2441,8 +2457,16 @@ export const redmineApi = {
       issueId: number,
     ): Promise<{
       baseUrl: string | null;
+      /** The caller's Redmine user id, to pick out their own activity. */
+      me: number | null;
       issue: RedmineIssueDetail;
       journals: RedmineJournal[];
+      /**
+       * The newest time logged on the issue in Redmine (up to 10), leaving out
+       * the entries TimeHuddle pushed for the caller: those show as their own
+       * sessions. `null` when Redmine would not list them.
+       */
+      timeEntries: RedmineTimeEntry[] | null;
     }> => wormholeCall('redmine.issues.get', { issueId }),
 
     /** Create an issue as the caller (authored under their own key). */
@@ -2521,5 +2545,13 @@ export const redmineApi = {
      */
     push: (entries: RedmineTimeEntryPushRequest[]): Promise<RedmineTimeEntryPushResult> =>
       wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
+
+    /**
+     * Never send one ticket-day's unsent time to Redmine. Nothing is written to
+     * Redmine and the time stays in TimeHuddle; only time tracked on that day
+     * later is offered again.
+     */
+    discard: (ticketId: string, date: string): Promise<{ discardedSeconds: number }> =>
+      wormholeCall<{ discardedSeconds: number }>('redmine.timeEntries.discard', { ticketId, date }),
   },
 };

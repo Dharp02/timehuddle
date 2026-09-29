@@ -32,10 +32,26 @@ import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities'
 import { bustUserCaches } from './redmine-cache';
 import { removeUserIssuePrefs } from './redmine-prefs';
 import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
-import { flagEntry, recordEntry, sentSecondsFor } from './redmine-time-sync';
+import { flagEntry, recordDiscard, recordEntry, sentSecondsFor } from './redmine-time-sync';
 import { redmineTicketDaysFor } from './timer-core';
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
+
+/**
+ * Count this call against `limiter` (see rate-limit.js), or refuse it with
+ * `too-many-requests`. Every Redmine method that a client could call in a loop
+ * is metered, because an unmetered loop there is an unmetered loop against Redmine.
+ */
+export function enforceRedmineLimit(limiter, userId) {
+  const { allowed, retryAfterMs } = limiter.check(userId);
+  if (!allowed) {
+    throw new Meteor.Error(
+      'too-many-requests',
+      'Too many Redmine requests. Try again in a moment.',
+      { timeToReset: retryAfterMs },
+    );
+  }
+}
 
 /**
  * Map a failed Redmine request onto the Meteor error the client expects.
@@ -242,8 +258,10 @@ async function pushOneEntry(userId, account, row, activityId) {
           ? 'rejected-by-redmine'
           : 'unreachable';
     // Nothing was created, so nothing is recorded: the time stays unsent and
-    // is offered again on the next push.
-    return { ...base, ok: false, reason };
+    // is offered again on the next push. A 422 carries Redmine's own validation
+    // messages ("Activity is not included in the list"), which say what to fix.
+    const detail = reason === 'rejected-by-redmine' && err?.errors?.length ? err.errors : undefined;
+    return { ...base, ok: false, reason, ...(detail ? { detail } : {}) };
   }
 
   const entryId = created?.id ?? null;
@@ -464,6 +482,47 @@ Meteor.methods({
    * sessions, because a client-supplied number would let a stale or tampered
    * dialog write a figure nobody worked.
    */
+  /**
+   * Never send one ticket-day's unsent time to Redmine ("Never send" in the push
+   * dialog). Writes nothing to Redmine: the seconds unsent right now are recorded
+   * as handled, so the row leaves the dialog for good. Time tracked on that day
+   * afterwards is offered as new. The seconds are re-derived here, never taken
+   * from the client.
+   */
+  async 'redmine.timeEntries.discard'({ ticketId, date } = {}) {
+    const { userId } = await requireIdentity(this);
+    if (
+      typeof ticketId !== 'string' ||
+      !/^\d+$/.test(ticketId) ||
+      typeof date !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    ) {
+      throw new Meteor.Error('bad-request', 'A ticket id and a YYYY-MM-DD date are required.');
+    }
+    if (!(await findRedmineAccount(userId))) {
+      throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
+    }
+
+    // The push lock: a push running now could otherwise send the same seconds.
+    if (!(await acquirePushLock(userId))) {
+      throw new Meteor.Error(
+        'push-in-progress',
+        'A push to Redmine is already running. Wait for it to finish, then try again.',
+      );
+    }
+    try {
+      const totals = (await redmineTicketDaysFor(userId)).filter(
+        (total) => String(total.ticketId) === ticketId && total.date === date,
+      );
+      const [unsent] = unsentTotals(totals, await sentSecondsFor(userId));
+      if (!unsent) return { discardedSeconds: 0 };
+      await recordDiscard(userId, ticketId, date, unsent.seconds);
+      return { discardedSeconds: unsent.seconds };
+    } finally {
+      await releasePushLock(userId);
+    }
+  },
+
   async 'redmine.timeEntries.push'({ entries = [] } = {}) {
     const { userId } = await requireIdentity(this);
 

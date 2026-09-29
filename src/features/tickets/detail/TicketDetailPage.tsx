@@ -1,5 +1,4 @@
 import {
-  faArrowLeft,
   faCopy,
   faExternalLink,
   faPen,
@@ -45,6 +44,7 @@ import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
 import { huddleTicketRef } from '../sources';
 
 import { fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
+import { BackToTicketsButton } from './BackToTicketsButton';
 import { TicketActivityCard } from './TicketActivityCard';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -298,19 +298,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   return (
     <AppPage>
-      {/* Back navigation */}
-      <div className="ticket-detail-back mb-4">
-        <Button
-          variant="secondary"
-          size="sm"
-          aria-label="Back to tickets"
-          className="rounded-full"
-          leftIcon={<FontAwesomeIcon icon={faArrowLeft} size="sm" />}
-          onClick={() => navigate('/app/tickets')}
-        >
-          TICKETS
-        </Button>
-      </div>
+      <BackToTicketsButton />
 
       {/* Full-width title section */}
       <div className="ticket-detail-title-section mb-6">
