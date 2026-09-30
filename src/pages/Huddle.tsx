@@ -391,6 +391,13 @@ export default function Huddle() {
       postDate: toDateString(new Date()),
     });
 
+    // The Personal view reads its own cross-team list, not the team feed —
+    // the post went to the Personal team, so it can never appear in `posts`.
+    if (scope === 'me') {
+      await refreshMyPosts();
+      return;
+    }
+
     // Show the new post without waiting on the live DDP socket, which may be
     // down (dropped while the app was backgrounded for a Pulse recording):
     // refreshFeed refetches over REST and overlays the result, and syncPosts
@@ -410,8 +417,6 @@ export default function Huddle() {
       await refreshFeed();
       if (inFeed()) break;
     }
-    // The Personal ("me") view reads its own cross-team list, not `posts`.
-    if (scope === 'me') await refreshMyPosts();
   }
 
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the

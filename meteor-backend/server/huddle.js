@@ -407,12 +407,18 @@ Meteor.methods({
     return { posts: enriched };
   },
 
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp }) {
+  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, draft }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the
     // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
     // silently strands the post until the socket reconnects.
     const identity = await requireIdentity(this);
+    // Drafts were removed, but an older client (e.g. an installed mobile build)
+    // may still send `draft: true`. Reject it rather than publishing text the
+    // author meant to keep private.
+    if (draft === true) {
+      throw new Meteor.Error('bad-request', 'Drafts are no longer supported; update the app to post');
+    }
     if (!teamId || typeof teamId !== 'string') {
       throw new Meteor.Error('bad-request', 'teamId is required');
     }

@@ -1315,6 +1315,9 @@ Meteor.startup(async() => {
         postDate: { type: 'string' },
         clockEventId: { type: 'string' },
         wrapUp: { type: 'boolean' },
+        // Deprecated: kept so older clients' `draft: true` reaches the method
+        // and is rejected instead of being stripped and published.
+        draft: { type: 'boolean' },
       },
       required: ['teamId', 'content'],
     },

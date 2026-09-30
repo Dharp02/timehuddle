@@ -161,6 +161,20 @@ describe('huddle post authoring over REST', () => {
     expect(feed.result.posts.some((p) => p.id === legacyDraft._id.toHexString())).toBe(false);
   });
 
+  it('rejects a create from an old client that still asks for a draft', async () => {
+    const text = `Old-client draft ${Date.now()}`;
+    const res = await wormhole(
+      'huddle.createPost',
+      { teamId, content: { text, mentions: [] }, postDate: todayString(), draft: true },
+      authorJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/drafts are no longer supported/i);
+
+    const db = await getDb();
+    expect(await db.collection('huddlePosts').findOne({ 'content.text': text })).toBeNull();
+  });
+
   it('rejects an unauthenticated create', async () => {
     const res = await wormhole(
       'huddle.createPost',
@@ -255,5 +269,124 @@ describe('huddle post clockEventId ownership', () => {
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/does not belong to you/i);
+  });
+});
+
+/**
+ * `huddle.getMyPosts` feeds the Huddle Personal view: the caller's own
+ * published posts, only from teams they belong to, from the last 30 days by
+ * default. Legacy rows store `teamId` as an ObjectId and must still match.
+ */
+describe('huddle.getMyPosts', () => {
+  const otherTeamId = new ObjectId().toHexString();
+  const ids = {
+    recent: new ObjectId(),
+    legacyObjectIdTeam: new ObjectId(),
+    old: new ObjectId(),
+    draft: new ObjectId(),
+    someoneElse: new ObjectId(),
+    leftTeam: new ObjectId(),
+  };
+
+  beforeAll(async () => {
+    const db = await getDb();
+    const outsiderUserId = String(
+      (await db.collection('users').findOne({ 'emails.address': OUTSIDER.email }))!._id,
+    );
+    const base = {
+      content: { text: 'getMyPosts fixture', mentions: [] },
+      attachments: [],
+      likes: [],
+      commentCount: 0,
+    };
+    const now = new Date();
+    const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+    await db.collection('huddlePosts').insertMany([
+      { ...base, _id: ids.recent, teamId, userId: authorUserId, createdAt: now, updatedAt: now },
+      {
+        ...base,
+        _id: ids.legacyObjectIdTeam,
+        teamId: new ObjectId(teamId),
+        userId: authorUserId,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        ...base,
+        _id: ids.old,
+        teamId,
+        userId: authorUserId,
+        createdAt: fortyDaysAgo,
+        updatedAt: fortyDaysAgo,
+      },
+      {
+        ...base,
+        _id: ids.draft,
+        teamId,
+        userId: authorUserId,
+        status: 'draft',
+        createdAt: now,
+        updatedAt: now,
+      },
+      { ...base, _id: ids.someoneElse, teamId, userId: outsiderUserId, createdAt: now, updatedAt: now },
+      // A team the author isn't (or is no longer) a member of.
+      {
+        ...base,
+        _id: ids.leftTeam,
+        teamId: otherTeamId,
+        userId: authorUserId,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('huddlePosts').deleteMany({ _id: { $in: Object.values(ids) } });
+  });
+
+  async function myPostIds(args: Record<string, unknown> = {}): Promise<string[]> {
+    const res = await wormhole<{ posts: Array<{ id: string; teamId: string }> }>(
+      'huddle.getMyPosts',
+      args,
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+    return res.result.posts.map((p) => p.id);
+  }
+
+  it("returns the caller's own recent posts, including legacy ObjectId team ids", async () => {
+    const found = await myPostIds();
+    expect(found).toContain(ids.recent.toHexString());
+    expect(found).toContain(ids.legacyObjectIdTeam.toHexString());
+  });
+
+  it("leaves out other people's posts, teams the caller isn't in, and drafts", async () => {
+    const found = await myPostIds();
+    expect(found).not.toContain(ids.someoneElse.toHexString());
+    expect(found).not.toContain(ids.leftTeam.toHexString());
+    expect(found).not.toContain(ids.draft.toHexString());
+  });
+
+  it('defaults to the last 30 days, and `since` reaches further back', async () => {
+    expect(await myPostIds()).not.toContain(ids.old.toHexString());
+    const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    expect(await myPostIds({ since })).toContain(ids.old.toHexString());
+  });
+
+  it('returns team ids as strings', async () => {
+    const res = await wormhole<{ posts: Array<{ id: string; teamId: unknown }> }>(
+      'huddle.getMyPosts',
+      {},
+      authorJwt,
+    );
+    const legacy = res.result.posts.find((p) => p.id === ids.legacyObjectIdTeam.toHexString());
+    expect(legacy?.teamId).toBe(teamId);
+  });
+
+  it('rejects an invalid `since`', async () => {
+    const res = await wormhole('huddle.getMyPosts', { since: 'not a date' }, authorJwt);
+    expect(res.ok).toBe(false);
   });
 });

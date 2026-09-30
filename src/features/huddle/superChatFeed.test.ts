@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
-import {
-  canPostIn,
-  postsToConversations,
-  searchConversations,
-  singleTeamOf,
-  stripInboxDecorations,
-} from './superChatFeed';
+import { postsToConversations, searchConversations, stripInboxDecorations } from './superChatFeed';
 
 /** Build an epoch ms from local calendar components, so fixtures and their
  *  expected "HH:MM" / weekday output stay identical regardless of the test
@@ -251,6 +245,15 @@ describe('postsToConversations', () => {
       expect(stripInboxDecorations(edited, shown, body)).toBe('Checklist UI is done and shipped.');
     });
 
+    it('removes decorations when text is typed after them', () => {
+      expect(stripInboxDecorations(`${shown}\n\nAlso deployed.`, shown, body)).toBe(
+        `${body}\n\nAlso deployed.`,
+      );
+      expect(stripInboxDecorations(`${shown} Also deployed.`, shown, body)).toBe(
+        `${body}\n\nAlso deployed.`,
+      );
+    });
+
     it('leaves text alone when there were no decorations', () => {
       expect(stripInboxDecorations('New text', body, body)).toBe('New text');
     });
@@ -298,33 +301,6 @@ describe('postsToConversations', () => {
   });
 });
 
-describe('canPostIn', () => {
-  it('is always writable for day and ticket threads', () => {
-    const posts = [makePost({ id: 'p1', ticketId: 'tkt-1', ticketTitle: 'Onboarding checklist' })];
-    const [dayThread] = postsToConversations(posts, 'day', VIEWER_OTHER_MEMBER, NOW);
-    const [ticketThread] = postsToConversations(posts, 'ticket', VIEWER_OTHER_MEMBER, NOW);
-    expect(canPostIn(dayThread, 'day', VIEWER_OTHER_MEMBER)).toBe(true);
-    expect(canPostIn(ticketThread, 'ticket', VIEWER_OTHER_MEMBER)).toBe(true);
-  });
-
-  it('is writable only by the author for session and person threads', () => {
-    const posts = [
-      makePost({
-        id: 'p1',
-        userId: 'user-aisha',
-        clockEventId: 'evt-1',
-        session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
-      }),
-    ];
-    const [sessionThread] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
-    const [personThread] = postsToConversations(posts, 'person', VIEWER_MEMBER, NOW);
-    expect(canPostIn(sessionThread, 'session', VIEWER_MEMBER)).toBe(true);
-    expect(canPostIn(personThread, 'person', VIEWER_MEMBER)).toBe(true);
-    expect(canPostIn(sessionThread, 'session', VIEWER_OTHER_MEMBER)).toBe(false);
-    expect(canPostIn(personThread, 'person', VIEWER_OTHER_MEMBER)).toBe(false);
-  });
-});
-
 describe('the Personal ("me") scope (posts from multiple teams)', () => {
   const TEAM_NAMES: Record<string, string> = {
     'team-1': 'Platform Team',
@@ -342,19 +318,6 @@ describe('the Personal ("me") scope (posts from multiple teams)', () => {
     const byId = new Map(conversation.thread.map((m) => [m.id, m]));
     expect(byId.get('p1')?.text).toContain('Platform Team');
     expect(byId.get('p2')?.text).toContain('Support Team');
-  });
-
-  it('singleTeamOf returns the team only when every post shares it', () => {
-    const posts = [
-      makePost({ id: 'p1', teamId: 'team-1', postDate: '2026-09-29' }),
-      makePost({ id: 'p2', teamId: 'team-2', postDate: '2026-09-29' }),
-      makePost({ id: 'p3', teamId: 'team-1', postDate: '2026-09-28' }),
-    ];
-    const byId = new Map(
-      postsToConversations(posts, 'day', VIEWER_MEMBER, NOW).map((c) => [c.id, c]),
-    );
-    expect(singleTeamOf(byId.get('day:2026-09-29')!, posts)).toBeUndefined();
-    expect(singleTeamOf(byId.get('day:2026-09-28')!, posts)).toBe('team-1');
   });
 });
 

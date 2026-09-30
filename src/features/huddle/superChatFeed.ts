@@ -195,16 +195,22 @@ function postToInboxMessageText(
  * SuperChat's inline edit starts from the message text as shown, so an edit
  * comes back with the attachment markdown and label appended above. Strip
  * those back off (`shownText` is what the inbox displayed, `body` the post's
- * stored text) so they're never saved into the post and re-appended.
+ * stored text) so they're never saved into the post and re-appended. Each
+ * decoration is removed wherever it now sits (last occurrence), not only as a
+ * trailing suffix — text typed after the label must not drag it along.
  */
 export function stripInboxDecorations(editedText: string, shownText: string, body: string): string {
   if (!shownText.startsWith(body)) return editedText;
-  let text = editedText.trimEnd();
+  let text = editedText;
   const decorations = shownText.slice(body.length).split('\n\n').filter(Boolean);
-  for (const part of decorations.reverse()) {
-    if (text.endsWith(part)) text = text.slice(0, -part.length).trimEnd();
+  for (const part of decorations) {
+    const at = text.lastIndexOf(part);
+    if (at === -1) continue;
+    const before = text.slice(0, at).replace(/[ \t]+$/, '');
+    const after = text.slice(at + part.length).replace(/^[ \t]+/, '');
+    text = /\S$/.test(before) && /^\S/.test(after) ? `${before}\n\n${after}` : before + after;
   }
-  return text;
+  return text.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function displayName(post: HuddlePost, viewer: InboxViewer): string {
@@ -415,45 +421,4 @@ export function searchConversations(
     );
     return words.every((word) => haystack.includes(word));
   });
-}
-
-/** The raw group key encoded after the `${threadBy}:` prefix in a conversation
- *  id built by {@link postsToConversations} (e.g. a clockEventId, a ticketId,
- *  a "YYYY-MM-DD" day, or the `nosession:<userId>:<day>` fallback key). */
-export function conversationGroupKey(conversationId: string): string {
-  return conversationId.slice(conversationId.indexOf(':') + 1);
-}
-
-/**
- * Whether the viewer can post into a conversation, given how the inbox is
- * currently grouped:
- * - Day and ticket threads are writable by everyone (sending creates the
- *   viewer's own post).
- * - Session and person threads are single-author by construction — writable
- *   only by that author.
- */
-export function canPostIn(
-  conversation: SuperChatConversation,
-  threadBy: ThreadBy,
-  viewer: InboxViewer,
-): boolean {
-  if (threadBy === 'day' || threadBy === 'ticket') return true;
-  const humanParticipantIds = conversation.participants
-    .filter((p) => p.kind === 'human')
-    .map((p) => p.id);
-  return humanParticipantIds.length > 0 && humanParticipantIds.every((id) => id === viewer.userId);
-}
-
-/**
- * The one team every post in a conversation belongs to, or undefined when the
- * posts span several teams (possible in the Personal scope) — a reply there
- * has no unambiguous audience.
- */
-export function singleTeamOf(
-  conversation: SuperChatConversation,
-  posts: HuddlePost[],
-): string | undefined {
-  const messageIds = new Set(conversation.thread.map((m) => m.id));
-  const teamIds = new Set(posts.filter((p) => messageIds.has(p.id)).map((p) => p.teamId));
-  return teamIds.size === 1 ? [...teamIds][0] : undefined;
 }
