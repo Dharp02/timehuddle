@@ -17,33 +17,45 @@ import {
   createTimeEntry,
   getCurrentUser,
   getTimeEntry,
-  listIssues,
+  isRedmineTimeout,
   listIssuesByIds,
+  customRedmineUrlAllowed,
+  linkedRedmineBaseUrl,
+  normalizeRedmineUrl,
   optionalRedmineBaseUrl,
-  redmineBaseUrl,
+  redmineUrlRefusal,
 } from './redmine-client';
 import { encryptSecret, envKey } from './redmine-crypto';
-import { findRedmineApiKey } from './redmine-account';
+import { findRedmineAccount } from './redmine-account';
 import { toStatus } from './redmine-status';
-import { toIssueList } from './redmine-issues';
 import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
+import { removeUserIssuePrefs } from './redmine-prefs';
 import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
 import { flagEntry, recordEntry, sentSecondsFor } from './redmine-time-sync';
 import { redmineTicketDaysFor } from './timer-core';
-
-const VALID_SCOPES = new Set(['mine', 'all']);
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
 /**
  * Map a failed Redmine request onto the Meteor error the client expects.
- * A rejected key is actionable ("re-link in Settings"); anything else is not
- * worth distinguishing, so it collapses to "unreachable".
+ * A rejected key is actionable ("re-link in Settings"); a timeout is told as
+ * one, so a slow Redmine is not mistaken for a misconfigured one; anything else
+ * collapses to "unreachable". Timeouts keep the `unreachable` code, so callers
+ * that branch on it need no change.
+ *
+ * Nothing is logged here. The failure is logged where it happens, in
+ * `redmineRequest`, which knows the method, the path, the status and the
+ * duration — and knows to log the path without its query string, because a query
+ * string can carry a search term and a user may type a patient's name into the
+ * search box.
  */
 export function toRedmineMeteorError(err) {
   if (err?.status === 401 || err?.status === 403) {
     return new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
+  }
+  if (isRedmineTimeout(err)) {
+    return new Meteor.Error('unreachable', 'Redmine took too long to respond. Try again in a moment.');
   }
   return new Meteor.Error(
     'unreachable',
@@ -64,6 +76,46 @@ Meteor.startup(async () => {
 });
 
 /**
+ * The caller's connection status, plus what Settings needs to offer a custom
+ * Redmine URL: whether the deployment allows one, and the server default to
+ * prefill it with.
+ */
+function statusFor(link) {
+  return {
+    ...toStatus(link, link ? linkedRedmineBaseUrl(link.baseUrl) : null),
+    customUrlAllowed: customRedmineUrlAllowed(),
+    defaultBaseUrl: optionalRedmineBaseUrl(),
+  };
+}
+
+/**
+ * The instance a `redmine.connect` call links to: the requested URL when custom
+ * URLs are allowed and one was sent, otherwise the server's.
+ */
+function requestedBaseUrl(rawBaseUrl) {
+  if (!customRedmineUrlAllowed() || rawBaseUrl == null || rawBaseUrl === '') {
+    const fallback = optionalRedmineBaseUrl();
+    if (!fallback) throw new Meteor.Error('not-configured', 'Redmine is not configured on the server.');
+    return fallback;
+  }
+  const baseUrl = normalizeRedmineUrl(rawBaseUrl);
+  if (!baseUrl) {
+    throw new Meteor.Error('bad-request', 'Enter the Redmine URL as http(s)://host[/path].');
+  }
+  // Refused at link time as well as per request, so a user who cannot be served
+  // is told why while they are looking at the field, rather than meeting
+  // "Redmine is unreachable" on the Tickets page later.
+  const refusal = redmineUrlRefusal(baseUrl);
+  if (refusal) throw new Meteor.Error('bad-request', `${refusal}.`);
+  return baseUrl;
+}
+
+/** Whether the caller is clocked in (their main clock has an open shift). */
+async function hasOpenShift(userId) {
+  return Boolean(await ClockEvents.findOneAsync({ userId, endTime: null }));
+}
+
+/**
  * Whether the caller is idle enough to push (D2).
  *
  * Both halves matter. An open shift means the day is not finished, and a
@@ -71,8 +123,7 @@ Meteor.startup(async () => {
  * partial total that can never be corrected.
  */
 async function isIdleForPush(userId) {
-  const openShift = await ClockEvents.findOneAsync({ userId, endTime: null });
-  if (openShift) return false;
+  if (await hasOpenShift(userId)) return false;
   const runningTimer = await Timers.findOneAsync({ userId, endTime: null });
   return !runningTimer;
 }
@@ -115,7 +166,7 @@ function releasePushLock(userId) {
  * Shared by `preview` and `push` so the two can never disagree about what is
  * eligible — `push` re-derives this rather than trusting what the client sends.
  */
-async function buildPreviewRows(userId, apiKey) {
+async function buildPreviewRows(userId, account) {
   const totals = await redmineTicketDaysFor(userId);
   if (!totals.length) return [];
 
@@ -131,8 +182,8 @@ async function buildPreviewRows(userId, apiKey) {
   let activities = [];
   try {
     const [issues, fetchedActivities] = await Promise.all([
-      listIssuesByIds(apiKey, issueIds),
-      getActivitiesForUser(userId, apiKey),
+      listIssuesByIds(account, issueIds),
+      getActivitiesForUser(userId, account),
     ]);
     issuesById = new Map(
       issues.map((issue) => [
@@ -169,12 +220,12 @@ async function buildPreviewRows(userId, apiKey) {
  * comparison allows a minute of slack (`hoursAgree`), because Redmine keeps
  * time to the minute; a larger gap means it stored something else entirely.
  */
-async function pushOneEntry(userId, apiKey, row, activityId) {
+async function pushOneEntry(userId, account, row, activityId) {
   const base = { ticketId: row.ticketId, date: row.date, hours: row.hours };
 
   let created;
   try {
-    created = await createTimeEntry(apiKey, {
+    created = await createTimeEntry(account, {
       issueId: Number(row.ticketId),
       hours: row.hours,
       activityId,
@@ -208,7 +259,7 @@ async function pushOneEntry(userId, apiKey, row, activityId) {
     hours: row.hours,
   });
 
-  const stored = await getTimeEntry(apiKey, entryId);
+  const stored = await getTimeEntry(account, entryId);
   if (stored && !hoursAgree(row.hours, Number(stored.hours))) {
     await flagEntry(entryId, 'hours-mismatch');
     return { ...base, ok: false, reason: 'hours-mismatch', storedHours: Number(stored.hours), entryId };
@@ -222,7 +273,7 @@ Meteor.methods({
    * Validate a personal Redmine API key and link it to the calling user.
    * Upsert is keyed on `userId`, so reconnecting with a different key re-links.
    */
-  async 'redmine.connect'({ apiKey } = {}) {
+  async 'redmine.connect'({ apiKey, baseUrl: rawBaseUrl } = {}) {
     const { userId } = await requireIdentity(this);
 
     if (typeof apiKey !== 'string' || !apiKey.trim()) {
@@ -230,16 +281,20 @@ Meteor.methods({
     }
     const key = apiKey.trim();
 
-    let baseUrl;
-    try {
-      baseUrl = redmineBaseUrl();
-    } catch {
-      throw new Meteor.Error('not-configured', 'Redmine is not configured on the server.');
+    const baseUrl = requestedBaseUrl(rawBaseUrl);
+    const existing = await RedmineLinks.findOneAsync({ userId });
+
+    // Issue ids mean nothing across instances, so the instance may only change
+    // between shifts. Compared against the default when unlinked, so
+    // disconnecting mid-shift is not a way around it.
+    const currentBaseUrl = linkedRedmineBaseUrl(existing?.baseUrl);
+    if (baseUrl !== currentBaseUrl && (await hasOpenShift(userId))) {
+      throw new Meteor.Error('clocked-in', 'Clock out before switching to a different Redmine URL.');
     }
 
     let user;
     try {
-      user = await getCurrentUser(key);
+      user = await getCurrentUser({ apiKey: key, baseUrl });
     } catch (err) {
       if (err?.status === 401 || err?.status === 403) {
         throw new Meteor.Error('invalid-key', 'That API key was rejected by Redmine.');
@@ -253,20 +308,22 @@ Meteor.methods({
       throw new Meteor.Error('invalid-key', 'That API key was rejected by Redmine.');
     }
 
-    // `baseUrl` is intentionally NOT persisted: the configured instance is the
-    // single source of truth, derived at read time in `toStatus`.
-    const update = {
-      $set: {
-        userId,
-        redmineUserId: user.id,
-        redmineLogin: user.login,
-        firstname: user.firstname ?? '',
-        lastname: user.lastname ?? '',
-        mail: user.mail ?? '',
-        apiKey: encryptSecret(key, envKey()),
-        linkedAt: new Date(),
-      },
+    // The instance is part of the credential — a key only works where it was
+    // issued — so a custom URL is stored with it. Without one the row carries no
+    // URL and follows `REDMINE_BASE_URL`.
+    const fields = {
+      userId,
+      redmineUserId: user.id,
+      redmineLogin: user.login,
+      firstname: user.firstname ?? '',
+      lastname: user.lastname ?? '',
+      mail: user.mail ?? '',
+      apiKey: encryptSecret(key, envKey()),
+      linkedAt: new Date(),
     };
+    const update = customRedmineUrlAllowed()
+      ? { $set: { ...fields, baseUrl } }
+      : { $set: fields, $unset: { baseUrl: '' } };
     try {
       await RedmineLinks.upsertAsync({ userId }, update);
     } catch (err) {
@@ -279,50 +336,31 @@ Meteor.methods({
       }
     }
 
-    return toStatus(await RedmineLinks.findOneAsync({ userId }), baseUrl);
+    // A new key, or a new instance, must not be served the previous one's
+    // activities, projects or members.
+    bustUserCaches(userId);
+
+    return statusFor(await RedmineLinks.findOneAsync({ userId }));
   },
 
   /** Remove the caller's Redmine link. */
   async 'redmine.disconnect'() {
     const { userId } = await requireIdentity(this);
     await RedmineLinks.removeAsync({ userId });
+    // Pins and dismissals are issue ids from one instance, and mean nothing on
+    // another — a stale pin would resolve to whatever issue happens to hold that
+    // number next. Unlinking is also how a user says "forget my Redmine data".
+    await removeUserIssuePrefs(userId);
     // Re-linking with a key for a different Redmine account must not be served
     // the previous account's activities, projects or members.
     bustUserCaches(userId);
-    return { connected: false };
+    return statusFor(null);
   },
 
   /** Report the caller's Redmine connection status (never the key). */
   async 'redmine.status'() {
     const { userId } = await requireIdentity(this);
-    return toStatus(await RedmineLinks.findOneAsync({ userId }), optionalRedmineBaseUrl());
-  },
-
-  /**
-   * List the caller's Redmine issues (read-only) using their stored API key.
-   * `scope: 'mine'` → assigned to me; `scope: 'all'` → everything the key can see.
-   * Returns `{ connected: false, issues: [] }` when the user has no link, so the
-   * view can render its "not connected" state without a separate round-trip.
-   */
-  async 'redmine.issues.list'({ scope = 'mine' } = {}) {
-    const { userId } = await requireIdentity(this);
-    if (!VALID_SCOPES.has(scope)) {
-      throw new Meteor.Error('bad-request', 'scope must be "mine" or "all".');
-    }
-
-    const apiKey = await findRedmineApiKey(userId);
-    if (!apiKey) return { connected: false, baseUrl: optionalRedmineBaseUrl(), issues: [] };
-
-    const baseUrl = optionalRedmineBaseUrl();
-
-    let issues;
-    try {
-      issues = await listIssues(apiKey, { scope });
-    } catch (err) {
-      throw toRedmineMeteorError(err);
-    }
-
-    return { connected: true, baseUrl, issues: toIssueList(issues) };
+    return statusFor(await RedmineLinks.findOneAsync({ userId }));
   },
 
   /**
@@ -331,18 +369,18 @@ Meteor.methods({
    *
    * Returns `{ connected: false, activities: [] }` for an unlinked user so
    * Settings can render its state without a second round-trip, matching
-   * `redmine.issues.list`. An empty `activities` on a connected account means
-   * the instance has none configured and cannot receive time at all.
+   * `redmine.status`. An empty `activities` on a connected account means the
+   * instance has none configured and cannot receive time at all.
    */
   async 'redmine.activities.list'() {
     const { userId } = await requireIdentity(this);
 
-    const apiKey = await findRedmineApiKey(userId);
-    if (!apiKey) return { connected: false, activities: [], selectedId: null, selectedReason: 'none' };
+    const account = await findRedmineAccount(userId);
+    if (!account) return { connected: false, activities: [], selectedId: null, selectedReason: 'none' };
 
     let activities;
     try {
-      activities = await getActivitiesForUser(userId, apiKey);
+      activities = await getActivitiesForUser(userId, account);
     } catch (err) {
       throw toRedmineMeteorError(err);
     }
@@ -372,14 +410,14 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'An activity id is required.');
     }
 
-    const apiKey = await findRedmineApiKey(userId);
-    if (!apiKey) {
+    const account = await findRedmineAccount(userId);
+    if (!account) {
       throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
     }
 
     let activities;
     try {
-      activities = await getActivitiesForUser(userId, apiKey);
+      activities = await getActivitiesForUser(userId, account);
     } catch (err) {
       throw toRedmineMeteorError(err);
     }
@@ -409,12 +447,12 @@ Meteor.methods({
   async 'redmine.timeEntries.preview'() {
     const { userId } = await requireIdentity(this);
 
-    const apiKey = await findRedmineApiKey(userId);
-    if (!apiKey) return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
+    const account = await findRedmineAccount(userId);
+    if (!account) return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
 
     const idle = await isIdleForPush(userId);
-    const rows = await buildPreviewRows(userId, apiKey);
-    return { connected: true, idle, rows, baseUrl: optionalRedmineBaseUrl() };
+    const rows = await buildPreviewRows(userId, account);
+    return { connected: true, idle, rows, baseUrl: account.baseUrl };
   },
 
   /**
@@ -433,8 +471,8 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'Nothing to send.');
     }
 
-    const apiKey = await findRedmineApiKey(userId);
-    if (!apiKey) {
+    const account = await findRedmineAccount(userId);
+    if (!account) {
       throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
     }
 
@@ -458,7 +496,11 @@ Meteor.methods({
       );
     }
     try {
-      return { results: await pushRequestedEntries(userId, apiKey, entries) };
+      const results = await pushRequestedEntries(userId, account, entries);
+      // Logged time is one of the relevant list's signals, so the cached list is
+      // now out of date about the issues this push covered.
+      bustUserCaches(userId);
+      return { results };
     } finally {
       await releasePushLock(userId);
     }
@@ -471,8 +513,8 @@ Meteor.methods({
  * Unsent time is recomputed here rather than taken from the client, then
  * matched against the requested rows.
  */
-async function pushRequestedEntries(userId, apiKey, entries) {
-  const previewRows = await buildPreviewRows(userId, apiKey);
+async function pushRequestedEntries(userId, account, entries) {
+  const previewRows = await buildPreviewRows(userId, account);
   const byKey = new Map(previewRows.map((row) => [`${row.ticketId}|${row.date}`, row]));
 
   // The same enumeration the rows were resolved from, served from cache. If it
@@ -480,7 +522,7 @@ async function pushRequestedEntries(userId, apiKey, entries) {
   // unverifiable rather than trusted.
   let validActivityIds = new Set();
   try {
-    validActivityIds = new Set((await getActivitiesForUser(userId, apiKey)).map((a) => a.id));
+    validActivityIds = new Set((await getActivitiesForUser(userId, account)).map((a) => a.id));
   } catch {
     /* unreachable — handled per row below */
   }
@@ -522,7 +564,7 @@ async function pushRequestedEntries(userId, apiKey, entries) {
         activityId = requested.activityId;
       }
 
-      results.push(await pushOneEntry(userId, apiKey, row, activityId));
+      results.push(await pushOneEntry(userId, account, row, activityId));
     }
 
   return results;

@@ -20,7 +20,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 
 import { Tickets, Teams, isValidId } from './collections';
-import { findRedmineApiKey } from './redmine-account';
+import { findRedmineAccount } from './redmine-account';
 import { getIssue, listIssuesByIds, optionalRedmineBaseUrl } from './redmine-client';
 
 export const HUDDLE = 'huddle';
@@ -30,6 +30,15 @@ const KNOWN_SOURCES = new Set([HUDDLE, REDMINE]);
 
 /** Redmine issue ids are always positive integers; anything else is not one. */
 const REDMINE_ID = /^[1-9]\d*$/;
+
+/**
+ * Whether `value` is a Redmine issue id, whether it arrives as a number (a
+ * Meteor method argument) or as a string (a stored `WorkItem.ticketId`). The one
+ * definition, so a guard added elsewhere cannot drift from this one.
+ */
+export function isRedmineIssueId(value) {
+  return REDMINE_ID.test(String(value));
+}
 
 /**
  * Normalize a source supplied by a caller or read off a stored row.
@@ -74,22 +83,22 @@ const redmineDisplay = (subject, issueId, baseUrl) => ({
  */
 export async function resolveTicketRef(userId, source, ticketId) {
   if (source === REDMINE) {
-    if (!REDMINE_ID.test(String(ticketId))) {
+    if (!isRedmineIssueId(ticketId)) {
       throw new Meteor.Error('not-found', 'Issue not found');
     }
-    const apiKey = await findRedmineApiKey(userId);
-    if (!apiKey) {
+    const account = await findRedmineAccount(userId);
+    if (!account) {
       throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
     }
     let issue;
     try {
-      issue = await getIssue(apiKey, ticketId);
+      issue = await getIssue(account, ticketId);
     } catch (err) {
       if (err?.status === 401) throw new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
       throw new Meteor.Error('unreachable', 'Could not reach Redmine.');
     }
     if (!issue) throw new Meteor.Error('not-found', 'Issue not found');
-    return redmineDisplay(issue.subject, ticketId, optionalRedmineBaseUrl());
+    return redmineDisplay(issue.subject, ticketId, account.baseUrl);
   }
 
   if (!isValidId(ticketId)) throw new Meteor.Error('not-found', 'Ticket not found');
@@ -121,19 +130,19 @@ async function resolveHuddleDisplays(ticketIds, into) {
 
 /** Resolve Redmine subjects for a batch of issue ids. Best-effort — see below. */
 async function resolveRedmineDisplays(userId, issueIds, into) {
-  const ids = issueIds.filter((id) => REDMINE_ID.test(String(id)));
+  const ids = issueIds.filter(isRedmineIssueId);
   if (!ids.length) return;
-  const baseUrl = optionalRedmineBaseUrl();
+  const account = await findRedmineAccount(userId);
+  const baseUrl = account?.baseUrl ?? optionalRedmineBaseUrl();
   // Link out even when the subject cannot be fetched: an issue number plus a
   // working link is still useful, and a read path must not fail because a
   // third-party instance is down or the user unlinked their account.
   for (const id of ids) into.set(refKey(REDMINE, id), redmineDisplay(null, id, baseUrl));
 
-  const apiKey = await findRedmineApiKey(userId);
-  if (!apiKey) return;
+  if (!account) return;
   let issues;
   try {
-    issues = await listIssuesByIds(apiKey, ids);
+    issues = await listIssuesByIds(account, ids);
   } catch {
     return;
   }

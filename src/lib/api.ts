@@ -2163,10 +2163,24 @@ export interface RedmineStatus {
   linkedAt?: string | null;
   /** The user's chosen time-entry activity, or null until they pick one. */
   defaultActivityId?: number | null;
+  /** Whether this deployment lets users link their own Redmine URL (dev/test only). */
+  customUrlAllowed?: boolean;
+  /** The server's Redmine URL — what a custom URL field starts from. */
+  defaultBaseUrl?: string | null;
 }
 
-/** Which issues to fetch: assigned to me, or everything the key can see. */
-export type RedmineScope = 'mine' | 'all';
+/**
+ * Why an issue is in the relevant list, strongest first. A row shows only the
+ * first one — the server sorts them, so the choice is not the client's to make.
+ */
+export type RedmineRelevanceReason =
+  'running' | 'assigned' | 'logged' | 'activity' | 'watching' | 'pinned';
+
+/** How the server read a search query, so an empty result can be explained. */
+export type RedmineSearchKind = 'id' | 'url' | 'assignee' | 'text';
+
+/** What TimeHuddle may remember about a Redmine issue. `null` clears it. */
+export type RedmineIssuePrefState = 'pinned' | 'dismissed' | null;
 
 /** Why a previewed ticket-day cannot be sent, or null when it can. */
 export type RedmineBlockedReason = 'too-short' | 'issue-unavailable' | 'no-activity';
@@ -2251,11 +2265,38 @@ export interface RedmineIssue {
   updatedAt: string | null;
 }
 
-/** Response for `redmine.issues.list`. `connected: false` → user has no link. */
+/** Response for the Redmine issue lists. `connected: false` → user has no link. */
 export interface RedmineIssueList {
   connected: boolean;
   baseUrl: string | null;
   issues: RedmineIssue[];
+}
+
+/**
+ * A Redmine issue in the relevant list, with the server's reasons and score.
+ * The list arrives sorted, so a client must not re-rank it.
+ */
+export interface RedmineRelevantIssue extends RedmineIssue {
+  reasons: RedmineRelevanceReason[];
+  score: number;
+  /** When the user last logged time against it — only on a `logged` match. */
+  lastTimeLoggedAt?: string;
+}
+
+/**
+ * Response for `redmine.issues.relevant`.
+ *
+ * `partial: true` means one of the server's signals timed out or failed, so the
+ * list is short rather than wrong. Show it, and say so quietly.
+ */
+export interface RedmineRelevantIssueList extends RedmineIssueList {
+  issues: RedmineRelevantIssue[];
+  partial: boolean;
+}
+
+/** Response for `redmine.issues.search`. At most 25 issues, titles matched only. */
+export interface RedmineSearchResult extends RedmineIssueList {
+  kind: RedmineSearchKind;
 }
 
 /**
@@ -2362,17 +2403,38 @@ export const redmineApi = {
   /** Current Redmine connection status for the signed-in user. */
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
 
-  /** Validate and link a personal Redmine API key. */
-  connect: (apiKey: string): Promise<RedmineStatus> =>
-    wormholeCall<RedmineStatus>('redmine.connect', { apiKey }),
+  /**
+   * Validate and link a personal Redmine API key. `baseUrl` picks the instance,
+   * and is honoured only when the status reports `customUrlAllowed`.
+   */
+  connect: (apiKey: string, baseUrl?: string): Promise<RedmineStatus> =>
+    wormholeCall<RedmineStatus>('redmine.connect', { apiKey, ...(baseUrl ? { baseUrl } : {}) }),
 
   /** Remove the Redmine link. */
   disconnect: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.disconnect', {}),
 
   issues: {
-    /** List the caller's Redmine issues (read-only) for the given scope. */
-    list: (scope: RedmineScope): Promise<RedmineIssueList> =>
-      wormholeCall<RedmineIssueList>('redmine.issues.list', { scope }),
+    /**
+     * The issues most likely to be what the caller is looking for: assigned to
+     * them, recently logged against, recently touched, watched, pinned, or being
+     * timed right now. Merged and sorted server-side, at most 100.
+     *
+     * `includeDismissed` keeps the issues the user hid from their suggestions —
+     * the Tickets table passes it, because a dismissal is about the search
+     * dropdown and must not reshape the table.
+     */
+    relevant: (includeDismissed = false): Promise<RedmineRelevantIssueList> =>
+      wormholeCall<RedmineRelevantIssueList>('redmine.issues.relevant', { includeDismissed }),
+
+    /**
+     * Find issues by number (`1234`, `#1234`), a pasted Redmine link, `@person`,
+     * or words matched against issue **titles** only. At most 25 results.
+     *
+     * The query never leaves this call: do not put it in the URL, in storage or
+     * in analytics. A user may type a patient's name here.
+     */
+    search: (query: string): Promise<RedmineSearchResult> =>
+      wormholeCall<RedmineSearchResult>('redmine.issues.search', { query }),
 
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (
@@ -2401,6 +2463,29 @@ export const redmineApi = {
         expectedUpdatedAt,
         edits: { ...edits },
       }),
+  },
+
+  prefs: {
+    /**
+     * Pin, hide or clear one Redmine issue for the caller.
+     *
+     * Hiding affects that user's **suggestions only**: it changes nothing in
+     * Redmine, nothing for other users, and nothing in search results or the
+     * Tickets table. The server expires a dismissal after 15 days, and clears it
+     * early if the issue becomes assigned to the user, so there is nothing for
+     * the client to schedule. `null` is both Undo and Restore.
+     *
+     * Two refusals beyond the usual Redmine ones: `too-many-pins` when the caller
+     * is at the per-user pin cap (they unpin something, or keep the suggestion),
+     * and `too-many-requests` when they are ahead of the rate limit, where the
+     * next attempt goes through.
+     */
+    set: (issueId: number, state: RedmineIssuePrefState): Promise<{ ok: true }> =>
+      wormholeCall<{ ok: true }>('redmine.prefs.set', { issueId, state }),
+
+    /** Issues the caller has hidden, newest first — the Restore list in Settings. */
+    listDismissed: (): Promise<RedmineIssueList> =>
+      wormholeCall<RedmineIssueList>('redmine.prefs.listDismissed', {}),
   },
 
   projects: {
