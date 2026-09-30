@@ -95,6 +95,10 @@ jobs:
           tags: ${{ steps.image.outputs.tag }}
           build-args: |
             VITE_TIMECORE_URL=https://${{ steps.container.outputs.name }}-api.os.mieweb.org
+            # PR-preview only — never set true for a production or TestFlight build,
+            # it turns on one-click sign-in as any role, including org/enterprise owner.
+            VITE_DEV_QUICK_LOGIN=true
+            DEV_QUICK_LOGIN_ENABLED=true
           # Aggressive layer cache — Meteor package installs are the slow part
           cache-from: type=registry,ref=${{ steps.image.outputs.tag }}-cache
           cache-to: type=registry,ref=${{ steps.image.outputs.tag }}-cache,mode=max
@@ -152,6 +156,10 @@ jobs:
           api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
           api_url: ${{ secrets.LAUNCHPAD_API_URL }}
           template_name: ${{ needs.build-and-push.outputs.image_tag }}
+          # DEV_QUICK_LOGIN_ENABLED is set via the build-args above, not here: the
+          # current mieweb/launchpad@main create-container step posts this JSON
+          # under the wrong request field, so the Container API silently drops it —
+          # see PR #606. Once that's fixed upstream, it can move back to this list.
           container_env_vars: >-
             {"MONGO_URL":"mongodb://localhost:27017/timehuddle?replicaSet=rs0","MONGO_OPLOG_URL":"mongodb://localhost:27017/local?replicaSet=rs0","METEOR_AGENDA_ENABLED":"true","CORS_ORIGINS":"${{ steps.preview.outputs.url }}","APP_URL":"${{ steps.preview.outputs.url }}","ROOT_URL":"${{ steps.preview.outputs.api_url }}"}
           services: >-

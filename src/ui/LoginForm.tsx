@@ -68,9 +68,10 @@ const DEV_ROLES: ReadonlyArray<{ role: DevRole; label: string }> = [
 
 export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const session = useSession();
-  // Must track `Meteor.isDevelopment`, which gates the backend handler. MODE is
-  // the wrong test: `vite build --mode testflight` isn't production either.
-  const showDevSignIn = import.meta.env.DEV;
+  // Must track the backend's isDevQuickLoginEnabled() gate: dev mode, or the
+  // PR-preview opt-in flag. MODE is the wrong test: `vite build --mode
+  // testflight` isn't production either.
+  const showDevSignIn = import.meta.env.DEV || import.meta.env.VITE_DEV_QUICK_LOGIN === 'true';
 
   const resetToken =
     typeof window !== 'undefined'

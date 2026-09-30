@@ -44,6 +44,9 @@ COPY . .
 # Build Vite frontend (VITE_* vars are baked in at build time)
 ARG VITE_TIMECORE_URL
 ENV VITE_TIMECORE_URL=${VITE_TIMECORE_URL}
+# PR-preview only — never set true for production or TestFlight builds, it exposes owner sign-in.
+ARG VITE_DEV_QUICK_LOGIN=false
+ENV VITE_DEV_QUICK_LOGIN=${VITE_DEV_QUICK_LOGIN}
 RUN npm run build
 
 # Compile Meteor bundle — runs once here so the container starts in seconds
@@ -75,6 +78,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Backend runtime flag baked in at build time — mieweb/launchpad's
+# container_env_vars currently drops arbitrary keys before they reach the
+# container (https://github.com/mieweb/launchpad passes them under the wrong
+# request field), so this can't be toggled via Launchpad's env-var config yet.
+# PR-preview only — never set true for production or TestFlight builds, it
+# exposes owner sign-in.
+ARG DEV_QUICK_LOGIN_ENABLED=false
+ENV DEV_QUICK_LOGIN_ENABLED=${DEV_QUICK_LOGIN_ENABLED}
 
 # Root production deps (serve, etc.)
 COPY package.json package-lock.json ./
