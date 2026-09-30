@@ -3,3 +3,12 @@
 .inbox :global([data-slot='superchat-conversations']) > div:first-child > span {
   display: none;
 }
+
+/* The bubble's row is sized to its content, so wide screenshots and long URLs
+   would push it past the thread; cap the row and let text wrap. */
+.inbox :global([data-slot='superchat-message'] div:has(> [data-slot='superchat-bubble'])) {
+  max-width: 100%;
+}
+.inbox :global([data-slot='superchat-bubble']) {
+  overflow-wrap: anywhere;
+}
