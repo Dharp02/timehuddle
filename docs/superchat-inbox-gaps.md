@@ -47,8 +47,10 @@ Because of this, threads mean very different things: a single session, several d
 ticket with many authors. The inbox needs to show **dates**, **status** and **summary
 details** that a normal chat doesn't need.
 
-The Scope and Thread by controls live in the TimeHuddle app, outside the inbox, and use the
-existing `Tabs` component. They are **not** part of this request.
+The Team and Group by controls are TimeHuddle's own `Dropdown`s. The app portals them,
+with search, into the inbox's conversation-list header, because `SuperChatInbox` has no
+slot there (gap 1.8). The controls themselves are **not** part of
+this request.
 
 ## Where to Look in @mieweb/ui
 

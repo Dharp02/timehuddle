@@ -265,9 +265,11 @@ export const ClockPage: React.FC = () => {
       : '';
 
   // Remember what the editor was actually mounted with, for the wrap-up guard.
+  // Snapshot `text` (what the editor is given) at each (re)mount — not
+  // `seedText`, which differs once the user has typed before the plan arrives.
   useEffect(() => {
-    if (editorMounted) shownSeedRef.current = seedText;
-  }, [editorMounted, seedText, composerMode, editorKey]);
+    if (editorMounted) shownSeedRef.current = text;
+  }, [editorMounted, composerMode, editorKey]);
 
   // Caches the plan post ID immediately after creation so postWrapUpAndClockOut
   // can update the right post even if the DDP subscription hasn't synced yet.

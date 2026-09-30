@@ -8,6 +8,7 @@ import {
   DropdownItem,
   EmptyState,
   Input,
+  Spinner,
   Text,
 } from '@mieweb/ui';
 import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
@@ -128,6 +129,8 @@ export default function Huddle() {
   // applies across teams). Having the Personal team itself selected (e.g. from
   // the header switcher) lands in the same view.
   const [showMe, setShowMe] = useState(false);
+  // A team change from anywhere (header switcher, org switch) leaves the Personal view.
+  useEffect(() => setShowMe(false), [selectedTeamId]);
   const personalTeamId = allTeams.find((t) => t.isPersonal)?.id ?? null;
   const scope: 'team' | 'me' =
     showMe || (selectedTeamId !== null && selectedTeamId === personalTeamId) ? 'me' : 'team';
@@ -679,14 +682,14 @@ export default function Huddle() {
           {(scope === 'me' || selectedTeamId) && (
             <>
               {(scope === 'me' ? myPostsLoading : loading) && (
-                <div className="flex items-center justify-center py-16">
-                  <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                <div className="huddle-loading flex items-center justify-center py-16">
+                  <Spinner size="lg" label="Loading posts" />
                 </div>
               )}
 
               {(scope === 'me' ? myPostsError : error) && (
-                <div className="flex items-center justify-center py-16 px-4">
-                  <p className="text-sm text-red-500 dark:text-red-400">
+                <div className="huddle-load-error flex items-center justify-center py-16 px-4">
+                  <p role="alert" className="text-sm text-red-500 dark:text-red-400">
                     {scope === 'me' ? myPostsError : error}
                   </p>
                 </div>
