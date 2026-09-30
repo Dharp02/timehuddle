@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
-import { canPostIn, postsToConversations, singleTeamOf } from './superChatFeed';
+import {
+  canPostIn,
+  postsToConversations,
+  singleTeamOf,
+  stripInboxDecorations,
+} from './superChatFeed';
 
 /** Build an epoch ms from local calendar components, so fixtures and their
  *  expected "HH:MM" / weekday output stay identical regardless of the test
@@ -211,6 +216,42 @@ describe('postsToConversations', () => {
       ];
       expect(textOf(posts, 'wrapup')).toContain('*Wrap-up*');
       expect(textOf(posts, 'reply')).not.toMatch(/Plan|Wrap-up/);
+    });
+
+    it('keeps labels and the wrap-up warning right when a search hides the plan', () => {
+      const closed = { startTime: SEP_29_0858, endTime: SEP_29_1032 };
+      const plan = makePost({
+        id: 'plan',
+        clockEventId: 'evt-1',
+        session: closed,
+        wrapUpAt: new Date(SEP_29_1032).toISOString(),
+      });
+      const reply = makePost({
+        id: 'reply',
+        clockEventId: 'evt-1',
+        session: closed,
+        createdAt: new Date(SEP_29_1032).toISOString(),
+      });
+      const [searched] = postsToConversations([reply], 'session', VIEWER_ADMIN, NOW, undefined, [
+        plan,
+        reply,
+      ]);
+      expect(searched.thread.find((m) => m.id === 'reply')?.text).not.toMatch(/Plan|Wrap-up/);
+      expect(searched.title).not.toContain('no wrap-up');
+    });
+  });
+
+  describe('stripInboxDecorations', () => {
+    const body = 'Checklist UI is done.';
+    const shown = `${body}\n\n![shot.png](http://x/uploads/shot.png)\n\n*Plan · Dev Team*`;
+
+    it('removes the attachment markdown and label an edit comes back with', () => {
+      const edited = shown.replace(body, 'Checklist UI is done and shipped.');
+      expect(stripInboxDecorations(edited, shown, body)).toBe('Checklist UI is done and shipped.');
+    });
+
+    it('leaves text alone when there were no decorations', () => {
+      expect(stripInboxDecorations('New text', body, body)).toBe('New text');
     });
   });
 

@@ -85,7 +85,8 @@ test.describe('Huddle — ticket video cross-posting', () => {
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
-    await createFreshTeam(page, `Cross-post Team ${Date.now()}`);
+    // "Test Team" prefix: global teardown only removes orphaned teams named that way.
+    await createFreshTeam(page, `Test Team Cross-post ${Date.now()}`);
     await createTicket(page, TICKET_TITLE);
     await uploadVideoToTicket(page, TICKET_TITLE);
   });

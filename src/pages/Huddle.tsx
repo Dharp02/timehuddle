@@ -35,6 +35,7 @@ import {
   conversationGroupKey,
   postsToConversations,
   singleTeamOf,
+  stripInboxDecorations,
   type ThreadBy,
 } from '../features/huddle/superChatFeed';
 import type { ComposerContent } from '../features/huddle/types';
@@ -48,6 +49,8 @@ import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
 
 const THREAD_BY_KEY = 'app:huddleThreadBy';
+// Team-tab value for the Personal view; team ids are never this string.
+const PERSONAL_TAB = 'personal';
 const THREAD_BY_OPTIONS: ThreadBy[] = ['session', 'day', 'person', 'ticket'];
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
   session: 'Session',
@@ -105,15 +108,22 @@ export default function Huddle() {
     currentTime,
   } = useTeam();
 
-  // Scope follows the selected team: the Personal team shows "me" — the
-  // caller's own posts across every team, fetched separately (no per-team DDP
-  // subscription applies across teams) — and any other team shows its feed.
-  const scope: 'team' | 'me' = allTeams.find((t) => t.id === selectedTeamId)?.isPersonal
-    ? 'me'
-    : 'team';
+  // Personal is a view, not a team selection: entering it leaves the selected
+  // team and org alone, so the team tabs stay put. It shows the caller's own
+  // posts across every team, fetched separately (no per-team DDP subscription
+  // applies across teams). Having the Personal team itself selected (e.g. from
+  // the header switcher) lands in the same view.
+  const [showMe, setShowMe] = useState(false);
+  const personalTeamId = allTeams.find((t) => t.isPersonal)?.id ?? null;
+  const scope: 'team' | 'me' =
+    showMe || (selectedTeamId !== null && selectedTeamId === personalTeamId) ? 'me' : 'team';
+  // Where the first-post composer and Drafts write: the Personal team in the
+  // Personal view, the selected team otherwise.
+  const postingTeamId = scope === 'me' ? personalTeamId : selectedTeamId;
 
   // A team outside the selected org is filtered out of `teams` and would be
   // reset straight back by TeamContext, so switch the org along with it.
+  // Only deep links need this; the team tabs are all in the selected org.
   const selectTeamAcrossOrgs = useCallback(
     (teamId: string) => {
       const crossOrg = teams.some((t) => t.id === teamId)
@@ -125,11 +135,15 @@ export default function Huddle() {
     [teams, allTeams, setSelectedOrgId, setSelectedTeamId],
   );
 
-  // The Personal team lives in its own org, so `teams` (scoped to the selected
-  // org) can lack it — add its tab back so the Personal feed is always reachable.
-  const personalTeam = allTeams.find((t) => t.isPersonal);
-  const teamTabs =
-    personalTeam && !teams.some((t) => t.id === personalTeam.id) ? [personalTeam, ...teams] : teams;
+  const teamTabs = teams.filter((t) => !t.isPersonal);
+  const selectTab = (value: string) => {
+    if (value === PERSONAL_TAB) {
+      setShowMe(true);
+      return;
+    }
+    setShowMe(false);
+    setSelectedTeamId(value);
+  };
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
   const [myPostsLoading, setMyPostsLoading] = useState(false);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
@@ -174,20 +188,28 @@ export default function Huddle() {
   useEffect(() => {
     if (!pendingTeamId) return;
     if (pendingTeamId === selectedTeamId) {
+      setShowMe(false);
       setPendingTeamId(null);
       return;
     }
     if (!teamsReady) return;
     // Not a member of that team — nothing to switch to.
-    if (allTeams.some((t) => t.id === pendingTeamId)) selectTeamAcrossOrgs(pendingTeamId);
+    if (allTeams.some((t) => t.id === pendingTeamId)) {
+      setShowMe(false);
+      selectTeamAcrossOrgs(pendingTeamId);
+    }
     setPendingTeamId(null);
   }, [pendingTeamId, selectedTeamId, allTeams, teamsReady, selectTeamAcrossOrgs]);
 
+  // In memory only: opening one notification shouldn't overwrite the reader's
+  // saved Group by. A search that excludes the post would keep its
+  // conversation from ever appearing, so it's cleared too.
   useEffect(() => {
     if (!targetPostId) return;
     setFeedTab('feed');
-    setThreadBy('session');
-  }, [targetPostId, setThreadBy]);
+    _setThreadBy('session');
+    setSearchQuery('');
+  }, [targetPostId]);
 
   // A boolean, not `posts` itself: the array gets a fresh identity on every DDP
   // change event, and depending on it tore down the effect below (cancelling its
@@ -269,21 +291,29 @@ export default function Huddle() {
   // A post's `session.endTime` is a snapshot from when it was last fetched —
   // clocking out doesn't touch the huddlePosts document, so the change stream
   // behind the posts subscription never fires for it. The live clock event
-  // list above is reactive (it drops a session the instant it closes), so refetch
-  // whenever it changes: the inbox's title (● Live, hours, the clock-out
-  // message) picks up the real end time on the next render, no reload needed.
-  // Skipped on mount (an initial empty→populated transition isn't a clock-out).
+  // list above drops a session the instant it closes, so refetch only when a
+  // session that was open in scope has closed — not on first load, a team
+  // switch or a clock-in. In Personal only the caller's own sessions count.
   const liveClockEventIdsKey = liveClockEvents
     .map((d) => `${d._id}:${d.endTime ?? 'open'}`)
     .join(',');
-  const hasMountedLiveClock = useRef(false);
+  const openSessionsRef = useRef<Map<string, string>>(new Map());
+  const refreshActiveScopeRef = useRef(refreshActiveScope);
+  refreshActiveScopeRef.current = refreshActiveScope;
   useEffect(() => {
-    if (!hasMountedLiveClock.current) {
-      hasMountedLiveClock.current = true;
-      return;
+    const inScope = new Set(liveTeamIds);
+    const open = new Map<string, string>();
+    for (const d of liveClockEvents) {
+      const teamId = String(d.teamId ?? '');
+      if (d.endTime != null || !inScope.has(teamId)) continue;
+      if (scope === 'me' && d.userId !== user?.id) continue;
+      open.set(String(d._id), teamId);
     }
-    refreshActiveScope();
-  }, [liveClockEventIdsKey, refreshActiveScope]);
+    const previous = openSessionsRef.current;
+    openSessionsRef.current = open;
+    const closed = [...previous].some(([id, teamId]) => inScope.has(teamId) && !open.has(id));
+    if (closed) void refreshActiveScopeRef.current();
+  }, [liveClockEventIdsKey, liveTeamIds, scope, user?.id]);
 
   // Subscribe to live DDP publication for huddle posts
   useEffect(() => {
@@ -326,7 +356,7 @@ export default function Huddle() {
   async function addPost(content: ComposerContent) {
     // Thrown, not alerted: HuddleComposer catches it and shows the reason in
     // its own `role="alert"` region, keeping the draft and the caret intact.
-    if (!user || !selectedTeamId) {
+    if (!user || !postingTeamId) {
       throw new Error('Select a team before posting.');
     }
 
@@ -334,7 +364,7 @@ export default function Huddle() {
     const attachments = content.attachments.map(toPostAttachment);
 
     const { id } = await huddleApi.createPost({
-      teamId: selectedTeamId,
+      teamId: postingTeamId,
       content: { text: content.text, mentions: mentionUserIds },
       ticketId: content.ticketId,
       attachments,
@@ -403,8 +433,9 @@ export default function Huddle() {
   // live session's worked duration moving without regrouping every second.
   const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
   const conversations = useMemo(
-    () => postsToConversations(filteredPosts, threadBy, viewer, nowMinute, getTeamName),
-    [filteredPosts, threadBy, viewer, nowMinute, getTeamName],
+    () =>
+      postsToConversations(filteredPosts, threadBy, viewer, nowMinute, getTeamName, activePosts),
+    [filteredPosts, threadBy, viewer, nowMinute, getTeamName, activePosts],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
@@ -417,7 +448,7 @@ export default function Huddle() {
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>(undefined);
   useEffect(() => {
     setActiveConversationId(undefined);
-  }, [threadBy, selectedTeamId]);
+  }, [threadBy, selectedTeamId, scope]);
   // Same fallback SuperChatInbox uses for an unknown id, so the conversation
   // on screen is the one whose permissions decide `readOnly` below.
   const activeConversation =
@@ -501,9 +532,13 @@ export default function Huddle() {
   async function handleMessageEdited(messageId: string, text: string) {
     const post = activePosts.find((p) => p.id === messageId);
     if (!post) return;
+    const shown = conversations.flatMap((c) => c.thread).find((m) => m.id === messageId)?.text;
+    const body = shown ? stripInboxDecorations(text, shown, post.content.text) : text;
     try {
-      await huddleApi.updatePost(messageId, { text, mentions: post.content.mentions });
-      if (scope === 'me') await refreshMyPosts();
+      await huddleApi.updatePost(messageId, { text: body, mentions: post.content.mentions });
+      // REST refresh too: with the DDP socket down (mobile, backgrounded) the
+      // saved edit would otherwise stay invisible until a manual refresh.
+      await refreshActiveScope();
     } catch (err) {
       console.error('[Huddle] Failed to save edit:', err);
       setEditError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
@@ -597,16 +632,20 @@ export default function Huddle() {
           />
         )}
 
-        {/* Team tabs for the inbox — the same setSelectedTeamId the header
-            team switcher uses, so the rest of the app stays in sync. The
-            Personal team's tab is the "me" scope (see `scope` above). Thread
-            by (grouping) is the Group by dropdown above, beside search —
-            switching it only re-runs postsToConversations, it never
-            refetches. */}
+        {/* Team tabs for the inbox. "Personal" is a view (see `showMe`); a
+            team tab uses the same setSelectedTeamId the header team switcher
+            uses, so the rest of the app stays in sync. Thread by (grouping)
+            is the Group by dropdown above, beside search — switching it only
+            re-runs postsToConversations, it never refetches. */}
         {feedTab === 'feed' && (
           <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2">
-            <Tabs variant="pills" value={selectedTeamId ?? ''} onValueChange={selectTeamAcrossOrgs}>
+            <Tabs
+              variant="pills"
+              value={scope === 'me' ? PERSONAL_TAB : (selectedTeamId ?? '')}
+              onValueChange={selectTab}
+            >
               <TabsList aria-label="Team" className="flex-wrap">
+                <TabsTrigger value={PERSONAL_TAB}>Personal</TabsTrigger>
                 {teamTabs.map((t) => (
                   <TabsTrigger key={t.id} value={t.id}>
                     {t.name}
@@ -625,13 +664,13 @@ export default function Huddle() {
             posts to your Personal team. min-h-0 lets it shrink and scroll its
             own overflow on a short viewport instead of clipping its lower
             half (the attach buttons, Cancel and Post) under the nav. */}
-        {selectedTeamId &&
+        {postingTeamId &&
           feedTab === 'feed' &&
           !(scope === 'me' ? myPostsLoading : loading) &&
           activePosts.length === 0 && (
             <div className="huddle-composer min-h-0 max-h-[70vh] shrink-0 overflow-y-auto overscroll-contain">
               <HuddleComposer
-                key={selectedTeamId}
+                key={postingTeamId}
                 onPost={addPost}
                 userInitials={user ? getUserInitials(user.name) : 'U'}
                 userColor={user ? getUserColor(user.id) : 'indigo'}
@@ -640,10 +679,10 @@ export default function Huddle() {
           )}
 
         {/* Drafts tab — private, multiple drafts */}
-        {selectedTeamId && feedTab === 'drafts' && user && (
+        {postingTeamId && feedTab === 'drafts' && user && (
           <div>
             <DraftsPanel
-              teamId={selectedTeamId}
+              teamId={postingTeamId}
               userInitials={getUserInitials(user.name)}
               userColor={getUserColor(user.id)}
             />
@@ -683,8 +722,12 @@ export default function Huddle() {
                   !(scope === 'me' ? myPostsError : error) &&
                   activePosts.length === 0 && (
                     <EmptyState
-                      title="No posts yet"
-                      description="Be the first to share an update."
+                      title={scope === 'me' ? 'No posts in the last 30 days' : 'No posts yet'}
+                      description={
+                        scope === 'me'
+                          ? 'Personal shows what you posted in any team over the last 30 days.'
+                          : 'Be the first to share an update.'
+                      }
                     />
                   )}
 

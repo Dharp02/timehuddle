@@ -190,6 +190,22 @@ function postToInboxMessageText(
   return parts.filter(Boolean).join('\n\n');
 }
 
+/**
+ * SuperChat's inline edit starts from the message text as shown, so an edit
+ * comes back with the attachment markdown and label appended above. Strip
+ * those back off (`shownText` is what the inbox displayed, `body` the post's
+ * stored text) so they're never saved into the post and re-appended.
+ */
+export function stripInboxDecorations(editedText: string, shownText: string, body: string): string {
+  if (!shownText.startsWith(body)) return editedText;
+  let text = editedText.trimEnd();
+  const decorations = shownText.slice(body.length).split('\n\n').filter(Boolean);
+  for (const part of decorations.reverse()) {
+    if (text.endsWith(part)) text = text.slice(0, -part.length).trimEnd();
+  }
+  return text;
+}
+
 function displayName(post: HuddlePost, viewer: InboxViewer): string {
   return post.userId === viewer.userId ? 'You' : post.userName || post.userInitials || 'Unknown';
 }
@@ -200,6 +216,7 @@ function buildTitle(
   sessions: SessionInfo[],
   viewer: InboxViewer,
   now: number,
+  wrappedUpSessions: Set<string>,
 ): string {
   const first = posts[0];
   switch (threadBy) {
@@ -222,7 +239,7 @@ function buildTitle(
       if (viewer.isAdmin) {
         const endTime = session.endTime ?? now;
         title += ` · ${formatDuration((endTime - session.startTime) / 1000)}`;
-        if (!isLive && !posts.some((p) => p.wrapUpAt)) {
+        if (!isLive && !wrappedUpSessions.has(session.clockEventId)) {
           title += ' · \u26A0 no wrap-up';
         }
       }
@@ -239,6 +256,10 @@ function buildTitle(
  * `getTeamName` is only needed for the Personal ("me") scope, where posts
  * from several teams can land in one conversation and each message's label
  * needs to say which team it came from.
+ *
+ * `sessionContext` is the unfiltered post list when `posts` is a search
+ * result: which post is a session's plan, and whether it has a wrap-up, are
+ * facts about the whole session, not about what the search happened to match.
  */
 export function postsToConversations(
   posts: HuddlePost[],
@@ -246,9 +267,13 @@ export function postsToConversations(
   viewer: InboxViewer,
   now: number = Date.now(),
   getTeamName?: (teamId: string) => string | undefined,
+  sessionContext: HuddlePost[] = posts,
 ): SuperChatConversation[] {
   const groups = new Map<string, HuddlePost[]>();
-  const planPostIds = sessionPostIds(posts);
+  const planPostIds = sessionPostIds(sessionContext);
+  const wrappedUpSessions = new Set(
+    sessionContext.flatMap((p) => (p.clockEventId && p.wrapUpAt ? [p.clockEventId] : [])),
+  );
   for (const post of posts) {
     const key = groupKeyFor(post, threadBy);
     const bucket = groups.get(key);
@@ -300,7 +325,7 @@ export function postsToConversations(
 
     conversations.push({
       id: `${threadBy}:${key}`,
-      title: buildTitle(threadBy, groupPosts, sessions, viewer, now),
+      title: buildTitle(threadBy, groupPosts, sessions, viewer, now, wrappedUpSessions),
       participants: [...participants.values()],
       thread,
       lastActivity,

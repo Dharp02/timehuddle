@@ -114,6 +114,7 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 3.10 | Own messages marked as "You"                                                                                | ✅ Right-aligned with the user bubble style                                                                                      | —        |
 | 3.11 | Per-person color                                                                                            | ✅ `participant.color`                                                                                                           | —        |
 | 3.12 | Copy and edit on messages                                                                                   | ✅                                                                                                                               | —        |
+| 3.13 | Delete a message, and per-message edit/delete rights for moderators (team admins, org owners)               | ❌ No delete action or callback, and edit is offered on own messages only. Huddle has no way to delete a published post today    | P1       |
 
 ### 4. Message Box (Composer)
 

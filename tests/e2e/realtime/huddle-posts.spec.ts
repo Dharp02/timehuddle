@@ -11,7 +11,12 @@
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { openPostInInbox, openWritableConversation, sendInboxMessage } from '../huddle/helpers';
+import {
+  openPostInInbox,
+  openWritableConversation,
+  seedPost,
+  sendInboxMessage,
+} from '../huddle/helpers';
 
 test.describe('Real-time Huddle Posts', () => {
   let session1: Page;
@@ -60,13 +65,13 @@ test.describe('Real-time Huddle Posts', () => {
   });
 
   test('should show same conversation count in both sessions', async () => {
-    // Seed a post and wait for it on both sides — two still-loading, empty
-    // feeds would otherwise pass as 0 === 0.
-    await openWritableConversation(session1, teamId);
-    const text = `Conversation count seed ${Date.now()}`;
-    await sendInboxMessage(session1, text);
-    await openPostInInbox(session2, text);
+    // Seed a post and wait for a row on both sides — two still-loading, empty
+    // feeds would otherwise pass as 0 === 0. Seeded through the API so neither
+    // page's grouping or search changes; the counts are only comparable if
+    // both pages show the same view.
+    await seedPost(session1, { teamId, text: `Conversation count seed ${Date.now()}` });
     await expect(conversations(session1).first()).toBeVisible({ timeout: 15000 });
+    await expect(conversations(session2).first()).toBeVisible({ timeout: 15000 });
 
     await expect
       .poll(
