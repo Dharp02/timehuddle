@@ -339,10 +339,11 @@ export function HuddleComposer({
         </div>
         {/* A real button, not a clickable div: this is the only way into the
             composer, so it has to be reachable by keyboard and announced. */}
+        {/* Styled like the search Input beside it: Button has no input-look variant. */}
         <Button
-          variant="secondary"
+          variant="ghost"
           fullWidth
-          className="justify-start rounded-full font-normal"
+          className="justify-start rounded-lg border border-input bg-background font-normal text-muted-foreground"
           onClick={() => setExpanded(true)}
         >
           {collapsedLabel}
@@ -355,7 +356,7 @@ export function HuddleComposer({
   return (
     <div
       ref={composerRef}
-      className="px-3 py-2 border-b border-gray-100 dark:border-neutral-700 bg-white dark:bg-neutral-800"
+      className="px-3 py-2 border-b border-gray-100 dark:border-neutral-700 bg-white dark:bg-neutral-900"
     >
       {/* ── Rich editor (Kerebron — markdown in/out, working toolbar) ── */}
       <MarkdownEditor

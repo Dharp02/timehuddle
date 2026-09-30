@@ -3,6 +3,7 @@ import type { HuddlePost } from '@lib/api';
 import {
   canPostIn,
   postsToConversations,
+  searchConversations,
   singleTeamOf,
   stripInboxDecorations,
 } from './superChatFeed';
@@ -256,12 +257,34 @@ describe('postsToConversations', () => {
   });
 
   describe('posts without a session or ticket', () => {
-    it('handles session-grouped posts with no clockEventId (fallback bucket, no clock messages)', () => {
+    it('labels a session-view thread of off-the-clock posts, title and first line', () => {
       const posts = [makePost({ id: 'p1', postDate: '2026-09-29' })];
       const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
       expect(conversation.id).toBe('session:nosession:user-aisha:2026-09-29');
-      expect(conversation.thread.filter((m) => m.type === 'system')).toHaveLength(0);
-      expect(conversation.title).toBe('You · Tue, Sep 29');
+      expect(conversation.title).toBe('You · Tue, Sep 29 · Off the clock');
+      const system = conversation.thread.filter((m) => m.type === 'system');
+      expect(system.map((m) => m.text)).toEqual(['Posted without clocking in']);
+      expect(conversation.thread[0].type).toBe('system');
+      // The thread says it once; the post itself isn't labelled again.
+      expect(conversation.thread[1].text).not.toContain('Off the clock');
+    });
+
+    it('labels each off-the-clock post in the other views', () => {
+      const posts = [
+        makePost({ id: 'bare' }),
+        makePost({
+          id: 'shift',
+          clockEventId: 'evt-1',
+          session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
+        }),
+      ];
+      for (const threadBy of ['day', 'person', 'ticket'] as const) {
+        const thread = postsToConversations(posts, threadBy, VIEWER_MEMBER, NOW).flatMap(
+          (c) => c.thread,
+        );
+        expect(thread.find((m) => m.id === 'bare')?.text).toContain('*Off the clock*');
+        expect(thread.find((m) => m.id === 'shift')?.text).not.toContain('Off the clock');
+      }
     });
   });
 
@@ -367,5 +390,80 @@ describe('attachments', () => {
     const text = conversation.thread[0].text ?? '';
     expect(text.match(/a\.png/g)).toHaveLength(1);
     expect(text).toContain('![b.png]');
+  });
+});
+
+describe('searchConversations', () => {
+  const posts = [
+    makePost({
+      id: 'p1',
+      content: { text: 'Shipped the onboarding checklist', mentions: [] },
+      ticketId: 't-1',
+      ticketTitle: 'Onboarding checklist',
+      clockEventId: 'evt-1',
+      session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
+      wrapUpAt: new Date(SEP_29_1032).toISOString(),
+      attachments: [
+        { mediaId: 'm1', type: 'file', url: '/uploads/spec.pdf', filename: 'spec.pdf' },
+      ],
+    }),
+    makePost({
+      id: 'p2',
+      userId: 'user-priya',
+      userName: 'Priya Sharma',
+      content: { text: 'Reviewing PRs', mentions: [] },
+      createdAt: new Date(SEP_28_0900).toISOString(),
+    }),
+  ];
+  const all = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
+  const titlesFor = (query: string) =>
+    searchConversations(all, posts, query).map(
+      (c) => c.thread.find((m) => m.id.startsWith('p'))?.id,
+    );
+
+  it('returns everything for a blank query', () => {
+    expect(searchConversations(all, posts, '   ')).toHaveLength(2);
+  });
+
+  it.each([
+    ['post text', 'reviewing'],
+    ['author', 'priya'],
+    ['ticket title', 'onboarding'],
+    ['attachment filename', 'spec.pdf'],
+    ['wrap-up label', 'wrap-up'],
+    ['clock line', 'clocked out'],
+    ['ISO date', '2026-09-28'],
+    ['month name', 'september 28'],
+  ])('matches by %s', (_field, query) => {
+    expect(titlesFor(query).length).toBeGreaterThan(0);
+  });
+
+  it('requires every word, across fields, and ignores case and accents', () => {
+    expect(titlesFor('AISHA Onbóarding')).toEqual(['p1']);
+    expect(titlesFor('aisha reviewing')).toEqual([]);
+  });
+
+  it('does not match on media URLs', () => {
+    expect(titlesFor('uploads')).toEqual([]);
+  });
+
+  it('finds off-the-clock and live posts the same way in every view', () => {
+    const livePost = makePost({
+      id: 'p3',
+      userId: 'user-priya',
+      userName: 'Priya Sharma',
+      clockEventId: 'evt-live',
+      session: { startTime: SEP_29_1032, endTime: null },
+    });
+    const withLive = [...posts, livePost];
+    for (const threadBy of ['day', 'session', 'person', 'ticket'] as const) {
+      const grouped = postsToConversations(withLive, threadBy, VIEWER_MEMBER, NOW);
+      const idsFor = (query: string) =>
+        searchConversations(grouped, withLive, query).flatMap((c) =>
+          c.thread.filter((m) => m.type !== 'system').map((m) => m.id),
+        );
+      expect(idsFor('off the clock')).toContain('p2');
+      expect(idsFor('live')).toContain('p3');
+    }
   });
 });

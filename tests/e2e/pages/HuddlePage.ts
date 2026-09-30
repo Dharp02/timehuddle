@@ -6,11 +6,11 @@ import { openPostInInbox } from '../huddle/helpers';
  * HuddlePage - Page object for the huddle feed (a SuperChatInbox)
  */
 export class HuddlePage extends BasePage {
-  private readonly teamTabs: Locator;
+  private readonly teamPicker: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.teamTabs = this.page.getByRole('tablist', { name: 'Team' });
+    this.teamPicker = this.page.getByRole('button', { name: /^Team:/ });
   }
 
   /**
@@ -23,10 +23,10 @@ export class HuddlePage extends BasePage {
 
   /**
    * Wait for huddle page to load. The page has no title of its own (the
-   * sidebar already names it), so its Team tab list is the landmark.
+   * sidebar already names it), so its Team picker is the landmark.
    */
   async waitForLoad(timeout = 10000) {
-    await this.teamTabs.waitFor({ state: 'visible', timeout });
+    await this.teamPicker.waitFor({ state: 'visible', timeout });
   }
 
   /**
@@ -41,7 +41,7 @@ export class HuddlePage extends BasePage {
    * Check if we're on the huddle page
    */
   async isOnHuddlePage(): Promise<boolean> {
-    return await this.teamTabs.isVisible().catch(() => false);
+    return await this.teamPicker.isVisible().catch(() => false);
   }
 
   /**

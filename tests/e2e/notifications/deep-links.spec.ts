@@ -64,7 +64,7 @@ async function selectTeam(page: Page, teamId: string): Promise<void> {
 
 async function openHuddleFeed(page: Page): Promise<void> {
   await page.goto('/app/huddle');
-  await page.getByRole('tablist', { name: 'Team' }).waitFor({ state: 'visible', timeout: 20000 });
+  await page.getByRole('button', { name: /^Team:/ }).waitFor({ state: 'visible', timeout: 20000 });
 }
 
 /** A post opened by a deep link: its conversation is the one on screen. */
@@ -154,12 +154,12 @@ test.describe('Notification deep links', () => {
 
     await selectTeam(page, otherTeamId!);
     await openHuddleFeed(page);
-    const sharedTeamTab = page.getByRole('tab', { name: 'Test Team Alpha' });
-    await expect(sharedTeamTab).toHaveAttribute('aria-selected', 'false');
+    const sharedTeamPicker = page.getByRole('button', { name: 'Team: Test Team Alpha' });
+    await expect(sharedTeamPicker).toBeHidden();
 
     await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${sharedTeamId}`);
 
-    await expect(sharedTeamTab).toHaveAttribute('aria-selected', 'true', { timeout: 20000 });
+    await expect(sharedTeamPicker).toBeVisible({ timeout: 20000 });
     await expect(openedPost(page, text)).toBeVisible({ timeout: 20000 });
   });
 

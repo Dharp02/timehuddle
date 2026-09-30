@@ -52,6 +52,7 @@ export interface InboxViewer {
 }
 
 const SYSTEM_PARTICIPANT_ID = 'system';
+const OFF_THE_CLOCK = 'Off the clock';
 
 /** "YYYY-MM-DD" for the given epoch ms, based on the local calendar date. */
 function localDateKey(epochMs: number): string {
@@ -157,10 +158,18 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
 }
 
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 Onboarding checklist". */
-function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
+function postLabelParts(
+  post: HuddlePost,
+  isSessionPost: boolean,
+  teamName?: string,
+  offTheClock = false,
+): string[] {
   const parts: string[] = [];
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
+  }
+  if (offTheClock) {
+    parts.push(OFF_THE_CLOCK);
   }
   if (post.ticketTitle) {
     parts.push(`🎫 ${post.ticketTitle}`);
@@ -177,13 +186,14 @@ function postToInboxMessageText(
   post: HuddlePost,
   isSessionPost: boolean,
   teamName?: string,
+  offTheClock = false,
 ): string {
   const parts = [post.content.text];
   const attachments = attachmentsNotInlined(post);
   if (attachments.length > 0) {
     parts.push(attachments.map(attachmentMarkdown).join('\n\n'));
   }
-  const label = postLabelParts(post, isSessionPost, teamName);
+  const label = postLabelParts(post, isSessionPost, teamName, offTheClock);
   if (label.length > 0) {
     parts.push(`*${label.join(' · ')}*`);
   }
@@ -229,6 +239,7 @@ function buildTitle(
     case 'session': {
       const dateLabel = formatDayLabel(getPostDateKey(first));
       const name = displayName(first, viewer);
+      if (!first.clockEventId) return `${name} · ${dateLabel} · ${OFF_THE_CLOCK}`;
       const session = sessions[0];
       if (!session) return `${name} · ${dateLabel}`;
 
@@ -298,6 +309,19 @@ export function postsToConversations(
     }
 
     const systemMessages = sessions.flatMap(systemMessagesForSession);
+    // Session view: a thread of posts made without clocking in says so up
+    // front, rather than looking like a shift with its clock lines missing.
+    const offTheClockThread = threadBy === 'session' && !groupPosts[0].clockEventId;
+    if (offTheClockThread) {
+      const earliest = Math.min(...groupPosts.map((p) => new Date(p.createdAt).getTime()));
+      systemMessages.push({
+        id: `${key}:off-the-clock`,
+        type: 'system',
+        participantId: SYSTEM_PARTICIPANT_ID,
+        text: 'Posted without clocking in',
+        time: new Date(earliest - 1),
+      });
+    }
     if (systemMessages.length > 0) {
       participants.set(SYSTEM_PARTICIPANT_ID, {
         id: SYSTEM_PARTICIPANT_ID,
@@ -309,7 +333,13 @@ export function postsToConversations(
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
-      text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
+      text: postToInboxMessageText(
+        post,
+        planPostIds.has(post.id),
+        getTeamName?.(post.teamId),
+        // In other views each off-the-clock post carries the label itself.
+        !offTheClockThread && !post.clockEventId,
+      ),
       time: post.createdAt,
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
     }));
@@ -333,6 +363,73 @@ export function postsToConversations(
   }
 
   return conversations;
+}
+
+/** Lower-cased, accent-free form used on both sides of a search match. */
+function normalizeForSearch(text: string): string {
+  return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+/** Everything a post can be found by: body, author, ticket, attachments, team
+ *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
+function postSearchText(post: HuddlePost, teamName?: string): string {
+  const dateKey = getPostDateKey(post);
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const longDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  return [
+    post.content.text,
+    post.userName,
+    post.ticketTitle,
+    post.wrapUpAt ? 'wrap-up wrapup' : undefined,
+    post.clockEventId ? undefined : OFF_THE_CLOCK,
+    post.session && post.session.endTime == null ? 'live' : undefined,
+    ...post.attachments.flatMap((att) => [att.filename, att.type]),
+    teamName,
+    dateKey,
+    formatDayLabel(dateKey),
+    longDate,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Filter inbox conversations by a free-text query. Every word must appear
+ * somewhere in the conversation — its title, participants, message text
+ * (including clock-in/out lines and plan/wrap-up labels) or the fields of any
+ * post in it — so "priya wrap-up sep 24" narrows across all of them. A match
+ * keeps the whole conversation, so the hit is seen in context.
+ */
+export function searchConversations(
+  conversations: SuperChatConversation[],
+  posts: HuddlePost[],
+  query: string,
+  getTeamName?: (teamId: string) => string | undefined,
+): SuperChatConversation[] {
+  const words = normalizeForSearch(query).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return conversations;
+
+  const postsById = new Map(posts.map((post) => [post.id, post]));
+  return conversations.filter((conversation) => {
+    const haystack = normalizeForSearch(
+      [
+        conversation.title,
+        ...conversation.participants.map((p) => p.name),
+        ...conversation.thread.map((message) => {
+          // Drop markdown link targets so media URLs don't match every query.
+          const shown = (message.text ?? '').replace(/\]\([^)]*\)/g, ']');
+          const post = postsById.get(message.id);
+          return post ? `${shown}\n${postSearchText(post, getTeamName?.(post.teamId))}` : shown;
+        }),
+      ].join('\n'),
+    );
+    return words.every((word) => haystack.includes(word));
+  });
 }
 
 /** The raw group key encoded after the `${threadBy}:` prefix in a conversation

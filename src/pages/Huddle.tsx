@@ -1,39 +1,31 @@
-import {
-  faBell,
-  faCheck,
-  faChevronDown,
-  faMagnifyingGlass,
-} from '@fortawesome/free-solid-svg-icons';
+import { faCheck, faChevronDown, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
   ButtonGroup,
+  Card,
   Dropdown,
   DropdownItem,
   EmptyState,
   Input,
-  Tabs,
-  TabsList,
-  TabsTrigger,
+  Text,
 } from '@mieweb/ui';
 import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
-import type { ComposerAttachment, SuperChatConversation } from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
-import { fileFromDataUrl, toPostAttachment, uploadMedia } from '../features/huddle/api';
+import { toPostAttachment } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
 import {
-  canPostIn,
-  conversationGroupKey,
   postsToConversations,
-  singleTeamOf,
+  searchConversations,
   stripInboxDecorations,
   type ThreadBy,
 } from '../features/huddle/superChatFeed';
@@ -46,39 +38,45 @@ import { huddleApi, type HuddlePost } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
+import styles from './Huddle.module.css';
 
 const THREAD_BY_KEY = 'app:huddleThreadBy';
-// Team-tab value for the Personal view; team ids are never this string.
-const PERSONAL_TAB = 'personal';
-const THREAD_BY_OPTIONS: ThreadBy[] = ['session', 'day', 'person', 'ticket'];
+// Team-picker value for the Personal view; team ids are never this string.
+const PERSONAL_VIEW = 'personal';
+const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
   session: 'Session',
   day: 'Day',
   person: 'Person',
   ticket: 'Ticket',
 };
+// Must not contain another option's label: e2e picks menu items by name.
+const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
+  day: "Everyone's updates, one thread per date",
+  session: 'Each clock-in to clock-out with its plan and wrap-up; off-the-clock posts kept apart',
+  person: 'One thread per teammate',
+  ticket: 'Updates grouped by the work item they link to',
+};
 
 function loadStoredThreadBy(): ThreadBy {
   try {
     const stored = localStorage.getItem(THREAD_BY_KEY);
-    return (THREAD_BY_OPTIONS as string[]).includes(stored ?? '')
-      ? (stored as ThreadBy)
-      : 'session';
+    return (THREAD_BY_OPTIONS as string[]).includes(stored ?? '') ? (stored as ThreadBy) : 'day';
   } catch {
-    return 'session';
+    return 'day';
   }
 }
 
 export default function Huddle() {
-  const { navigate, search, replace } = useRouter();
+  const { search, replace } = useRouter();
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // A failed inbox send or inline edit. Separate from `error` above, which is
   // a feed-load failure and takes the feed's place on screen.
   const [editError, setEditError] = useState<string | null>(null);
-  const [showSearch, setShowSearch] = useState(false);
   const [threadByMenuOpen, setThreadByMenuOpen] = useState(false);
+  const [teamMenuOpen, setTeamMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // How the inbox groups posts into conversations. Persisted so a reload
   // keeps the reader's choice; switching it only re-runs the grouping
@@ -106,7 +104,7 @@ export default function Huddle() {
   } = useTeam();
 
   // Personal is a view, not a team selection: entering it leaves the selected
-  // team and org alone, so the team tabs stay put. It shows the caller's own
+  // team and org alone, so the team picker stays put. It shows the caller's own
   // posts across every team, fetched separately (no per-team DDP subscription
   // applies across teams). Having the Personal team itself selected (e.g. from
   // the header switcher) lands in the same view.
@@ -120,7 +118,7 @@ export default function Huddle() {
 
   // A team outside the selected org is filtered out of `teams` and would be
   // reset straight back by TeamContext, so switch the org along with it.
-  // Only deep links need this; the team tabs are all in the selected org.
+  // Only deep links need this; the team picker only lists the selected org.
   const selectTeamAcrossOrgs = useCallback(
     (teamId: string) => {
       const crossOrg = teams.some((t) => t.id === teamId)
@@ -132,9 +130,16 @@ export default function Huddle() {
     [teams, allTeams, setSelectedOrgId, setSelectedTeamId],
   );
 
-  const teamTabs = teams.filter((t) => !t.isPersonal);
-  const selectTab = (value: string) => {
-    if (value === PERSONAL_TAB) {
+  const teamOptions = teams.filter((t) => !t.isPersonal);
+  const teamPickerValue = scope === 'me' ? PERSONAL_VIEW : (selectedTeamId ?? '');
+  const teamPickerLabel =
+    scope === 'me'
+      ? 'Personal'
+      : (teamOptions.find((t) => t.id === selectedTeamId)?.name ?? 'Select team');
+  const selectTeamView = (value: string) => {
+    // DropdownItem doesn't close its menu on its own.
+    setTeamMenuOpen(false);
+    if (value === PERSONAL_VIEW) {
       setShowMe(true);
       return;
     }
@@ -228,7 +233,7 @@ export default function Huddle() {
   const restPostsRef = useRef<Map<string, HuddlePost>>(new Map());
 
   // Build the feed from the DDP cache plus any pending overlay posts. Lifted to
-  // component scope so handleInboxMessageSent and pull-to-refresh can trigger
+  // component scope so addPost and pull-to-refresh can trigger
   // an immediate re-sync.
   const syncPosts = useCallback(() => {
     if (!selectedTeamId) return;
@@ -394,17 +399,6 @@ export default function Huddle() {
   // caller's own posts across every team.
   const activePosts = scope === 'me' ? myPosts : posts;
 
-  const filteredPosts = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return activePosts;
-    return activePosts.filter(
-      (post) =>
-        post.content.text.toLowerCase().includes(query) ||
-        post.userName?.toLowerCase().includes(query) ||
-        post.ticketTitle?.toLowerCase().includes(query),
-    );
-  }, [activePosts, searchQuery]);
-
   // Team admins (and org owners) get the extra session-title detail (hours,
   // no-wrap-up warning). Not in Personal: `isAdmin` there reflects the
   // Personal team, where everyone is admin, not the posts' source teams.
@@ -428,15 +422,153 @@ export default function Huddle() {
   // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
   // live session's worked duration moving without regrouping every second.
   const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
+  const allConversations = useMemo(
+    () => postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName),
+    [activePosts, threadBy, viewer, nowMinute, getTeamName],
+  );
+  // Search runs over whole conversations (titles, people, clock lines, post
+  // fields), after grouping, so a match keeps its thread intact.
   const conversations = useMemo(
-    () =>
-      postsToConversations(filteredPosts, threadBy, viewer, nowMinute, getTeamName, activePosts),
-    [filteredPosts, threadBy, viewer, nowMinute, getTeamName, activePosts],
+    () => searchConversations(allConversations, activePosts, searchQuery, getTeamName),
+    [allConversations, activePosts, searchQuery, getTeamName],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
     [],
   );
+
+  // SuperChatInbox has no slot for its list header, so the page's filters are
+  // portaled into it; re-found whenever the inbox mounts or re-renders.
+  const feedRef = useRef<HTMLDivElement>(null);
+  const [listHeaderEl, setListHeaderEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed) return;
+    const findHeader = () =>
+      setListHeaderEl(
+        feed.querySelector<HTMLElement>('[data-slot="superchat-conversations"] > div:first-child'),
+      );
+    findHeader();
+    const observer = new MutationObserver(findHeader);
+    observer.observe(feed, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  // Both filter dropdowns share one look: equal-width bordered fields with a
+  // small legend notched into the top border.
+  const filterFieldClass = 'relative flex min-w-0 flex-1 [&>*]:min-w-0 [&>*]:flex-1';
+  const filterLegendClass =
+    'pointer-events-none absolute -top-1.5 start-2 z-10 bg-background px-1 text-[10px] leading-none text-muted-foreground';
+  const filterTriggerClass =
+    'w-full justify-between gap-1 border border-input bg-background px-2.5';
+
+  const groupByDropdown = (
+    <div className={filterFieldClass}>
+      <span aria-hidden className={filterLegendClass}>
+        Group by
+      </span>
+      <Dropdown
+        open={threadByMenuOpen}
+        onOpenChange={setThreadByMenuOpen}
+        trigger={
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Group by: ${THREAD_BY_LABELS[threadBy]}`}
+            className={filterTriggerClass}
+          >
+            <span className="min-w-0 truncate">{THREAD_BY_LABELS[threadBy]}</span>
+            <FontAwesomeIcon icon={faChevronDown} className="shrink-0 text-xs" />
+          </Button>
+        }
+      >
+        {THREAD_BY_OPTIONS.map((option) => (
+          <DropdownItem
+            key={option}
+            icon={option === threadBy ? <FontAwesomeIcon icon={faCheck} /> : undefined}
+            onClick={() => {
+              setThreadBy(option);
+              // DropdownItem doesn't close its menu on its own.
+              setThreadByMenuOpen(false);
+            }}
+          >
+            <span className="flex flex-col">
+              <span>{THREAD_BY_LABELS[option]}</span>
+              <Text as="span" variant="muted" size="xs" className="max-w-56 whitespace-normal">
+                {THREAD_BY_DESCRIPTIONS[option]}
+              </Text>
+            </span>
+          </DropdownItem>
+        ))}
+      </Dropdown>
+    </div>
+  );
+
+  // Search, then team picker (left) and Group by (right). "Personal" is a view
+  // (see `showMe`); picking a team uses the same setSelectedTeamId as the
+  // header team switcher.
+  const inboxControls = (
+    <div className="huddle-inbox-controls flex w-full min-w-0 flex-col gap-3">
+      <div className="huddle-search relative">
+        <FontAwesomeIcon
+          icon={faMagnifyingGlass}
+          aria-hidden
+          className="pointer-events-none absolute start-3 top-1/2 z-10 -translate-y-1/2 text-xs text-neutral-400"
+        />
+        <Input
+          label="Search posts"
+          hideLabel
+          size="sm"
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search posts, people, tickets, dates…"
+          className="ps-8"
+        />
+      </div>
+      <ButtonGroup orientation="horizontal">
+        <div className={filterFieldClass}>
+          <span aria-hidden className={filterLegendClass}>
+            Team
+          </span>
+          <Dropdown
+            open={teamMenuOpen}
+            onOpenChange={setTeamMenuOpen}
+            trigger={
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Team: ${teamPickerLabel}`}
+                className={filterTriggerClass}
+              >
+                <span className="min-w-0 truncate">{teamPickerLabel}</span>
+                <FontAwesomeIcon icon={faChevronDown} className="shrink-0 text-xs" />
+              </Button>
+            }
+          >
+            {[{ id: PERSONAL_VIEW, name: 'Personal' }, ...teamOptions].map((option) => (
+              <DropdownItem
+                key={option.id}
+                icon={
+                  option.id === teamPickerValue ? <FontAwesomeIcon icon={faCheck} /> : undefined
+                }
+                onClick={() => selectTeamView(option.id)}
+              >
+                {option.name}
+              </DropdownItem>
+            ))}
+          </Dropdown>
+        </div>
+        {groupByDropdown}
+      </ButtonGroup>
+      {searchQuery.trim() && conversations.length === 0 && (
+        <Text as="p" variant="muted" size="xs" role="status">
+          No matching posts
+        </Text>
+      )}
+    </div>
+  );
+  const showComposer = !!postingTeamId && !(scope === 'me' ? myPostsLoading : loading);
 
   // The conversation the inbox has open (controlled — see onConversationOpened
   // below). Resetting it when the grouping/scope changes avoids pointing at an
@@ -445,18 +577,9 @@ export default function Huddle() {
   useEffect(() => {
     setActiveConversationId(undefined);
   }, [threadBy, selectedTeamId, scope]);
-  // Same fallback SuperChatInbox uses for an unknown id, so the conversation
-  // on screen is the one whose permissions decide `readOnly` below.
+  // Same fallback SuperChatInbox uses for an unknown id.
   const activeConversation =
     conversations.find((c) => c.id === activeConversationId) ?? conversations[0];
-  // A Personal-scope conversation spanning several teams has no single team
-  // to post to, so it's read-only.
-  const teamToPostIn = (conversation: SuperChatConversation) =>
-    scope === 'me' ? singleTeamOf(conversation, myPosts) : (selectedTeamId ?? undefined);
-  const inboxReadOnly =
-    !activeConversation ||
-    !teamToPostIn(activeConversation) ||
-    !canPostIn(activeConversation, threadBy, viewer);
 
   // Deep link (see the targetPostId/threadBy effect above): once the post has
   // loaded and the grouping has switched to session, open the conversation
@@ -470,59 +593,6 @@ export default function Huddle() {
     setTargetPostId(null);
     replace('/app/huddle');
   }, [targetPostId, targetPostLoaded, threadBy, conversations, replace]);
-
-  // Send from the inbox's message box → huddle.createPost, routed by how the
-  // open conversation is grouped (its own clock session, its own ticket, or
-  // just the calendar day it represents).
-  async function handleInboxMessageSent(
-    text: string,
-    meta: {
-      conversation: SuperChatConversation;
-      mentions: string[];
-      attachments: ComposerAttachment[];
-    },
-  ) {
-    const targetTeamId = teamToPostIn(meta.conversation);
-    if (!user || !targetTeamId) throw new Error('Select a team before posting.');
-    setEditError(null);
-    try {
-      const key = conversationGroupKey(meta.conversation.id);
-      // `nosession:<userId>:<YYYY-MM-DD>` — keep the thread's own day so the
-      // reply lands in the conversation it was sent from.
-      const noSessionDay = key.startsWith('nosession:')
-        ? key.slice(key.lastIndexOf(':') + 1)
-        : undefined;
-      // A reply to a session keeps that session's day, not today's.
-      const sessionDay =
-        threadBy === 'session' && !noSessionDay
-          ? activePosts.find((p) => p.clockEventId === key)?.postDate
-          : undefined;
-      const postDate =
-        threadBy === 'day' ? key : (noSessionDay ?? sessionDay ?? toDateString(new Date()));
-      const attachments = await Promise.all(
-        meta.attachments.map(async (att) =>
-          toPostAttachment(
-            await uploadMedia(await fileFromDataUrl(att.name, att.type, att.dataUrl)),
-          ),
-        ),
-      );
-      await huddleApi.createPost({
-        teamId: targetTeamId,
-        content: { text, mentions: meta.mentions },
-        postDate,
-        attachments,
-        ...(threadBy === 'session' && !noSessionDay ? { clockEventId: key } : {}),
-        ...(threadBy === 'ticket' && key !== 'none' ? { ticketId: key } : {}),
-      });
-      await (scope === 'me' ? refreshMyPosts() : refreshFeed());
-    } catch (err) {
-      console.error('[Huddle] Failed to send message:', err);
-      setEditError(composerErrorMessage(err, 'Failed to send. Please try again.'));
-      // Rejecting restores the typed text into the composer (SuperChatInbox's
-      // onMessageSent contract).
-      throw err;
-    }
-  }
 
   // Inline edit from the feed (self-authored messages only) → huddle.updatePost
   async function handleMessageEdited(messageId: string, text: string) {
@@ -550,115 +620,35 @@ export default function Huddle() {
           dragged horizontally; clip creates no scroll container, so vertical
           scrolling is unchanged. */}
       <div className="huddle flex h-full min-h-0 flex-col gap-4 max-md:overflow-x-clip lg:px-6 xl:px-10 2xl:px-16">
-        {/* Actions: Group by, search, notifications */}
-        <div className="huddle-actions flex shrink-0 items-center gap-2">
-          <ButtonGroup className="ms-auto">
-            <Dropdown
-              open={threadByMenuOpen}
-              onOpenChange={setThreadByMenuOpen}
-              trigger={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Group by: ${THREAD_BY_LABELS[threadBy]}`}
-                >
-                  {THREAD_BY_LABELS[threadBy]}
-                  <FontAwesomeIcon icon={faChevronDown} className="ms-1.5 text-xs" />
-                </Button>
-              }
-            >
-              {THREAD_BY_OPTIONS.map((option) => (
-                <DropdownItem
-                  key={option}
-                  icon={option === threadBy ? <FontAwesomeIcon icon={faCheck} /> : undefined}
-                  onClick={() => {
-                    setThreadBy(option);
-                    // DropdownItem doesn't close its menu on its own.
-                    setThreadByMenuOpen(false);
-                  }}
-                >
-                  {THREAD_BY_LABELS[option]}
-                </DropdownItem>
-              ))}
-            </Dropdown>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowSearch(!showSearch)}
-              aria-label="Search posts"
-              title="Search posts"
-            >
-              <FontAwesomeIcon icon={faMagnifyingGlass} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/app/notifications')}
-              aria-label="Notifications"
-              title="Notifications"
-            >
-              <FontAwesomeIcon icon={faBell} />
-            </Button>
-          </ButtonGroup>
-        </div>
+        {/* Composer — the one place to post, since the inbox below is
+            read-only. The filters live in the inbox's list header; until the
+            inbox is on screen (loading, no posts) they sit here instead.
+            Ghost card: no border or fill of its own, it sits on the page. */}
+        {(!listHeaderEl || showComposer) && (
+          <Card variant="ghost" padding="none" className="huddle-header shrink-0">
+            {!listHeaderEl && <div className="huddle-toolbar p-3">{inboxControls}</div>}
 
-        {showSearch && (
-          <Input
-            label="Search posts"
-            hideLabel
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search posts…"
-            className="shrink-0"
-            autoFocus
-          />
+            {/* Scrolls its own overflow so an expanded draft can't push the
+                inbox off a short viewport. */}
+            {showComposer && (
+              <div
+                className={`huddle-composer max-h-[60vh] overflow-y-auto overscroll-contain ${
+                  listHeaderEl ? '' : 'border-t border-neutral-200 dark:border-neutral-800'
+                }`}
+              >
+                <HuddleComposer
+                  key={postingTeamId}
+                  onPost={addPost}
+                  userInitials={user ? getUserInitials(user.name) : 'U'}
+                  userColor={user ? getUserColor(user.id) : 'indigo'}
+                />
+              </div>
+            )}
+          </Card>
         )}
 
-        {/* Team tabs for the inbox. "Personal" is a view (see `showMe`); a
-            team tab uses the same setSelectedTeamId the header team switcher
-            uses, so the rest of the app stays in sync. Thread by (grouping)
-            is the Group by dropdown above, beside search — switching it only
-            re-runs postsToConversations, it never refetches. */}
-        <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2">
-          <Tabs
-            variant="pills"
-            value={scope === 'me' ? PERSONAL_TAB : (selectedTeamId ?? '')}
-            onValueChange={selectTab}
-          >
-            <TabsList aria-label="Team" className="flex-wrap">
-              <TabsTrigger value={PERSONAL_TAB}>Personal</TabsTrigger>
-              {teamTabs.map((t) => (
-                <TabsTrigger key={t.id} value={t.id}>
-                  {t.name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </div>
-
-        {/* Composer for a team's very first post — sits right below the team
-            tabs above. Once a team has any posts, replying happens from
-            inside the conversation it belongs to; showing this composer too
-            would just be a second way to do the same thing. In the Personal
-            ("me") view it shows only while you have no posts anywhere, and
-            posts to your Personal team. min-h-0 lets it shrink and scroll its
-            own overflow on a short viewport instead of clipping its lower
-            half (the attach buttons, Cancel and Post) under the nav. */}
-        {postingTeamId &&
-          !(scope === 'me' ? myPostsLoading : loading) &&
-          activePosts.length === 0 && (
-            <div className="huddle-composer min-h-0 max-h-[70vh] shrink-0 overflow-y-auto overscroll-contain">
-              <HuddleComposer
-                key={postingTeamId}
-                onPost={addPost}
-                userInitials={user ? getUserInitials(user.name) : 'U'}
-                userColor={user ? getUserColor(user.id) : 'indigo'}
-              />
-            </div>
-          )}
-
         {/* Feed */}
-        <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
+        <div ref={feedRef} className="huddle-feed min-h-0 flex-1 overflow-y-auto">
           {scope === 'team' && !selectedTeamId && (
             <div className="flex items-center justify-center py-16 px-4">
               <p className="text-sm text-gray-500 dark:text-neutral-400">
@@ -698,21 +688,14 @@ export default function Huddle() {
                   />
                 )}
 
-              {!(scope === 'me' ? myPostsLoading : loading) &&
-                !(scope === 'me' ? myPostsError : error) &&
-                activePosts.length > 0 &&
-                filteredPosts.length === 0 && (
-                  <EmptyState title="No matching posts" description="Try a different search." />
-                )}
-
               {/* SuperChatInbox, grouped by the selected Thread by option.
-                  Writable only where posting makes sense (see canPostIn):
-                  the composer is read-only everywhere else, and the
-                  component shows its own read-only placeholder. */}
+                  Read-only: posting happens in the composer above. Stays
+                  mounted through an empty search so the filters in its list
+                  header don't vanish mid-typing. */}
               {!(scope === 'me' ? myPostsLoading : loading) &&
                 !(scope === 'me' ? myPostsError : error) &&
                 user &&
-                filteredPosts.length > 0 && (
+                activePosts.length > 0 && (
                   <SuperChatInbox
                     conversations={conversations}
                     activeConversationId={activeConversation?.id}
@@ -720,14 +703,15 @@ export default function Huddle() {
                       setActiveConversationId(conversation.id)
                     }
                     currentParticipantId={user.id}
-                    readOnly={inboxReadOnly}
+                    readOnly
                     virtualized
                     renderPlugins={renderPlugins}
-                    onMessageSent={(text, meta) => handleInboxMessageSent(text, meta)}
                     onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
-                    className="h-full"
+                    // readOnly only disables the composer; hide it until @mieweb/ui can omit it.
+                    className={`h-full [&_[data-slot=chat-composer]]:hidden ${styles.inbox}`}
                   />
                 )}
+              {listHeaderEl && createPortal(inboxControls, listHeaderEl)}
             </>
           )}
         </div>
