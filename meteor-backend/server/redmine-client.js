@@ -617,8 +617,12 @@ export async function getIssueDetail(account, issueId) {
  * the issue page asks for them separately. Depending on the Redmine version the
  * `issue_id` filter can include subtasks; the caller keeps only the issue's own.
  */
-export async function listIssueTimeEntries(account, issueId, { limit = 50 } = {}) {
-  const params = new URLSearchParams({ issue_id: String(issueId), limit: String(limit) });
+export async function listIssueTimeEntries(account, issueId, { limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams({
+    issue_id: String(issueId),
+    limit: String(limit),
+    offset: String(offset),
+  });
   const data = await redmineRequest(`/time_entries.json?${params.toString()}`, { account });
   return data?.time_entries ?? [];
 }

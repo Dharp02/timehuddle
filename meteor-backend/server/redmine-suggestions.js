@@ -22,11 +22,10 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 
 import { requireIdentity } from './auth-bridge';
-import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
+import { findRedmineAccount, redmineUserIdFor, requireRedmineAccount } from './redmine-account';
 import { createUserTtlCache } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import {
-  getCurrentUser,
   getIssue,
   isIssueAssignedToMe,
   listIssuesAssignedTo,
@@ -47,7 +46,7 @@ import {
 } from './redmine-prefs';
 import { buildRelevantIssues } from './redmine-relevance';
 import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine-query';
-import { RedmineLinks, Timers, WorkItems, isValidId } from './collections';
+import { Timers, WorkItems, isValidId } from './collections';
 import { enforceRedmineLimit as enforceLimit, toRedmineMeteorError } from './redmine';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 
@@ -58,9 +57,6 @@ import { REDMINE, isRedmineIssueId } from './ticket-refs';
  * five queries rather than twenty-five.
  */
 const relevantCache = createUserTtlCache(90 * 1000);
-
-/** The caller's own Redmine user id, for the activity feed. See below. */
-const redmineUserIdCache = createUserTtlCache(60 * 60 * 1000);
 
 /**
  * Everyone the caller shares a project with, for the `@name` search. Held for
@@ -196,22 +192,6 @@ async function runningRedmineIssueIds(userId) {
 }
 
 /**
- * The caller's own Redmine user id, which `/activity.atom` needs (it has no `me`).
- *
- * Almost always free: `redmine.connect` already stored it on the link row. The
- * `/users/current.json` fallback is for rows written before it did, and is cached
- * for an hour because a Redmine user id never changes.
- */
-async function redmineUserIdFor(userId, account) {
-  const link = await RedmineLinks.findOneAsync({ userId }, { fields: { redmineUserId: 1 } });
-  if (link?.redmineUserId != null) return link.redmineUserId;
-  return redmineUserIdCache.get(userId, 'redmineUserId', async () => {
-    const user = await getCurrentUser(account);
-    return user?.id ?? null;
-  });
-}
-
-/**
  * `issueId` as a number, or a `bad-request`. Coerced rather than merely checked:
  * the id is stored and matched against numeric ids, so `"42"` arriving over REST
  * must not become a string row that `$in` will never find again.
@@ -241,6 +221,18 @@ async function isAssignedToCaller(account, issueId) {
     return await isIssueAssignedToMe(account, issueId);
   } catch {
     return true;
+  }
+}
+
+/**
+ * Whether `issueId` is assigned to the caller, where only a confirmed yes counts:
+ * unlike `isAssignedToCaller`, a Redmine that cannot answer means no.
+ */
+async function isAssignedToCallerStrict(userId, issueId) {
+  try {
+    return await isIssueAssignedToMe(await requireRedmineAccount(userId), issueId);
+  } catch {
+    return false;
   }
 }
 
@@ -356,7 +348,13 @@ Meteor.methods({
     try {
       await setIssuePref(userId, id, state, { assignedToMe });
     } catch (err) {
-      if (err?.name === 'TooManyPinsError') throw new Meteor.Error('too-many-pins', err.message);
+      if (err?.name === 'TooManyPinsError') {
+        // A pin only exists to put the issue in the Tickets table. One assigned
+        // to the caller (their groups included) is there already, so at the cap
+        // it needs no pin, and the timer path goes on to add it to My Board.
+        if (await isAssignedToCallerStrict(userId, id)) return { ok: true };
+        throw new Meteor.Error('too-many-pins', err.message);
+      }
       throw err;
     }
     return { ok: true };

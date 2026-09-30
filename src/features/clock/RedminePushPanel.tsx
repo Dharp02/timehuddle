@@ -42,7 +42,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
   redmineApi,
@@ -113,6 +113,9 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   // The row waiting for "Never send" to be confirmed, and one being discarded.
   const [confirmDiscard, setConfirmDiscard] = useState<RedmineTimeEntryRow | null>(null);
   const [discarding, setDiscarding] = useState(false);
+  // The trash button that asked, so "Keep it" can hand focus back to it.
+  const discardTrigger = useRef<HTMLElement | null>(null);
+  const discardPromptId = useId();
 
   const load = useCallback(async () => {
     try {
@@ -196,6 +199,11 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
     }
   };
 
+  const keepRow = () => {
+    setConfirmDiscard(null);
+    discardTrigger.current?.focus();
+  };
+
   const closeModal = () => {
     setOpen(false);
     setResults(null);
@@ -214,7 +222,9 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   const tableRows = results ? pushedRows : offeredRows;
 
   const idle = preview.idle;
-  const canSend = idle && sendable.length > 0;
+  // Opens with only blocked rows too, so one can still be marked Never send;
+  // the Send button inside needs a sendable row.
+  const canOpen = idle && offeredRows.length > 0;
 
   return (
     <Card padding="lg" className="redmine-push-panel mb-4 shrink-0">
@@ -232,7 +242,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
           <Button
             variant="primary"
             onClick={() => setOpen(true)}
-            disabled={!canSend}
+            disabled={!canOpen}
             title={
               idle
                 ? undefined
@@ -345,7 +355,10 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                           aria-label={`Never send #${row.ticketId} on ${row.date} to Redmine`}
                           title="Never send this time to Redmine"
                           disabled={pushing || discarding}
-                          onClick={() => setConfirmDiscard(row)}
+                          onClick={(event) => {
+                            discardTrigger.current = event.currentTarget;
+                            setConfirmDiscard(row);
+                          }}
                         >
                           <FontAwesomeIcon icon={faTrash} className="h-3 w-3" />
                         </Button>
@@ -362,9 +375,10 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
               variant="warning"
               className="redmine-push-discard-confirm mt-3"
               role="alertdialog"
+              aria-labelledby={discardPromptId}
             >
               <AlertDescription>
-                <Text size="sm">
+                <Text size="sm" id={discardPromptId}>
                   Never send #{confirmDiscard.ticketId} on {confirmDiscard.date} (
                   {asClock(confirmDiscard.hours)}) to Redmine? The time stays in TimeHuddle; it just
                   won&apos;t be offered here again.
@@ -373,7 +387,10 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setConfirmDiscard(null)}
+                    // Focus moves into the prompt, so keyboard and screen-reader
+                    // users land on it; the safe choice takes it.
+                    autoFocus
+                    onClick={keepRow}
                     disabled={discarding}
                   >
                     Keep it

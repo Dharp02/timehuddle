@@ -26,7 +26,7 @@ import {
   useToast,
 } from '@mieweb/ui';
 import { useCombobox, type UseComboboxState, type UseComboboxStateChangeOptions } from 'downshift';
-import React, { useCallback, useId, useMemo, useState } from 'react';
+import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { RedmineIssue, RedmineRelevantIssue } from '../../../lib/api';
@@ -117,6 +117,10 @@ export function RedmineSuggestions({
   const { suggestions, search, loadSuggestions, retrySuggestions, retrySearch, dismiss } =
     useRedmineSuggestions(userId, query);
   const [showAll, setShowAll] = useState(false);
+  // The issue whose timer start or stop is in flight. The ref is the guard (a
+  // double-click lands before the state does); the state drives the spinner.
+  const [timerIssueId, setTimerIssueId] = useState<number | null>(null);
+  const timerBusy = useRef(false);
   const shortcutsId = useId();
   const searchShortcutsId = useId();
 
@@ -145,9 +149,18 @@ export function RedmineSuggestions({
 
   const toggleTimer = useCallback(
     async (issue: RedmineIssue) => {
-      // The toast is the parent's (`TicketStartProvider`); a start waiting on a
-      // clock-in reports 'clock-in', and its chip follows the live timer.
-      const outcome = await onToggleTimer(issue);
+      if (timerBusy.current) return;
+      timerBusy.current = true;
+      setTimerIssueId(issue.id);
+      let outcome: TicketTimerOutcome;
+      try {
+        // The toast is the parent's (`TicketStartProvider`); a start waiting on a
+        // clock-in reports 'clock-in', and its chip follows the live timer.
+        outcome = await onToggleTimer(issue);
+      } finally {
+        timerBusy.current = false;
+        setTimerIssueId(null);
+      }
       if (outcome === 'failed' || outcome === 'clock-in') return;
       // The chip already follows the live timer (`runningIssueId`); refetching
       // brings the order and the server-side pin up to date as well.
@@ -164,7 +177,10 @@ export function RedmineSuggestions({
         toast.toast({
           message: text.hidden(issue.id),
           duration: 6000,
-          action: { label: text.undo, onClick: () => void undo().catch(() => undefined) },
+          action: {
+            label: text.undo,
+            onClick: () => void undo().catch(() => toast.error(text.restoreFailed(issue.id))),
+          },
         });
       } catch {
         toast.error(text.hideFailed(issue.id));
@@ -179,10 +195,13 @@ export function RedmineSuggestions({
         navigate(ticketDetailPath({ sourceId: 'redmine', id: String(row.issue.id) }));
       else if (row.kind === 'show-all') setShowAll(true);
       else if (row.kind === 'connect') navigate('/app/settings');
-      else if (suggestions.status === 'error') void retrySuggestions();
-      else retrySearch();
+      else {
+        // One retry row stands for both requests: retry whichever failed.
+        if (suggestions.status === 'error') void retrySuggestions();
+        if (search.status === 'error') retrySearch();
+      }
     },
-    [navigate, suggestions.status, retrySuggestions, retrySearch],
+    [navigate, suggestions.status, search.status, retrySuggestions, retrySearch],
   );
 
   const {
@@ -283,7 +302,7 @@ export function RedmineSuggestions({
       <SearchIcon
         aria-hidden="true"
         size={14}
-        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground"
       />
       <Input
         label={text.searchLabel}
@@ -344,7 +363,14 @@ export function RedmineSuggestions({
                               : null
                           }
                           running={row.issue.id === runningIssueId}
-                          onToggleTimer={() => void toggleTimer(row.issue)}
+                          timerBusy={timerIssueId !== null}
+                          timerLoading={timerIssueId === row.issue.id}
+                          onToggleTimer={() => {
+                            // Like Shift+Enter: close first, so nothing is left
+                            // open behind a clock-in prompt.
+                            closeMenu();
+                            void toggleTimer(row.issue);
+                          }}
                           onHide={
                             row.section === 'suggested' ? () => void hide(row.issue) : undefined
                           }
@@ -449,6 +475,10 @@ interface IssueRowProps {
   issue: RedmineIssue;
   reason: string | null;
   running: boolean;
+  /** A timer start or stop is in flight, on this row or another. */
+  timerBusy: boolean;
+  /** …and it is this row's. */
+  timerLoading: boolean;
   onToggleTimer: () => void;
   onHide?: () => void;
 }
@@ -466,7 +496,15 @@ interface IssueRowProps {
  * option cannot hold its own buttons, so the keyboard gets Delete and
  * Shift+Enter instead, announced through the row's `aria-describedby`.
  */
-function IssueRow({ issue, reason, running, onToggleTimer, onHide }: IssueRowProps) {
+function IssueRow({
+  issue,
+  reason,
+  running,
+  timerBusy,
+  timerLoading,
+  onToggleTimer,
+  onHide,
+}: IssueRowProps) {
   return (
     <>
       <Text
@@ -516,6 +554,8 @@ function IssueRow({ issue, reason, running, onToggleTimer, onHide }: IssueRowPro
       >
         <TimerToggleButton
           isRunning={running}
+          isLoading={timerLoading}
+          disabled={timerBusy}
           className="h-7 w-7"
           tabIndex={-1}
           aria-hidden

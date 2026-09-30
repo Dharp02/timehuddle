@@ -71,9 +71,12 @@ export const RedmineHiddenSuggestions: React.FC = () => {
           ))}
         </div>
       ) : (
-        <Text variant="muted" size="xs">
-          {issues?.length ? text.hiddenExplainer : text.hiddenNone}
-        </Text>
+        // A failed load has no list to describe: the error below says so.
+        issues !== null && (
+          <Text variant="muted" size="xs">
+            {issues.length ? text.hiddenExplainer : text.hiddenNone}
+          </Text>
+        )
       )}
 
       {!!issues?.length && (

@@ -635,7 +635,7 @@ export const TicketsPage: React.FC = () => {
                   tableIssueIds={tableRedmineIssueIds}
                   runningIssueId={runningRedmineIssueId}
                   onToggleTimer={handleSuggestionTimer}
-                  inputClassName={`pl-8 rounded-lg ${noFocusRingClass}`}
+                  inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
                 />
 
                 <div className="flex shrink-0 items-center gap-3">

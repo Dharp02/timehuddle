@@ -14,9 +14,8 @@
  */
 import { Meteor } from 'meteor/meteor';
 
-import { RedmineLinks } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { requireRedmineAccount as requireAccount } from './redmine-account';
+import { redmineUserIdFor, requireRedmineAccount as requireAccount } from './redmine-account';
 import { createUserTtlCache } from './redmine-cache';
 import {
   createIssue,
@@ -30,12 +29,12 @@ import {
   updateIssue,
 } from './redmine-client';
 import {
+  collectUnpushedTimeEntries,
   toFormOptions,
   toIssueDetail,
   toJournals,
   toNameMap,
   toNamedList,
-  toTimeEntries,
 } from './redmine-issues';
 import { pushedEntryIdsFor } from './redmine-time-sync';
 import {
@@ -149,19 +148,17 @@ export const ISSUE_TIME_ENTRY_LIMIT = 10;
  * The issue's newest Redmine time entries, for its page's Activity: everyone's,
  * except the ones TimeHuddle pushed for the caller — those already show there as
  * the caller's own timer sessions. Counted after that, so the page gets up to
- * `ISSUE_TIME_ENTRY_LIMIT` entries it would not otherwise show. `null` when
- * Redmine would not list them: the rest of the page still loads.
+ * `ISSUE_TIME_ENTRY_LIMIT` entries it would not otherwise show, reading further
+ * pages when TimeHuddle's own fill the first (`collectUnpushedTimeEntries`).
+ * `null` when Redmine would not list them: the rest of the page still loads.
  */
 async function loadTimeEntries(userId, account, issueId) {
   try {
-    const [raw, pushedIds] = await Promise.all([
-      listIssueTimeEntries(account, issueId),
-      pushedEntryIdsFor(userId, issueId),
-    ]);
-    const ownAndUnpushed = raw.filter(
-      (entry) => Number(entry?.issue?.id) === issueId && !pushedIds.has(entry.id),
+    const pushedIds = await pushedEntryIdsFor(userId, issueId);
+    return await collectUnpushedTimeEntries(
+      (offset, limit) => listIssueTimeEntries(account, issueId, { offset, limit }),
+      { issueId, pushedIds, limit: ISSUE_TIME_ENTRY_LIMIT },
     );
-    return toTimeEntries(ownAndUnpushed).slice(0, ISSUE_TIME_ENTRY_LIMIT);
   } catch {
     return null;
   }
@@ -202,8 +199,7 @@ Meteor.methods({
       throw toRedmineMeteorError(err);
     }
 
-    const link = await RedmineLinks.findOneAsync({ userId }, { fields: { redmineUserId: 1 } });
-    return { ...options, me: link?.redmineUserId ?? null };
+    return { ...options, me: await redmineUserIdFor(userId, account).catch(() => null) };
   },
 
   /**
@@ -219,14 +215,16 @@ Meteor.methods({
     enforceRedmineLimit(issueReadLimiter, userId);
     const account = await requireAccount(userId);
 
-    const [raw, timeEntries, link] = await Promise.all([
+    const [raw, timeEntries, me] = await Promise.all([
       loadRawIssue(account, issueId),
       loadTimeEntries(userId, account, issueId),
-      RedmineLinks.findOneAsync({ userId }, { fields: { redmineUserId: 1 } }),
+      // Best-effort, like the time entries: without it the page still loads,
+      // it just can't pick out the caller's own activity.
+      redmineUserIdFor(userId, account).catch(() => null),
     ]);
     return {
       baseUrl: account.baseUrl,
-      me: link?.redmineUserId ?? null,
+      me,
       issue: toIssueDetail(raw),
       journals: await loadJournals(userId, account, raw),
       timeEntries,

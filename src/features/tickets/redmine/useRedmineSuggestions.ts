@@ -89,7 +89,12 @@ export function useRedmineSuggestions(userId: string | null, query: string) {
         setSuggestions(cached);
         return;
       }
-      setSuggestions((prev) => ({ ...prev, status: 'loading' }));
+      // A forced refresh keeps the rows on screen while it runs. A cache miss
+      // starts empty: the cache was dropped because the Redmine link changed
+      // (Settings), and the old list's titles must not linger.
+      setSuggestions((prev) =>
+        force ? { ...prev, status: 'loading' } : { ...IDLE, status: 'loading' },
+      );
       try {
         const result = await redmineApi.issues.relevant();
         commitSuggestions(
