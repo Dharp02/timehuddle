@@ -12,8 +12,6 @@ export class ClockPage extends BasePage {
   readonly planGateMessage: Locator;
   readonly proseMirror: Locator;
   readonly postPlanAndClockInButton: Locator;
-  readonly saveDraftButton: Locator;
-  readonly updateDraftButton: Locator;
   readonly postWrapUpAndClockOutButton: Locator;
   readonly openHuddleLink: Locator;
 
@@ -28,11 +26,8 @@ export class ClockPage extends BasePage {
     this.planGateMessage = this.page.getByText(/Plan before you clock in/i);
     this.proseMirror = this.page.locator('.ProseMirror').first();
     this.postPlanAndClockInButton = this.page.getByRole('button', {
-      // Draft-resume mode labels this action as "Publish plan and clock in".
-      name: /(Post|Publish) plan and clock in/i,
+      name: /Post plan and clock in/i,
     });
-    this.saveDraftButton = this.page.getByRole('button', { name: /Save draft/i });
-    this.updateDraftButton = this.page.getByRole('button', { name: /Update draft/i });
     this.postWrapUpAndClockOutButton = this.page.getByRole('button', {
       name: /Post wrap-up and clock out/i,
     });
@@ -87,24 +82,6 @@ export class ClockPage extends BasePage {
     await this.postPlanAndClockInButton.click();
     // Wait for the page to update after clock in
     await this.page.waitForTimeout(1500);
-  }
-
-  /**
-   * Save as draft
-   */
-  async saveDraft() {
-    await this.saveDraftButton.waitFor({ state: 'visible', timeout: 10000 });
-    await this.saveDraftButton.click();
-    await this.page.waitForTimeout(1000);
-  }
-
-  /**
-   * Update an existing draft
-   */
-  async updateDraft() {
-    await this.updateDraftButton.waitFor({ state: 'visible', timeout: 10000 });
-    await this.updateDraftButton.click();
-    await this.page.waitForTimeout(1000);
   }
 
   /**

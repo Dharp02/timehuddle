@@ -20,7 +20,9 @@ function toId(id) {
 // postDate is a plain calendar date string (client-local), e.g. "2026-07-22"
 const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Drafts carry status: 'draft'; absent status = published (legacy posts included).
+// Drafts (status: 'draft') can no longer be created, but rows saved before
+// they were removed still exist — keep them out of every feed. Absent status =
+// published (legacy posts included).
 const PUBLISHED = { status: { $ne: 'draft' } };
 
 // Permission helpers
@@ -405,7 +407,7 @@ Meteor.methods({
     return { posts: enriched };
   },
 
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, draft, clockEventId, wrapUp }) {
+  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the
     // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
@@ -482,8 +484,7 @@ Meteor.methods({
       attachments: attachments ?? [],
       likes: [],
       commentCount: 0,
-      // Drafts are author-only and date-less — postDate is stamped at publish.
-      ...(draft === true ? { status: 'draft' } : postDate ? { postDate } : {}),
+      ...(postDate ? { postDate } : {}),
       // Optionally link to a clock session (per-session gate) and/or stamp a
       // wrap-up at creation — used by the clock-out recovery path when a
       // session somehow has no plan post.
@@ -593,54 +594,6 @@ Meteor.methods({
     return { post: post ? await enrichPost(post) : null };
   },
 
-  /** The caller's newest unpublished draft in a team, or null. */
-  async 'huddle.getMyLatestDraft'({ teamId }) {
-    const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    if (!teamId || typeof teamId !== 'string') {
-      throw new Meteor.Error('bad-request', 'teamId is required');
-    }
-
-    const team = await getTeam(teamId);
-    if (!team) {
-      throw new Meteor.Error('not-found', 'Team not found');
-    }
-    const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
-    if (!isMember) {
-      throw new Meteor.Error('forbidden', 'Not a team member');
-    }
-
-    const post = await rawDb().collection('huddlePosts').findOne(
-      { teamId, userId, status: 'draft' },
-      { sort: { createdAt: -1 } }
-    );
-    return { post: post ? await enrichPost(post) : null };
-  },
-
-  /** All of the caller's unpublished drafts in a team, newest first. */
-  async 'huddle.getMyDrafts'({ teamId }) {
-    const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    if (!teamId || typeof teamId !== 'string') {
-      throw new Meteor.Error('bad-request', 'teamId is required');
-    }
-
-    const team = await getTeam(teamId);
-    if (!team) {
-      throw new Meteor.Error('not-found', 'Team not found');
-    }
-    const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
-    if (!isMember) {
-      throw new Meteor.Error('forbidden', 'Not a team member');
-    }
-
-    const drafts = await rawDb().collection('huddlePosts')
-      .find({ teamId, userId, status: 'draft' })
-      .sort({ createdAt: -1 })
-      .toArray();
-    return { posts: await Promise.all(drafts.map(enrichPost)) };
-  },
-
   /** The caller's post linked to a clock session (by clockEventId), or null. */
   async 'huddle.getMyPostForSession'({ teamId, clockEventId }) {
     const identity = await requireIdentity(this);
@@ -659,71 +612,6 @@ Meteor.methods({
     return { post: post ? await enrichPost(post) : null };
   },
 
-  /**
-   * Publish a draft: optionally update its content, stamp the client-local
-   * postDate, and clear the draft status so it enters the team feed (the
-   * publication's change stream delivers it as an `added`).
-   */
-  async 'huddle.publishPost'({ postId, content, postDate, clockEventId }) {
-    // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
-    const identity = await requireIdentity(this);
-    if (!postId || !isValidId(postId)) {
-      throw new Meteor.Error('bad-request', 'Invalid postId');
-    }
-    if (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate)) {
-      throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
-    }
-    if (content !== undefined && typeof content?.text !== 'string') {
-      throw new Meteor.Error('bad-request', 'content.text is required when content is provided');
-    }
-
-    const post = await rawDb().collection('huddlePosts').findOne({ _id: toId(postId) });
-    if (!post) {
-      throw new Meteor.Error('not-found', 'Post not found');
-    }
-    if (post.status !== 'draft') {
-      throw new Meteor.Error('bad-request', 'Post is not a draft');
-    }
-    // Drafts are strictly author-only — admins can't see or publish them.
-    if (post.userId !== identity.userId) {
-      throw new Meteor.Error('forbidden', 'Only the author can publish a draft');
-    }
-
-    // Same scoping as huddle.createPost — must be the caller's own session in
-    // the post's team.
-    if (clockEventId) {
-      if (typeof clockEventId !== 'string' || !isValidId(clockEventId)) {
-        throw new Meteor.Error('bad-request', 'Invalid clockEventId');
-      }
-      const event = await rawDb()
-        .collection('clockevents')
-        .findOne(
-          { _id: toId(clockEventId), userId: identity.userId, teamId: post.teamId },
-          { projection: { _id: 1 } },
-        );
-      if (!event) {
-        throw new Meteor.Error('forbidden', 'Clock event does not belong to you in this team');
-      }
-    }
-
-    await rawDb().collection('huddlePosts').updateOne(
-      { _id: toId(postId) },
-      {
-        $set: {
-          ...(content !== undefined
-            ? { content: { text: content.text, mentions: content.mentions ?? [] } }
-            : {}),
-          ...(clockEventId ? { clockEventId } : {}),
-          postDate,
-          updatedAt: new Date(),
-        },
-        $unset: { status: '' },
-      }
-    );
-
-    return { id: postId };
-  },
-  
   async 'huddle.deletePost'({ postId }) {
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Authentication required');

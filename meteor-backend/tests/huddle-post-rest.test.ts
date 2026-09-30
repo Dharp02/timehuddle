@@ -1,7 +1,7 @@
 /**
  * Huddle post authoring over wormhole REST.
  *
- * createPost/updatePost/publishPost used to authenticate via `this.userId`,
+ * createPost/updatePost used to authenticate via `this.userId`,
  * which only exists on a DDP session — so posting required a live WebSocket.
  * That breaks on mobile, where the WebView drops the socket whenever the app
  * is backgrounded (recording a Pulse video, for one) and the write silently
@@ -136,31 +136,29 @@ describe('huddle post authoring over REST', () => {
     expect(post!.content.text).toBe('After edit');
   });
 
-  it('publishes a draft over REST', async () => {
-    const draft = await wormhole<{ id: string }>(
-      'huddle.createPost',
-      { teamId, content: { text: 'Draft plan', mentions: [] }, draft: true },
-      authorJwt,
-    );
-
+  it('keeps draft rows saved before drafts were removed out of the feed', async () => {
     const db = await getDb();
-    const before = await db.collection('huddlePosts').findOne({
-      _id: new ObjectId(draft.result.id),
-    });
-    expect(before!.status).toBe('draft');
+    const legacyDraft = {
+      _id: new ObjectId(),
+      teamId,
+      userId: authorUserId,
+      content: { text: 'Legacy draft', mentions: [] },
+      attachments: [],
+      likes: [],
+      commentCount: 0,
+      status: 'draft',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await db.collection('huddlePosts').insertOne(legacyDraft);
 
-    const published = await wormhole(
-      'huddle.publishPost',
-      { postId: draft.result.id, postDate: todayString() },
+    const feed = await wormhole<{ posts: Array<{ id: string }> }>(
+      'huddle.getPosts',
+      { teamId },
       authorJwt,
     );
-    expect(published.ok).toBe(true);
-
-    const after = await db.collection('huddlePosts').findOne({
-      _id: new ObjectId(draft.result.id),
-    });
-    expect(after!.status).toBeUndefined();
-    expect(after!.postDate).toBe(todayString());
+    expect(feed.ok).toBe(true);
+    expect(feed.result.posts.some((p) => p.id === legacyDraft._id.toHexString())).toBe(false);
   });
 
   it('rejects an unauthenticated create', async () => {
@@ -257,31 +255,5 @@ describe('huddle post clockEventId ownership', () => {
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/does not belong to you/i);
-  });
-
-  it('rejects a publish linking another user’s clock event', async () => {
-    const draft = await wormhole<{ id: string }>(
-      'huddle.createPost',
-      { teamId, content: { text: 'Draft to hijack', mentions: [] }, draft: true },
-      authorJwt,
-    );
-    expect(draft.ok).toBe(true);
-
-    const res = await wormhole(
-      'huddle.publishPost',
-      {
-        postId: draft.result.id,
-        postDate: todayString(),
-        clockEventId: foreignUserEventId,
-      },
-      authorJwt,
-    );
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/does not belong to you/i);
-
-    const db = await getDb();
-    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(draft.result.id) });
-    expect(post!.clockEventId).toBeUndefined();
-    expect(post!.status).toBe('draft');
   });
 });

@@ -11,6 +11,11 @@
 - `PostCard/` — the card-per-post feed item: markdown body, attachments, ticket tag, like button,
   edit/delete menu, and the comments panel underneath.
 - `HuddleComments/` — the flat comment list + add-comment box shown under an expanded `PostCard`.
+- `DraftsPanel.tsx` — the Huddle page's Drafts tab (write, edit, publish and delete private drafts).
+  Archived 2026-09-30 when drafts were removed from the app entirely: the Drafts tab, the Clock
+  page's "Save draft", and the `huddle.getMyDrafts` / `getMyLatestDraft` / `publishPost` backend
+  methods. Draft rows already in `huddlePosts` (`status: 'draft'`) are left in place and still
+  filtered out of every feed.
 
 ## Why They're Archived, Not Deleted
 

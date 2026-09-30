@@ -1249,24 +1249,6 @@ Meteor.startup(async() => {
     },
   });
 
-  Wormhole.expose('huddle.getMyLatestDraft', {
-    description: "The caller's newest unpublished draft post in a team, or null",
-    inputSchema: {
-      type: 'object',
-      properties: { teamId: { type: 'string' } },
-      required: ['teamId'],
-    },
-  });
-
-  Wormhole.expose('huddle.getMyDrafts', {
-    description: "All of the caller's unpublished drafts in a team, newest first",
-    inputSchema: {
-      type: 'object',
-      properties: { teamId: { type: 'string' } },
-      required: ['teamId'],
-    },
-  });
-
   Wormhole.expose('huddle.getMyPostForSession', {
     description: "The caller's post linked to a clock session, or null",
     inputSchema: {
@@ -1322,7 +1304,7 @@ Meteor.startup(async() => {
   };
 
   Wormhole.expose('huddle.createPost', {
-    description: 'Create a huddle post (or an author-only draft)',
+    description: 'Create a huddle post',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1331,7 +1313,6 @@ Meteor.startup(async() => {
         ticketId: { type: 'string' },
         attachments: huddlePostAttachmentSchema,
         postDate: { type: 'string' },
-        draft: { type: 'boolean' },
         clockEventId: { type: 'string' },
         wrapUp: { type: 'boolean' },
       },
@@ -1355,24 +1336,6 @@ Meteor.startup(async() => {
         ticketId: { type: ['string', 'null'] },
       },
       required: ['postId', 'content'],
-    },
-    outputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string' } },
-    },
-  });
-
-  Wormhole.expose('huddle.publishPost', {
-    description: 'Publish one of the caller\'s own drafts into the feed',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        postId: { type: 'string' },
-        postDate: { type: 'string' },
-        content: huddlePostContentSchema,
-        clockEventId: { type: 'string' },
-      },
-      required: ['postId', 'postDate'],
     },
     outputSchema: {
       type: 'object',

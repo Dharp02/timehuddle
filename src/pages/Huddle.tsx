@@ -25,7 +25,6 @@ import {
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
-import { DraftsPanel } from '../features/huddle/DraftsPanel';
 import { fileFromDataUrl, toPostAttachment, uploadMedia } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
@@ -81,8 +80,6 @@ export default function Huddle() {
   const [showSearch, setShowSearch] = useState(false);
   const [threadByMenuOpen, setThreadByMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  // Top-level tab: the team feed or the user's private drafts.
-  const [feedTab, setFeedTab] = useState<'feed' | 'drafts'>('feed');
   // How the inbox groups posts into conversations. Persisted so a reload
   // keeps the reader's choice; switching it only re-runs the grouping
   // function below, it never refetches.
@@ -117,7 +114,7 @@ export default function Huddle() {
   const personalTeamId = allTeams.find((t) => t.isPersonal)?.id ?? null;
   const scope: 'team' | 'me' =
     showMe || (selectedTeamId !== null && selectedTeamId === personalTeamId) ? 'me' : 'team';
-  // Where the first-post composer and Drafts write: the Personal team in the
+  // Where the first-post composer writes: the Personal team in the
   // Personal view, the selected team otherwise.
   const postingTeamId = scope === 'me' ? personalTeamId : selectedTeamId;
 
@@ -206,7 +203,6 @@ export default function Huddle() {
   // conversation from ever appearing, so it's cleared too.
   useEffect(() => {
     if (!targetPostId) return;
-    setFeedTab('feed');
     _setThreadBy('session');
     setSearchQuery('');
   }, [targetPostId]);
@@ -467,13 +463,13 @@ export default function Huddle() {
   // that contains it.
   useEffect(() => {
     if (!targetPostId || !targetPostLoaded) return;
-    if (feedTab !== 'feed' || threadBy !== 'session') return;
+    if (threadBy !== 'session') return;
     const match = conversations.find((c) => c.thread.some((m) => m.id === targetPostId));
     if (!match) return;
     setActiveConversationId(match.id);
     setTargetPostId(null);
     replace('/app/huddle');
-  }, [targetPostId, targetPostLoaded, feedTab, threadBy, conversations, replace]);
+  }, [targetPostId, targetPostLoaded, threadBy, conversations, replace]);
 
   // Send from the inbox's message box → huddle.createPost, routed by how the
   // open conversation is grouped (its own clock session, its own ticket, or
@@ -554,60 +550,46 @@ export default function Huddle() {
           dragged horizontally; clip creates no scroll container, so vertical
           scrolling is unchanged. */}
       <div className="huddle flex h-full min-h-0 flex-col gap-4 max-md:overflow-x-clip lg:px-6 xl:px-10 2xl:px-16">
-        {/* Feed / Drafts tabs + actions */}
+        {/* Actions: Group by, search, notifications */}
         <div className="huddle-actions flex shrink-0 items-center gap-2">
-          <Tabs
-            variant="pills"
-            value={feedTab}
-            onValueChange={(v) => setFeedTab(v as 'feed' | 'drafts')}
-          >
-            <TabsList aria-label="Huddle feed or drafts" className="w-fit">
-              <TabsTrigger value="feed">Feed</TabsTrigger>
-              <TabsTrigger value="drafts">Drafts</TabsTrigger>
-            </TabsList>
-          </Tabs>
           <ButtonGroup className="ms-auto">
-            {feedTab === 'feed' && (
-              <Dropdown
-                open={threadByMenuOpen}
-                onOpenChange={setThreadByMenuOpen}
-                trigger={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Group by: ${THREAD_BY_LABELS[threadBy]}`}
-                  >
-                    {THREAD_BY_LABELS[threadBy]}
-                    <FontAwesomeIcon icon={faChevronDown} className="ms-1.5 text-xs" />
-                  </Button>
-                }
-              >
-                {THREAD_BY_OPTIONS.map((option) => (
-                  <DropdownItem
-                    key={option}
-                    icon={option === threadBy ? <FontAwesomeIcon icon={faCheck} /> : undefined}
-                    onClick={() => {
-                      setThreadBy(option);
-                      // DropdownItem doesn't close its menu on its own.
-                      setThreadByMenuOpen(false);
-                    }}
-                  >
-                    {THREAD_BY_LABELS[option]}
-                  </DropdownItem>
-                ))}
-              </Dropdown>
-            )}
-            {feedTab === 'feed' && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowSearch(!showSearch)}
-                aria-label="Search posts"
-                title="Search posts"
-              >
-                <FontAwesomeIcon icon={faMagnifyingGlass} />
-              </Button>
-            )}
+            <Dropdown
+              open={threadByMenuOpen}
+              onOpenChange={setThreadByMenuOpen}
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Group by: ${THREAD_BY_LABELS[threadBy]}`}
+                >
+                  {THREAD_BY_LABELS[threadBy]}
+                  <FontAwesomeIcon icon={faChevronDown} className="ms-1.5 text-xs" />
+                </Button>
+              }
+            >
+              {THREAD_BY_OPTIONS.map((option) => (
+                <DropdownItem
+                  key={option}
+                  icon={option === threadBy ? <FontAwesomeIcon icon={faCheck} /> : undefined}
+                  onClick={() => {
+                    setThreadBy(option);
+                    // DropdownItem doesn't close its menu on its own.
+                    setThreadByMenuOpen(false);
+                  }}
+                >
+                  {THREAD_BY_LABELS[option]}
+                </DropdownItem>
+              ))}
+            </Dropdown>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowSearch(!showSearch)}
+              aria-label="Search posts"
+              title="Search posts"
+            >
+              <FontAwesomeIcon icon={faMagnifyingGlass} />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -620,7 +602,7 @@ export default function Huddle() {
           </ButtonGroup>
         </div>
 
-        {showSearch && feedTab === 'feed' && (
+        {showSearch && (
           <Input
             label="Search posts"
             hideLabel
@@ -637,24 +619,22 @@ export default function Huddle() {
             uses, so the rest of the app stays in sync. Thread by (grouping)
             is the Group by dropdown above, beside search — switching it only
             re-runs postsToConversations, it never refetches. */}
-        {feedTab === 'feed' && (
-          <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2">
-            <Tabs
-              variant="pills"
-              value={scope === 'me' ? PERSONAL_TAB : (selectedTeamId ?? '')}
-              onValueChange={selectTab}
-            >
-              <TabsList aria-label="Team" className="flex-wrap">
-                <TabsTrigger value={PERSONAL_TAB}>Personal</TabsTrigger>
-                {teamTabs.map((t) => (
-                  <TabsTrigger key={t.id} value={t.id}>
-                    {t.name}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </div>
-        )}
+        <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2">
+          <Tabs
+            variant="pills"
+            value={scope === 'me' ? PERSONAL_TAB : (selectedTeamId ?? '')}
+            onValueChange={selectTab}
+          >
+            <TabsList aria-label="Team" className="flex-wrap">
+              <TabsTrigger value={PERSONAL_TAB}>Personal</TabsTrigger>
+              {teamTabs.map((t) => (
+                <TabsTrigger key={t.id} value={t.id}>
+                  {t.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
 
         {/* Composer for a team's very first post — sits right below the team
             tabs above. Once a team has any posts, replying happens from
@@ -665,7 +645,6 @@ export default function Huddle() {
             own overflow on a short viewport instead of clipping its lower
             half (the attach buttons, Cancel and Post) under the nav. */}
         {postingTeamId &&
-          feedTab === 'feed' &&
           !(scope === 'me' ? myPostsLoading : loading) &&
           activePosts.length === 0 && (
             <div className="huddle-composer min-h-0 max-h-[70vh] shrink-0 overflow-y-auto overscroll-contain">
@@ -678,95 +657,80 @@ export default function Huddle() {
             </div>
           )}
 
-        {/* Drafts tab — private, multiple drafts */}
-        {postingTeamId && feedTab === 'drafts' && user && (
-          <div>
-            <DraftsPanel
-              teamId={postingTeamId}
-              userInitials={getUserInitials(user.name)}
-              userColor={getUserColor(user.id)}
-            />
-          </div>
-        )}
-
         {/* Feed */}
-        {feedTab === 'feed' && (
-          <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
-            {scope === 'team' && !selectedTeamId && (
-              <div className="flex items-center justify-center py-16 px-4">
-                <p className="text-sm text-gray-500 dark:text-neutral-400">
-                  Please select a team to view the huddle feed
-                </p>
-              </div>
-            )}
+        <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
+          {scope === 'team' && !selectedTeamId && (
+            <div className="flex items-center justify-center py-16 px-4">
+              <p className="text-sm text-gray-500 dark:text-neutral-400">
+                Please select a team to view the huddle feed
+              </p>
+            </div>
+          )}
 
-            {(scope === 'me' || selectedTeamId) && (
-              <>
-                {(scope === 'me' ? myPostsLoading : loading) && (
-                  <div className="flex items-center justify-center py-16">
-                    <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                  </div>
+          {(scope === 'me' || selectedTeamId) && (
+            <>
+              {(scope === 'me' ? myPostsLoading : loading) && (
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+
+              {(scope === 'me' ? myPostsError : error) && (
+                <div className="flex items-center justify-center py-16 px-4">
+                  <p className="text-sm text-red-500 dark:text-red-400">
+                    {scope === 'me' ? myPostsError : error}
+                  </p>
+                </div>
+              )}
+
+              <ComposerError message={editError} onDismiss={() => setEditError(null)} />
+
+              {!(scope === 'me' ? myPostsLoading : loading) &&
+                !(scope === 'me' ? myPostsError : error) &&
+                activePosts.length === 0 && (
+                  <EmptyState
+                    title={scope === 'me' ? 'No posts in the last 30 days' : 'No posts yet'}
+                    description={
+                      scope === 'me'
+                        ? 'Personal shows what you posted in any team over the last 30 days.'
+                        : 'Be the first to share an update.'
+                    }
+                  />
                 )}
 
-                {(scope === 'me' ? myPostsError : error) && (
-                  <div className="flex items-center justify-center py-16 px-4">
-                    <p className="text-sm text-red-500 dark:text-red-400">
-                      {scope === 'me' ? myPostsError : error}
-                    </p>
-                  </div>
+              {!(scope === 'me' ? myPostsLoading : loading) &&
+                !(scope === 'me' ? myPostsError : error) &&
+                activePosts.length > 0 &&
+                filteredPosts.length === 0 && (
+                  <EmptyState title="No matching posts" description="Try a different search." />
                 )}
 
-                <ComposerError message={editError} onDismiss={() => setEditError(null)} />
-
-                {!(scope === 'me' ? myPostsLoading : loading) &&
-                  !(scope === 'me' ? myPostsError : error) &&
-                  activePosts.length === 0 && (
-                    <EmptyState
-                      title={scope === 'me' ? 'No posts in the last 30 days' : 'No posts yet'}
-                      description={
-                        scope === 'me'
-                          ? 'Personal shows what you posted in any team over the last 30 days.'
-                          : 'Be the first to share an update.'
-                      }
-                    />
-                  )}
-
-                {!(scope === 'me' ? myPostsLoading : loading) &&
-                  !(scope === 'me' ? myPostsError : error) &&
-                  activePosts.length > 0 &&
-                  filteredPosts.length === 0 && (
-                    <EmptyState title="No matching posts" description="Try a different search." />
-                  )}
-
-                {/* SuperChatInbox, grouped by the selected Thread by option.
+              {/* SuperChatInbox, grouped by the selected Thread by option.
                   Writable only where posting makes sense (see canPostIn):
                   the composer is read-only everywhere else, and the
                   component shows its own read-only placeholder. */}
-                {!(scope === 'me' ? myPostsLoading : loading) &&
-                  !(scope === 'me' ? myPostsError : error) &&
-                  user &&
-                  filteredPosts.length > 0 && (
-                    <SuperChatInbox
-                      conversations={conversations}
-                      activeConversationId={activeConversation?.id}
-                      onConversationOpened={(conversation) =>
-                        setActiveConversationId(conversation.id)
-                      }
-                      currentParticipantId={user.id}
-                      readOnly={inboxReadOnly}
-                      virtualized
-                      renderPlugins={renderPlugins}
-                      onMessageSent={(text, meta) => handleInboxMessageSent(text, meta)}
-                      onMessageEdited={(messageId, text) =>
-                        void handleMessageEdited(messageId, text)
-                      }
-                      className="h-full"
-                    />
-                  )}
-              </>
-            )}
-          </div>
-        )}
+              {!(scope === 'me' ? myPostsLoading : loading) &&
+                !(scope === 'me' ? myPostsError : error) &&
+                user &&
+                filteredPosts.length > 0 && (
+                  <SuperChatInbox
+                    conversations={conversations}
+                    activeConversationId={activeConversation?.id}
+                    onConversationOpened={(conversation) =>
+                      setActiveConversationId(conversation.id)
+                    }
+                    currentParticipantId={user.id}
+                    readOnly={inboxReadOnly}
+                    virtualized
+                    renderPlugins={renderPlugins}
+                    onMessageSent={(text, meta) => handleInboxMessageSent(text, meta)}
+                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
+                    className="h-full"
+                  />
+                )}
+            </>
+          )}
+        </div>
       </div>
     </AppPage>
   );

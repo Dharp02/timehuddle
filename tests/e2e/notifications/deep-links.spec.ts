@@ -64,7 +64,7 @@ async function selectTeam(page: Page, teamId: string): Promise<void> {
 
 async function openHuddleFeed(page: Page): Promise<void> {
   await page.goto('/app/huddle');
-  await page.getByRole('tab', { name: 'Feed' }).waitFor({ state: 'visible', timeout: 20000 });
+  await page.getByRole('tablist', { name: 'Team' }).waitFor({ state: 'visible', timeout: 20000 });
 }
 
 /** A post opened by a deep link: its conversation is the one on screen. */

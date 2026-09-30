@@ -6,13 +6,11 @@ import { openPostInInbox } from '../huddle/helpers';
  * HuddlePage - Page object for the huddle feed (a SuperChatInbox)
  */
 export class HuddlePage extends BasePage {
-  private readonly feedTab: Locator;
-  private readonly draftsTab: Locator;
+  private readonly teamTabs: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.feedTab = this.page.getByRole('tab', { name: 'Feed' });
-    this.draftsTab = this.page.getByRole('tab', { name: 'Drafts' });
+    this.teamTabs = this.page.getByRole('tablist', { name: 'Team' });
   }
 
   /**
@@ -25,10 +23,10 @@ export class HuddlePage extends BasePage {
 
   /**
    * Wait for huddle page to load. The page has no title of its own (the
-   * sidebar already names it), so its Feed tab is the landmark.
+   * sidebar already names it), so its Team tab list is the landmark.
    */
   async waitForLoad(timeout = 10000) {
-    await this.feedTab.waitFor({ state: 'visible', timeout });
+    await this.teamTabs.waitFor({ state: 'visible', timeout });
   }
 
   /**
@@ -43,23 +41,7 @@ export class HuddlePage extends BasePage {
    * Check if we're on the huddle page
    */
   async isOnHuddlePage(): Promise<boolean> {
-    return await this.feedTab.isVisible().catch(() => false);
-  }
-
-  /**
-   * Click on Feed tab
-   */
-  async clickFeedTab() {
-    await this.feedTab.click();
-    await this.page.waitForTimeout(500);
-  }
-
-  /**
-   * Click on Drafts tab
-   */
-  async clickDraftsTab() {
-    await this.draftsTab.click();
-    await this.page.waitForTimeout(500);
+    return await this.teamTabs.isVisible().catch(() => false);
   }
 
   /**

@@ -14,7 +14,6 @@
  *   - Plan requirement disabled (default) — can clock in/out freely
  *   - Plan requirement enabled — plan gate blocks clock in
  *   - Post plan → clock in → post wrap-up → clock out → verify in huddle
- *   - Save draft plan → clock in with draft → update wrap-up → clock out
  */
 import { test, expect } from '@playwright/test';
 import { TeamsPage } from '../pages/TeamsPage';
@@ -223,62 +222,6 @@ test.describe('Plan-First Clock Flow', () => {
     await huddlePage.goto();
     expect(await huddlePage.hasPost(planText), 'plan text in the huddle feed').toBe(true);
     expect(await huddlePage.hasPost(wrapUpText), 'wrap-up text in the huddle feed').toBe(true);
-  });
-
-  test('should save draft plan and then clock in with it', async ({ page }) => {
-    // Create team
-    await teamsPage.goto();
-    const teamName = `DraftTest-${Date.now()}`;
-    await page.getByRole('button', { name: 'Create Team' }).click();
-    await page.getByPlaceholder('Team name').fill(teamName);
-    await page.getByRole('button', { name: 'Create', exact: true }).click();
-
-    // Wait for and close the "Team Created!" modal
-    await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-
-    // Open team settings and enable plan requirement
-    const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
-    await settingsButton.click({ timeout: 5000 });
-
-    await teamSettingsPage.waitForModal();
-    await teamSettingsPage.enableRequirePlan();
-    await teamSettingsPage.close();
-
-    // Navigate to clock page
-    await clockPage.goto();
-
-    // Type draft plan
-    const draftPlan = `Draft plan for tomorrow - ${Date.now()}`;
-    await clockPage.typePlan(draftPlan);
-
-    // Save as draft
-    await clockPage.saveDraft();
-
-    // Verify we can see the draft text is still there or there's feedback
-    // Draft should be saved but not posted
-
-    // Refresh and verify draft is still available
-    await clockPage.goto();
-
-    // Check if the draft content is auto-loaded
-    const editorContent = await clockPage.proseMirror.textContent();
-    if (editorContent && editorContent.includes(draftPlan)) {
-      // Draft was preserved
-      expect(editorContent).toContain(draftPlan);
-    }
-
-    // Now clock in using the draft
-    await clockPage.postPlanAndClockIn();
-
-    // Verify we're clocked in
-    const isClockedIn = await clockPage.isClockedIn();
-    expect(isClockedIn).toBe(true);
-
-    // Clock out — the gate is on, so a wrap-up has to be posted first (the
-    // button stays disabled while the composer is empty).
-    await clockPage.typeWrapUp('Wrapped up the drafted plan');
-    await clockPage.postWrapUpAndClockOut();
-    expect(await clockPage.isClockedIn()).toBe(false);
   });
 
   test('should handle disabling/re-enabling requirement during session', async ({ page }) => {
