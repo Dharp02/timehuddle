@@ -638,7 +638,9 @@ export const ClockPage: React.FC = () => {
             ) : (
               <MarkdownEditor
                 key={`${composerMode}-${editorKey}`}
-                value={seedText}
+                // `text`, not `seedText`: RichEditor reloads when `value` differs
+                // from its own last output, which is how a pasted image shows inline.
+                value={text}
                 onChange={setText}
                 onSubmit={() =>
                   void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
