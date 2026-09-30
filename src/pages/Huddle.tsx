@@ -34,7 +34,7 @@ import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
-import { huddleApi, type HuddlePost } from '@lib/api';
+import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
@@ -57,6 +57,25 @@ const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
   person: 'One thread per teammate',
   ticket: 'Updates grouped by the work item they link to',
 };
+
+const baseImagePlugin = createImagePlugin();
+const ZoomableImage = baseImagePlugin.components!.img;
+/** Post markdown stores backend media by path (`/uploads/…`), which the native
+ *  app would resolve against capacitor://localhost — bind it to the backend. */
+function BackendImage(props: Record<string, unknown>) {
+  const { src } = props;
+  const isRelative = typeof src === 'string' && !/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(src);
+  return <ZoomableImage {...props} src={isRelative ? resolveMediaUrl(src) : src} />;
+}
+const imagePlugin = {
+  ...baseImagePlugin,
+  components: { ...baseImagePlugin.components, img: BackendImage },
+};
+
+/** Reserves the check's slot on unselected items so every label lines up. */
+function SelectedCheck({ selected }: { selected: boolean }) {
+  return <FontAwesomeIcon icon={faCheck} className={selected ? undefined : 'invisible'} />;
+}
 
 function loadStoredThreadBy(): ThreadBy {
   try {
@@ -432,10 +451,7 @@ export default function Huddle() {
     () => searchConversations(allConversations, activePosts, searchQuery, getTeamName),
     [allConversations, activePosts, searchQuery, getTeamName],
   );
-  const renderPlugins = useMemo(
-    () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
-    [],
-  );
+  const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
 
   // SuperChatInbox has no slot for its list header, so the page's filters are
   // portaled into it; re-found whenever the inbox mounts or re-renders.
@@ -485,7 +501,7 @@ export default function Huddle() {
         {THREAD_BY_OPTIONS.map((option) => (
           <DropdownItem
             key={option}
-            icon={option === threadBy ? <FontAwesomeIcon icon={faCheck} /> : undefined}
+            icon={<SelectedCheck selected={option === threadBy} />}
             onClick={() => {
               setThreadBy(option);
               // DropdownItem doesn't close its menu on its own.
@@ -549,9 +565,7 @@ export default function Huddle() {
             {[{ id: PERSONAL_VIEW, name: 'Personal' }, ...teamOptions].map((option) => (
               <DropdownItem
                 key={option.id}
-                icon={
-                  option.id === teamPickerValue ? <FontAwesomeIcon icon={faCheck} /> : undefined
-                }
+                icon={<SelectedCheck selected={option.id === teamPickerValue} />}
                 onClick={() => selectTeamView(option.id)}
               >
                 {option.name}
@@ -689,9 +703,9 @@ export default function Huddle() {
                 )}
 
               {/* SuperChatInbox, grouped by the selected Thread by option.
-                  Read-only: posting happens in the composer above. Stays
-                  mounted through an empty search so the filters in its list
-                  header don't vanish mid-typing. */}
+                  Posting happens in the composer above; the inbox only edits.
+                  Stays mounted through an empty search so the filters in its
+                  list header don't vanish mid-typing. */}
               {!(scope === 'me' ? myPostsLoading : loading) &&
                 !(scope === 'me' ? myPostsError : error) &&
                 user &&
@@ -703,11 +717,11 @@ export default function Huddle() {
                       setActiveConversationId(conversation.id)
                     }
                     currentParticipantId={user.id}
-                    readOnly
                     virtualized
                     renderPlugins={renderPlugins}
                     onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
-                    // readOnly only disables the composer; hide it until @mieweb/ui can omit it.
+                    // Not `readOnly`: in @mieweb/ui that also disables inline edit. With no
+                    // onMessageSent the composer can't post; it's hidden until the library can omit it.
                     className={`h-full [&_[data-slot=chat-composer]]:hidden ${styles.inbox}`}
                   />
                 )}

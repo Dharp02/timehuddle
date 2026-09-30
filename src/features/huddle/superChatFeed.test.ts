@@ -269,21 +269,13 @@ describe('postsToConversations', () => {
       expect(conversation.thread[1].text).not.toContain('Off the clock');
     });
 
-    it('labels each off-the-clock post in the other views', () => {
-      const posts = [
-        makePost({ id: 'bare' }),
-        makePost({
-          id: 'shift',
-          clockEventId: 'evt-1',
-          session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
-        }),
-      ];
+    it('keeps the label out of message text in the other views (it would seed inline edit)', () => {
+      const posts = [makePost({ id: 'bare' })];
       for (const threadBy of ['day', 'person', 'ticket'] as const) {
         const thread = postsToConversations(posts, threadBy, VIEWER_MEMBER, NOW).flatMap(
           (c) => c.thread,
         );
-        expect(thread.find((m) => m.id === 'bare')?.text).toContain('*Off the clock*');
-        expect(thread.find((m) => m.id === 'shift')?.text).not.toContain('Off the clock');
+        expect(thread.find((m) => m.id === 'bare')?.text).not.toContain('Off the clock');
       }
     });
   });

@@ -158,18 +158,10 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
 }
 
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 Onboarding checklist". */
-function postLabelParts(
-  post: HuddlePost,
-  isSessionPost: boolean,
-  teamName?: string,
-  offTheClock = false,
-): string[] {
+function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
   const parts: string[] = [];
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
-  }
-  if (offTheClock) {
-    parts.push(OFF_THE_CLOCK);
   }
   if (post.ticketTitle) {
     parts.push(`🎫 ${post.ticketTitle}`);
@@ -186,14 +178,13 @@ function postToInboxMessageText(
   post: HuddlePost,
   isSessionPost: boolean,
   teamName?: string,
-  offTheClock = false,
 ): string {
   const parts = [post.content.text];
   const attachments = attachmentsNotInlined(post);
   if (attachments.length > 0) {
     parts.push(attachments.map(attachmentMarkdown).join('\n\n'));
   }
-  const label = postLabelParts(post, isSessionPost, teamName, offTheClock);
+  const label = postLabelParts(post, isSessionPost, teamName);
   if (label.length > 0) {
     parts.push(`*${label.join(' · ')}*`);
   }
@@ -333,13 +324,7 @@ export function postsToConversations(
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
-      text: postToInboxMessageText(
-        post,
-        planPostIds.has(post.id),
-        getTeamName?.(post.teamId),
-        // In other views each off-the-clock post carries the label itself.
-        !offTheClockThread && !post.clockEventId,
-      ),
+      text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
       time: post.createdAt,
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
     }));

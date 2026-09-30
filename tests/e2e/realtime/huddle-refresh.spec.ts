@@ -14,12 +14,11 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { inboxMessage, openWritableConversation, sendInboxMessage } from '../huddle/helpers';
+import { openPostInInbox, postFromHuddle } from '../huddle/helpers';
 
 test.describe('Huddle Feed Refresh', () => {
   let context: BrowserContext;
   let page: Page;
-  let teamId: string;
 
   /**
    * Fire pull-to-refresh by dispatching a synthetic touch drag directly on the
@@ -70,7 +69,7 @@ test.describe('Huddle Feed Refresh', () => {
     page = await context.newPage();
 
     await loginAs(page, TEST_USERS.admin1);
-    teamId = await selectSharedTestTeam(page);
+    await selectSharedTestTeam(page);
     await page.goto('http://localhost:3002/app/huddle');
     await page.waitForLoadState('networkidle');
   });
@@ -80,13 +79,11 @@ test.describe('Huddle Feed Refresh', () => {
   });
 
   test('creates a post and shows it in the feed', async () => {
-    await openWritableConversation(page, teamId);
-
     const uniqueText = `Refresh test post ${Date.now()}`;
-    await sendInboxMessage(page, uniqueText);
+    await postFromHuddle(page, uniqueText);
 
-    // The new post appears without a manual reload (send → refreshFeed).
-    await expect(inboxMessage(page, uniqueText).first()).toBeVisible({ timeout: 15000 });
+    // The new post appears without a manual reload (post → refreshFeed).
+    await openPostInInbox(page, uniqueText);
   });
 
   test('pull-to-refresh re-fetches the feed over REST', async () => {

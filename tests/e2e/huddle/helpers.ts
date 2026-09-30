@@ -102,6 +102,21 @@ export function inboxMessage(page: Page, uniqueText: string): Locator {
   return page.locator('[data-slot="superchat-message"]').filter({ hasText: uniqueText });
 }
 
+/** The inbox's conversation list, whose header carries the page's filters. */
+export function conversationList(page: Page): Locator {
+  return page.locator('[data-slot="superchat-conversations"]');
+}
+
+/** One row per conversation in the inbox list. */
+export function conversationRows(page: Page): Locator {
+  return page.locator('[data-slot="superchat-conversation-list"] [role="listitem"]');
+}
+
+/** The inbox search box (in the list header once the inbox is on screen). */
+export function inboxSearch(page: Page): Locator {
+  return page.getByRole('searchbox', { name: 'Search posts' });
+}
+
 /**
  * Go to the Huddle inbox and open the conversation holding the post whose body
  * contains `query`. Searching narrows the inbox to that conversation, so
@@ -117,17 +132,10 @@ export async function openPostInInbox(
   message: Locator = inboxMessage(page, query).first(),
 ): Promise<Locator> {
   if (!new URL(page.url()).pathname.endsWith('/app/huddle')) await page.goto('/app/huddle');
-  const search = page.getByPlaceholder('Search posts…');
-  if (!(await search.isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Search posts' }).click();
-  }
-  await search.fill(query);
+  await inboxSearch(page).fill(query);
 
   await expect(async () => {
-    await page
-      .locator('[data-slot="superchat-conversation-list"] [role="listitem"] button')
-      .first()
-      .click({ timeout: 2000 });
+    await conversationRows(page).locator('button').first().click({ timeout: 2000 });
     await expect(message).toBeVisible({ timeout: 2000 });
   }).toPass({ timeout: 30000 });
   return message;
@@ -144,43 +152,28 @@ export async function groupInboxBy(
   await expect(page.getByRole('button', { name: `Group by: ${option}` })).toBeVisible();
 }
 
-/** The inbox's own message box, at the foot of the open conversation. */
-export function inboxMessageBox(page: Page): Locator {
-  return page.getByRole('textbox', { name: 'Message', exact: true });
-}
-
 /**
- * Open a conversation the user can write in. Day threads are writable by
- * everyone, and seeding one first guarantees there is a conversation to open,
- * whatever ran before.
+ * Post through the Huddle page's "Share an update…" composer — the only place
+ * to post there, since the inbox itself is read-only.
  */
-export async function openWritableConversation(page: Page, teamId: string): Promise<void> {
-  const anchor = `Conversation anchor ${Date.now()}`;
-  await seedPost(page, { teamId, text: anchor });
-  await page.goto('/app/huddle');
-  await groupInboxBy(page, 'Day');
-  await openPostInInbox(page, anchor);
-  // Cleared so the thread shows new messages too; the conversation stays open.
-  await page.getByPlaceholder('Search posts…').fill('');
-  await expect(inboxMessageBox(page)).toBeEditable();
-}
-
-/** Type into the inbox's message box and send with Enter. */
-export async function sendInboxMessage(page: Page, text: string): Promise<void> {
-  await inboxMessageBox(page).fill(text);
-  await inboxMessageBox(page).press('Enter');
+export async function postFromHuddle(page: Page, text: string): Promise<void> {
+  if (!new URL(page.url()).pathname.endsWith('/app/huddle')) await page.goto('/app/huddle');
+  await page.getByRole('button', { name: 'Share an update...' }).click();
+  await composerEditor(page).fill(text);
+  await page.getByRole('button', { name: 'Post', exact: true }).click();
 }
 
 /**
  * Create a post straight through the API (the same `huddle.createPost` call
  * the app makes), for specs that need one to exist rather than to test writing
- * it. `postDate` ("YYYY-MM-DD") picks which day/session conversation it joins.
+ * it. `postDate` ("YYYY-MM-DD") picks which day/session conversation it joins;
+ * `clockEventId` links it to one of the caller's own clock sessions.
  */
 export async function seedPost(
   page: Page,
-  params: { teamId: string; text: string; postDate?: string },
+  params: { teamId: string; text: string; postDate?: string; clockEventId?: string },
 ): Promise<string> {
-  const { status, body } = await page.evaluate(async ({ teamId, text, postDate }) => {
+  const { status, body } = await page.evaluate(async ({ teamId, text, postDate, clockEventId }) => {
     const token = localStorage.getItem('meteor_resume_token');
     const res = await fetch('/api/huddle_createPost', {
       method: 'POST',
@@ -188,12 +181,43 @@ export async function seedPost(
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ teamId, content: { text, mentions: [] }, postDate }),
+      body: JSON.stringify({
+        teamId,
+        content: { text, mentions: [] },
+        postDate,
+        clockEventId,
+      }),
     });
     return { status: res.status, body: (await res.json()) as { result?: { id: string } } };
   }, params);
   if (!body.result?.id) throw new Error(`seedPost failed (HTTP ${status})`);
   return body.result.id;
+}
+
+/**
+ * Insert a clock session straight into the test DB (as the timesheet specs
+ * do), so a post can be linked to a shift without driving the clock UI.
+ * `endTime: null` makes it live — pair with {@link deleteClockSession}.
+ */
+export async function seedClockSession(params: {
+  userId: string;
+  teamId: string;
+  startTime: number;
+  endTime: number | null;
+}): Promise<string> {
+  const { insertedId } = await withDb((db) =>
+    db.collection('clockevents').insertOne({
+      ...params,
+      accumulatedTime:
+        params.endTime == null ? 0 : Math.floor((params.endTime - params.startTime) / 1000),
+    }),
+  );
+  return insertedId.toHexString();
+}
+
+export async function deleteClockSession(clockEventId: string): Promise<void> {
+  const { ObjectId } = await import('mongodb');
+  await withDb((db) => db.collection('clockevents').deleteOne({ _id: new ObjectId(clockEventId) }));
 }
 
 /**

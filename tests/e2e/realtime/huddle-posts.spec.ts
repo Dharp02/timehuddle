@@ -11,12 +11,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import {
-  openPostInInbox,
-  openWritableConversation,
-  seedPost,
-  sendInboxMessage,
-} from '../huddle/helpers';
+import { openPostInInbox, postFromHuddle, seedPost } from '../huddle/helpers';
 
 test.describe('Real-time Huddle Posts', () => {
   let session1: Page;
@@ -51,15 +46,11 @@ test.describe('Real-time Huddle Posts', () => {
   });
 
   test('should sync new huddle posts across sessions', async () => {
-    await openWritableConversation(session1, teamId);
-
     const text = `Test real-time sync post ${Date.now()}`;
-    await sendInboxMessage(session1, text);
+    await postFromHuddle(session1, text);
 
-    // Session 1 shows its own post in the open conversation…
-    await expect(
-      session1.locator('[data-slot="superchat-message"]', { hasText: text }),
-    ).toBeVisible({ timeout: 15000 });
+    // Session 1 finds its own post in the feed…
+    await openPostInInbox(session1, text);
     // …and session 2 picks it up without a reload.
     await openPostInInbox(session2, text);
   });

@@ -13,8 +13,8 @@
  * keyboard along with it.
  *
  * Attachment failures are driven through the Clock tab's plan composer (the
- * shared editor + attach bar); post failures through the Huddle inbox's own
- * message box, which is where a post to an existing feed is written now.
+ * shared editor + attach bar); post failures through the Huddle page's "Share
+ * an update…" composer, the one place to post there (the inbox is read-only).
  */
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
@@ -23,10 +23,8 @@ import {
   attachmentChipCount,
   composerEditor,
   dropFiles,
-  inboxMessageBox,
   openComposer,
-  openWritableConversation,
-  sendInboxMessage as send,
+  postFromHuddle as send,
   setSharedTeamPlanGate,
 } from './helpers';
 
@@ -70,12 +68,13 @@ test.describe('Huddle composer — attachment failures are visible', () => {
   });
 });
 
-test.describe('Huddle inbox — post failures are visible', () => {
+test.describe('Huddle Share an update — post failures are visible', () => {
   test.setTimeout(120000);
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
-    await openWritableConversation(page, await selectSharedTestTeam(page));
+    await selectSharedTestTeam(page);
+    await page.goto('/app/huddle');
   });
 
   test('a post rejected as too large says so, and keeps the draft', async ({ page }) => {
@@ -97,7 +96,7 @@ test.describe('Huddle inbox — post failures are visible', () => {
     // The API's own byte arithmetic is not an instruction — the writer is told
     // what to do about it.
     await expect(errorRegion(page)).not.toContainText('4.2 MB');
-    await expect(inboxMessageBox(page)).toHaveValue(draft);
+    await expect(composerEditor(page)).toContainText(draft);
   });
 
   test('a post that cannot reach the server says so, and keeps the draft', async ({ page }) => {
@@ -108,7 +107,7 @@ test.describe('Huddle inbox — post failures are visible', () => {
 
     // Not "Failed to fetch", which is what the transport actually threw.
     await expect(errorRegion(page)).toContainText(/connection/i, { timeout: 30000 });
-    await expect(inboxMessageBox(page)).toHaveValue(draft);
+    await expect(composerEditor(page)).toContainText(draft);
   });
 
   test('the notice clears once the post goes through', async ({ page }) => {
@@ -124,8 +123,8 @@ test.describe('Huddle inbox — post failures are visible', () => {
     await expect(errorRegion(page)).toBeVisible({ timeout: 30000 });
 
     // Retrying from the draft the failure left intact is the whole point.
-    await expect(inboxMessageBox(page)).toHaveValue(draft);
-    await inboxMessageBox(page).press('Enter');
+    await expect(composerEditor(page)).toContainText(draft);
+    await page.getByRole('button', { name: 'Post', exact: true }).click();
     await expect(errorRegion(page)).toHaveCount(0, { timeout: 30000 });
   });
 });
