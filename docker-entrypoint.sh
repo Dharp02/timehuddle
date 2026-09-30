@@ -75,6 +75,7 @@ start_meteor() {
 echo "Starting Meteor backend on port 3100..."
 echo "  CORS_ORIGINS=${CORS_ORIGINS:-<not set>}"
 echo "  ROOT_URL=${ROOT_URL:-<not set>}"
+echo "  DEV_QUICK_LOGIN_ENABLED=${DEV_QUICK_LOGIN_ENABLED:-<not set>}"
 start_meteor
 
 # Wait for backend to be ready

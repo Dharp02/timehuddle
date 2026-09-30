@@ -5,7 +5,7 @@
  * tests/dev-quick-login.test.ts). main.js (which decides whether to load the
  * handler) and the handler itself both call it, so the two checks can't drift.
  *
- * On in development. Off everywhere else unless DEV_QUICK_LOGIN_ENABLED=true,
+ * On in development, off everywhere else, unless DEV_QUICK_LOGIN_ENABLED=true,
  * which only the PR preview workflow sets. Production and TestFlight must
  * never set it: it lets anyone sign in as an org or enterprise owner.
  *
