@@ -124,6 +124,29 @@ describe('useRedmineStatus', () => {
     expect(mockStatus).toHaveBeenCalledTimes(2);
   });
 
+  it('shows nothing for a new user until their own status lands', async () => {
+    mockStatus.mockResolvedValue(CONNECTED);
+    const { result, rerender } = renderHook(() => useRedmineStatus());
+    await waitFor(() => expect(result.current).toEqual(CONNECTED));
+
+    signedInAs('u2');
+    mockStatus.mockReturnValue(new Promise(() => {})); // u2's fetch never lands
+    rerender();
+
+    expect(result.current).toBeNull();
+  });
+
+  it('keeps a broadcast that arrives while the first fetch is in flight', async () => {
+    let resolveFirst!: (status: RedmineStatus) => void;
+    mockStatus.mockReturnValue(new Promise((resolve) => (resolveFirst = resolve)));
+    const { result } = renderHook(() => useRedmineStatus());
+
+    act(() => notifyRedmineChanged(CONNECTED));
+    await act(async () => resolveFirst({ connected: false }));
+
+    expect(result.current).toEqual(CONNECTED);
+  });
+
   it('stops listening once unmounted', async () => {
     const { result, unmount } = renderHook(() => useRedmineStatus());
     await waitFor(() => expect(result.current).toEqual({ connected: false }));

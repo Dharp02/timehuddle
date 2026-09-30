@@ -47,10 +47,10 @@ async function stubLinkableRedmine(page: Page) {
       linked = false;
       return { connected: false };
     },
-    'issues.list': () =>
+    'issues.relevant': () =>
       linked
-        ? { connected: true, baseUrl: BASE_URL, issues: [MINE, THEIRS] }
-        : { connected: false, baseUrl: null, issues: [] },
+        ? { connected: true, baseUrl: BASE_URL, issues: [MINE, THEIRS], partial: false }
+        : { connected: false, baseUrl: null, issues: [], partial: false },
   });
   return rm;
 }
@@ -152,7 +152,7 @@ test.describe('Redmine connection propagates without a reload', () => {
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
   });
 
-  // No `issues.list` call-count test here, deliberately. `redmineSource` caches
+  // No `issues.relevant` call-count test here, deliberately. `redmineSource` caches
   // the list for the session, so dropping that cache is half of what the fix
   // does — but counting the calls cannot demonstrate it: `useUnifiedTickets`
   // reloads as its own dependencies settle after a navigation, so the count

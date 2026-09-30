@@ -20,7 +20,7 @@
  *     so without that key a second user would inherit the first user's status —
  *     the same reason `redmineSource` keys its list cache by user id.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { redmineApi, type RedmineStatus } from './api';
 import { useSession } from './useSession';
@@ -46,45 +46,47 @@ export function useRedmineStatus(): RedmineStatus | null {
   const userId = user?.id ?? null;
   const [status, setStatus] = useState<RedmineStatus | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setStatus(await redmineApi.status());
-    } catch {
-      // An unlinked or unreachable Redmine is ordinary here, not an error worth
-      // surfacing: `null` leaves callers showing nothing rather than the wrong
-      // thing.
-      setStatus(null);
-    }
-  }, []);
-
   useEffect(() => {
-    if (!userId) {
-      setStatus(null);
-      return;
-    }
-    let cancelled = false;
-    redmineApi
-      .status()
-      .then((next) => {
-        if (!cancelled) setStatus(next);
-      })
-      .catch(() => {
-        if (!cancelled) setStatus(null);
-      });
-    return () => {
-      cancelled = true;
+    // Cleared first so a new user never sees the previous one's status while
+    // their own fetch is in flight.
+    setStatus(null);
+    if (!userId) return;
+
+    // Only the newest request may land: a broadcast that arrives while the
+    // initial fetch is still in flight must not be overwritten by it.
+    let latest = 0;
+    let active = true;
+    const isCurrent = (request: number) => active && request === latest;
+
+    const fetchStatus = () => {
+      const request = ++latest;
+      redmineApi
+        .status()
+        .then((next) => {
+          if (isCurrent(request)) setStatus(next);
+        })
+        .catch(() => {
+          // An unlinked or unreachable Redmine is ordinary here, not an error
+          // worth surfacing: `null` leaves callers showing nothing rather than
+          // the wrong thing.
+          if (isCurrent(request)) setStatus(null);
+        });
     };
-  }, [userId]);
 
-  useEffect(() => {
     const onChanged = (event: Event) => {
       const next = asStatus((event as CustomEvent).detail);
-      if (next) setStatus(next);
-      else void load();
+      if (!next) return fetchStatus();
+      latest++;
+      setStatus(next);
     };
+
+    fetchStatus();
     window.addEventListener(REDMINE_CHANGED, onChanged);
-    return () => window.removeEventListener(REDMINE_CHANGED, onChanged);
-  }, [load]);
+    return () => {
+      active = false;
+      window.removeEventListener(REDMINE_CHANGED, onChanged);
+    };
+  }, [userId]);
 
   return status;
 }
