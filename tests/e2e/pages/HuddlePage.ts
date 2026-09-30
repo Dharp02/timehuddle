@@ -1,23 +1,18 @@
 import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { openPostInInbox } from '../huddle/helpers';
 
 /**
- * HuddlePage - Page object for huddle feed
+ * HuddlePage - Page object for the huddle feed (a SuperChatInbox)
  */
 export class HuddlePage extends BasePage {
-  private readonly heading: Locator;
   private readonly feedTab: Locator;
   private readonly draftsTab: Locator;
-  private readonly chatViewButton: Locator;
-  private readonly cardViewButton: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.heading = this.page.getByRole('heading', { level: 1, name: 'Huddle' });
     this.feedTab = this.page.getByRole('tab', { name: 'Feed' });
     this.draftsTab = this.page.getByRole('tab', { name: 'Drafts' });
-    this.chatViewButton = this.page.getByRole('button', { name: /Switch to chat view/i });
-    this.cardViewButton = this.page.getByRole('button', { name: /Switch to card view/i });
   }
 
   /**
@@ -29,10 +24,11 @@ export class HuddlePage extends BasePage {
   }
 
   /**
-   * Wait for huddle page to load
+   * Wait for huddle page to load. The page has no title of its own (the
+   * sidebar already names it), so its Feed tab is the landmark.
    */
   async waitForLoad(timeout = 10000) {
-    await this.heading.waitFor({ state: 'visible', timeout });
+    await this.feedTab.waitFor({ state: 'visible', timeout });
   }
 
   /**
@@ -47,7 +43,7 @@ export class HuddlePage extends BasePage {
    * Check if we're on the huddle page
    */
   async isOnHuddlePage(): Promise<boolean> {
-    return await this.heading.isVisible().catch(() => false);
+    return await this.feedTab.isVisible().catch(() => false);
   }
 
   /**
@@ -67,45 +63,11 @@ export class HuddlePage extends BasePage {
   }
 
   /**
-   * Switch to chat view
-   */
-  async switchToChatView() {
-    if (await this.chatViewButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await this.chatViewButton.click();
-      // Wait for view to switch
-      await this.page.waitForTimeout(1500);
-    }
-  }
-
-  /**
-   * Switch to card view. PostCard (`data-testid="post-card"`) only exists in
-   * this view, so post assertions below rely on it.
-   */
-  async switchToCardView() {
-    if (await this.cardViewButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await this.cardViewButton.click();
-      // The toggle flips to "chat view" once cards are rendered.
-      await this.chatViewButton.waitFor({ timeout: 5000 }).catch(() => {});
-    }
-    // DDP delivers the feed over WebSockets, so `networkidle` won't cover it.
-    await this.page.waitForTimeout(2000);
-  }
-
-  /** One card per post — only rendered in card view. */
-  private get postCards(): Locator {
-    return this.page.locator('[data-testid="post-card"]');
-  }
-
-  /**
    * Check if a post with specific text exists in the feed
    */
   async hasPost(text: string): Promise<boolean> {
-    await this.switchToCardView();
     try {
-      await this.postCards
-        .filter({ hasText: text })
-        .first()
-        .waitFor({ state: 'visible', timeout: 10000 });
+      await openPostInInbox(this.page, text);
       return true;
     } catch {
       return false;
@@ -113,37 +75,10 @@ export class HuddlePage extends BasePage {
   }
 
   /**
-   * Get all visible posts in the feed, one entry per post
+   * The full text of the post whose body contains `text`, opened in the inbox.
    */
-  async getVisiblePosts(): Promise<string[]> {
-    await this.switchToCardView();
-    await this.postCards
-      .first()
-      .waitFor({ state: 'visible', timeout: 10000 })
-      .catch(() => {});
-    const posts = await this.postCards.allInnerTexts();
-    return posts.filter((p) => p.trim().length > 0);
-  }
-
-  /**
-   * Click on a post to open it (for detailed view or editing)
-   */
-  async clickPost(text: string) {
-    const post = this.page.locator('[data-testid="post-card"]').filter({ hasText: text }).first();
-    await post.waitFor({ state: 'visible', timeout: 5000 });
-    await post.click();
-    await this.page.waitForTimeout(500);
-  }
-
-  /**
-   * Open the edit menu for a post containing specific text
-   */
-  async openPostMenu(text: string) {
-    // Located by its accessible name, not by the icon's SVG internals. An
-    // earlier version filtered for a <circle>, which silently stopped matching
-    // the moment the hand-drawn kebab became a FontAwesome <path>.
-    const post = this.page.locator('[data-testid="post-card"]').filter({ hasText: text }).first();
-    const menuButton = post.getByRole('button', { name: 'Post actions' });
-    await menuButton.click();
+  async getPostText(text: string): Promise<string> {
+    const message = await openPostInInbox(this.page, text);
+    return message.innerText();
   }
 }

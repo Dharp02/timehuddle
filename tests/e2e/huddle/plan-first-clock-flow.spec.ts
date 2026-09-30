@@ -218,23 +218,11 @@ test.describe('Plan-First Clock Flow', () => {
     const isClockedOut = !(await clockPage.isClockedIn());
     expect(isClockedOut).toBe(true);
 
-    // Navigate to huddle to verify post and wrap-up are there
+    // Navigate to huddle to verify post and wrap-up are there. hasPost retries
+    // on its own — DDP/WebSocket feed updates can arrive after navigation.
     await huddlePage.goto();
-
-    // DDP/WebSocket feed updates can arrive a bit after navigation.
-    await expect
-      .poll(async () => huddlePage.hasPost(planText), {
-        timeout: 15000,
-        message: 'Expected plan text to appear in huddle feed',
-      })
-      .toBe(true);
-
-    await expect
-      .poll(async () => huddlePage.hasPost(wrapUpText), {
-        timeout: 15000,
-        message: 'Expected wrap-up text to appear in huddle feed',
-      })
-      .toBe(true);
+    expect(await huddlePage.hasPost(planText), 'plan text in the huddle feed').toBe(true);
+    expect(await huddlePage.hasPost(wrapUpText), 'wrap-up text in the huddle feed').toBe(true);
   });
 
   test('should save draft plan and then clock in with it', async ({ page }) => {
@@ -379,22 +367,8 @@ test.describe('Plan-First Clock Flow', () => {
     // Navigate to huddle
     await huddlePage.goto();
 
-    await expect
-      .poll(
-        async () => {
-          const posts = await huddlePage.getVisiblePosts();
-          return posts.find((post) => post.includes(uniqueMarker)) ?? '';
-        },
-        {
-          timeout: 15000,
-          message: 'Expected a huddle post containing the unique session marker',
-        },
-      )
-      .not.toBe('');
-
-    // `expect.poll` above ensures the post exists; fetch once for deterministic assertions.
-    const posts = await huddlePage.getVisiblePosts();
-    const postWithMarker = posts.find((post) => post.includes(uniqueMarker)) ?? '';
+    // One post carries both halves — the wrap-up was appended to the plan.
+    const postWithMarker = await huddlePage.getPostText(uniqueMarker);
     expect(postWithMarker).toContain(planText);
     expect(postWithMarker).toContain(wrapUpText);
   });

@@ -3,24 +3,34 @@
  *
  * The composer sits in a bounded flex column between the page header and the
  * fixed mobile bottom nav. Expanded, it is taller than that gap on a short
- * viewport, so unless it can shrink and scroll its own overflow the lower half
- * — Pulse, Ticket, @Mention, Cancel and Post — is clipped underneath the nav
- * and unreachable. That regression is invisible on a desktop viewport and on a
- * tall phone, so it is pinned here at the narrowest size the app supports.
+ * viewport, so unless its container can scroll the overflow the lower half
+ * — Pulse, Ticket, @Mention and the post button — is clipped underneath the
+ * nav and unreachable. That regression is invisible on a desktop viewport and
+ * on a tall phone, so it is pinned here at the narrowest size the app supports.
+ *
+ * Driven through the Clock tab's plan composer (same editor and attach bar as
+ * the Huddle composer), with the shared team's plan gate on.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { composerEditor, openComposer } from './helpers';
+import { composerEditor, openComposer, setSharedTeamPlanGate } from './helpers';
 
-const ACTION_BUTTONS = ['Photo', 'Video', 'Doc', 'Ticket', '@Mention', 'Post'];
+const ACTION_BUTTONS: Array<string | RegExp> = [
+  'Photo',
+  'Video',
+  'Doc',
+  'Ticket',
+  '@Mention',
+  /(Post|Publish) plan and clock in/,
+];
 
 /**
  * Scrolls a control into view within the composer and reports whether it is
  * actually usable, with enough detail to tell *how* it failed.
  */
-async function reachability(page: Page, name: string): Promise<string> {
-  const button = page.getByRole('button', { name, exact: true });
+async function reachability(page: Page, name: string | RegExp): Promise<string> {
+  const button = page.getByRole('button', { name, exact: typeof name === 'string' });
   const count = await button.count();
   if (count !== 1) return `matched ${count} elements`;
 
@@ -48,6 +58,9 @@ async function reachability(page: Page, name: string): Promise<string> {
 
 test.describe('Huddle composer — responsive layout', () => {
   test.setTimeout(120000);
+
+  test.beforeAll(() => setSharedTeamPlanGate(true));
+  test.afterAll(() => setSharedTeamPlanGate(false));
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
@@ -87,8 +100,8 @@ test.describe('Huddle composer — responsive layout', () => {
     await openComposer(page);
     await composerEditor(page).fill('Overflow check');
 
-    const composer = page.locator('.huddle-composer');
-    const { scrollHeight, clientHeight, canScroll } = await composer.evaluate((el) => ({
+    const screen = page.locator('.clock-screen');
+    const { scrollHeight, clientHeight, canScroll } = await screen.evaluate((el) => ({
       scrollHeight: el.scrollHeight,
       clientHeight: el.clientHeight,
       canScroll: getComputedStyle(el).overflowY === 'auto',
@@ -96,7 +109,8 @@ test.describe('Huddle composer — responsive layout', () => {
 
     expect(canScroll).toBe(true);
     // The composer is genuinely taller than its slot here — that is the whole
-    // point of the test; it must absorb the excess rather than overflow it.
+    // point of the test; its container must absorb the excess rather than
+    // overflow it.
     expect(scrollHeight).toBeGreaterThan(clientHeight);
   });
 });

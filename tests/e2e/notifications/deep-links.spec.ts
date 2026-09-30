@@ -12,25 +12,10 @@ import { expect, test, type Page } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { composerEditor, switchToCardView } from '../huddle/helpers';
+import { getUserIdByEmail, inboxMessage, seedPost } from '../huddle/helpers';
 
 const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
-
-/** The seed user's `_id`, needed to build `/app/profile/:id` deep links. */
-async function getUserIdByEmail(email: string): Promise<string> {
-  const client = await MongoClient.connect(MONGO_URL);
-  try {
-    const user = await client
-      .db()
-      .collection('users')
-      .findOne({ 'emails.address': email }, { projection: { _id: 1 } });
-    if (!user) throw new Error(`Seed user ${email} not found — did global-setup run?`);
-    return String(user._id);
-  } finally {
-    await client.close();
-  }
-}
 
 /** Any team the user belongs to other than `excludeTeamId` (their personal one). */
 async function getOtherTeamId(email: string, excludeTeamId: string): Promise<string | null> {
@@ -59,20 +44,10 @@ async function tapNotification(page: Page, url: string): Promise<void> {
   }, url);
 }
 
-/** Publish a post and return its id, read back off the rendered card. */
-async function postViaComposer(page: Page, text: string): Promise<string> {
-  await page.getByText('Share an update...').click();
-  const editor = composerEditor(page);
-  await editor.waitFor({ state: 'visible', timeout: 20000 });
-  await editor.click();
-  await page.keyboard.type(text, { delay: 20 });
-  await page.getByRole('button', { name: 'Post', exact: true }).click();
-
-  const card = page.locator('[data-testid="post-card"]').filter({ hasText: text }).first();
-  await card.waitFor({ state: 'visible', timeout: 20000 });
-  const domId = await card.getAttribute('id');
-  if (!domId) throw new Error(`Post card for "${text}" has no id attribute`);
-  return domId.replace('huddle-post-', '');
+/** "YYYY-MM-DD" for `daysAgo` days before today, on the local calendar. */
+function localDate(daysAgo = 0): string {
+  const d = new Date(Date.now() - daysAgo * 86400000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /** Force the app onto `teamId` the way the team fixture does, then reload. */
@@ -89,24 +64,28 @@ async function selectTeam(page: Page, teamId: string): Promise<void> {
 
 async function openHuddleFeed(page: Page): Promise<void> {
   await page.goto('/app/huddle');
-  await switchToCardView(page);
+  await page.getByRole('tab', { name: 'Feed' }).waitFor({ state: 'visible', timeout: 20000 });
 }
 
+/** A post opened by a deep link: its conversation is the one on screen. */
+const openedPost = (page: Page, text: string) => inboxMessage(page, text).first();
+
 test.describe('Notification deep links', () => {
-  test('a post link highlights the target and clears the consumed query', async ({ page }) => {
+  test('a post link opens its conversation and clears the consumed query', async ({ page }) => {
     test.setTimeout(90000);
     await loginAs(page, TEST_USERS.owner1);
     const teamId = await selectSharedTestTeam(page);
-    await openHuddleFeed(page);
 
+    // Yesterday's post is its own conversation, and not the newest one the
+    // inbox opens by default — so seeing it proves the link opened it.
     const text = `deep-link target ${Date.now()}`;
-    const postId = await postViaComposer(page, text);
+    const postId = await seedPost(page, { teamId, text, postDate: localDate(1) });
+    await seedPost(page, { teamId, text: `deep-link newer ${Date.now()}` });
+    await openHuddleFeed(page);
 
     await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${teamId}`);
 
-    await expect(page.locator(`#huddle-post-${postId}`)).toHaveClass(/huddle-post-highlight/, {
-      timeout: 15000,
-    });
+    await expect(openedPost(page, text)).toBeVisible({ timeout: 15000 });
     // Left in place, a stale ?postId= makes the next identical tap a no-op.
     await expect.poll(() => new URL(page.url()).search, { timeout: 10000 }).toBe('');
   });
@@ -115,72 +94,73 @@ test.describe('Notification deep links', () => {
     test.setTimeout(120000);
     await loginAs(page, TEST_USERS.owner1);
     const teamId = await selectSharedTestTeam(page);
+
+    // Different days, so different conversations.
+    const stamp = Date.now();
+    const firstText = `first deep-link post ${stamp}`;
+    const secondText = `second deep-link post ${stamp}`;
+    const firstId = await seedPost(page, { teamId, text: firstText, postDate: localDate(2) });
+    const secondId = await seedPost(page, { teamId, text: secondText, postDate: localDate(1) });
     await openHuddleFeed(page);
 
-    const stamp = Date.now();
-    const firstId = await postViaComposer(page, `first deep-link post ${stamp}`);
-    const secondId = await postViaComposer(page, `second deep-link post ${stamp}`);
-
     await tapNotification(page, `/app/huddle?postId=${firstId}&teamId=${teamId}`);
-    await expect(page.locator(`#huddle-post-${firstId}`)).toHaveClass(/huddle-post-highlight/, {
-      timeout: 15000,
-    });
+    await expect(openedPost(page, firstText)).toBeVisible({ timeout: 15000 });
 
     // Only the query string changes here. Nothing remounts, so this is the tap
     // that used to be swallowed.
     await tapNotification(page, `/app/huddle?postId=${secondId}&teamId=${teamId}`);
-    await expect(page.locator(`#huddle-post-${secondId}`)).toHaveClass(/huddle-post-highlight/, {
-      timeout: 15000,
-    });
-    await expect(page.locator(`#huddle-post-${firstId}`)).not.toHaveClass(/huddle-post-highlight/);
+    await expect(openedPost(page, secondText)).toBeVisible({ timeout: 15000 });
+    await expect(openedPost(page, firstText)).toBeHidden();
   });
 
-  test('re-tapping the same post link restarts its highlight', async ({ page }) => {
+  test('re-tapping the same post link reopens it after moving away', async ({ page }) => {
     test.setTimeout(90000);
     await loginAs(page, TEST_USERS.owner1);
     const teamId = await selectSharedTestTeam(page);
+
+    const text = `repeat-tap target ${Date.now()}`;
+    const postId = await seedPost(page, { teamId, text, postDate: localDate(1) });
+    await seedPost(page, { teamId, text: `repeat-tap other ${Date.now()}` });
     await openHuddleFeed(page);
+    const link = `/app/huddle?postId=${postId}&teamId=${teamId}`;
 
-    const postId = await postViaComposer(page, `repeat-tap target ${Date.now()}`);
-    const card = page.locator(`#huddle-post-${postId}`);
+    await tapNotification(page, link);
+    await expect(openedPost(page, text)).toBeVisible({ timeout: 15000 });
 
-    await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${teamId}`);
-    await expect(card).toHaveClass(/huddle-post-highlight/, { timeout: 15000 });
+    // Move to another conversation by hand, then tap the same link again. It
+    // must still be acted on, not treated as already handled.
+    await page
+      .locator(
+        '[data-slot="superchat-conversation-list"] [role="listitem"] button:not([aria-current])',
+      )
+      .first()
+      .click();
+    await expect(openedPost(page, text)).toBeHidden();
 
-    // The highlight lives 6s. Tapping the same post again part-way through
-    // used to write the identical id back, which React treats as a no-op, so
-    // neither the scroll nor the expiry timer restarted and the highlight
-    // still died on the original schedule.
-    await page.waitForTimeout(4000);
-    await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${teamId}`);
-
-    // Comfortably past the first tap's 6s expiry, well short of the second's.
-    await page.waitForTimeout(3500);
-    await expect(card).toHaveClass(/huddle-post-highlight/);
+    await tapNotification(page, link);
+    await expect(openedPost(page, text)).toBeVisible({ timeout: 15000 });
   });
 
   test('a post link switches to the post team when another team is selected', async ({ page }) => {
     test.setTimeout(120000);
     await loginAs(page, TEST_USERS.owner1);
     const sharedTeamId = await selectSharedTestTeam(page);
-    await openHuddleFeed(page);
 
     const text = `cross-team target ${Date.now()}`;
-    const postId = await postViaComposer(page, text);
+    const postId = await seedPost(page, { teamId: sharedTeamId, text });
 
     const otherTeamId = await getOtherTeamId(TEST_USERS.owner1.email, sharedTeamId);
     test.skip(!otherTeamId, 'owner1 belongs to only one team — nothing to switch away from');
 
     await selectTeam(page, otherTeamId!);
     await openHuddleFeed(page);
-    // The feed only ever holds the selected team's posts.
-    await expect(page.locator(`#huddle-post-${postId}`)).toHaveCount(0);
+    const sharedTeamTab = page.getByRole('tab', { name: 'Test Team Alpha' });
+    await expect(sharedTeamTab).toHaveAttribute('aria-selected', 'false');
 
     await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${sharedTeamId}`);
 
-    await expect(page.locator(`#huddle-post-${postId}`)).toHaveClass(/huddle-post-highlight/, {
-      timeout: 20000,
-    });
+    await expect(sharedTeamTab).toHaveAttribute('aria-selected', 'true', { timeout: 20000 });
+    await expect(openedPost(page, text)).toBeVisible({ timeout: 20000 });
   });
 
   test('a profile link opens the Work tab, and does so again after switching back', async ({
