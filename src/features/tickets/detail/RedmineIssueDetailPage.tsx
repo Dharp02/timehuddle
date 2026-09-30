@@ -1,10 +1,11 @@
 /**
  * A Redmine issue, viewed and edited inside TimeHuddle (M6).
  *
- * Laid out like the Huddle ticket page, minus what doesn't apply to Redmine:
- * no attachments, and no delete (only a Redmine project admin can delete an
- * issue). Status, priority, assignee and description save straight to Redmine
- * under the user's own key; the status list only offers the transitions
+ * Laid out like the Huddle ticket page, minus delete (only a Redmine project
+ * admin can delete an issue). Its attachments are TimeHuddle's own, the same
+ * card as a Huddle ticket's; they are not uploaded to Redmine. Status,
+ * priority, assignee and description save straight to Redmine under the user's
+ * own key; the status list only offers the transitions
  * Redmine allows them. A save made after someone else changed the issue in
  * Redmine is refused as stale, with a Reload.
  *
@@ -66,6 +67,7 @@ import { timerLabel } from '../../timers/ticketTimerStrings';
 import { fromJournals, fromRedmineTimeEntries, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
 import { TicketActivityCard } from './TicketActivityCard';
+import { TicketAttachmentsCard } from './TicketAttachmentsCard';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -465,6 +467,8 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
               )}
             </CardContent>
           </Card>
+
+          <TicketAttachmentsCard kind="redmine" ticketId={String(issue.id)} />
 
           {/* Activity: Redmine's history and logged time, plus your own timer sessions */}
           <TicketActivityCard
