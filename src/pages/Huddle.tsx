@@ -7,6 +7,7 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
+  ButtonGroup,
   Dropdown,
   DropdownItem,
   EmptyState,
@@ -105,9 +106,28 @@ export default function Huddle() {
   // Scope follows the selected team: the Personal team shows "me" — the
   // caller's own posts across every team, fetched separately (no per-team DDP
   // subscription applies across teams) — and any other team shows its feed.
-  const scope: 'team' | 'me' = teams.find((t) => t.id === selectedTeamId)?.isPersonal
+  const scope: 'team' | 'me' = allTeams.find((t) => t.id === selectedTeamId)?.isPersonal
     ? 'me'
     : 'team';
+
+  // A team outside the selected org is filtered out of `teams` and would be
+  // reset straight back by TeamContext, so switch the org along with it.
+  const selectTeamAcrossOrgs = useCallback(
+    (teamId: string) => {
+      const crossOrg = teams.some((t) => t.id === teamId)
+        ? undefined
+        : allTeams.find((t) => t.id === teamId);
+      if (crossOrg) setSelectedOrgId(crossOrg.orgId);
+      setSelectedTeamId(teamId);
+    },
+    [teams, allTeams, setSelectedOrgId, setSelectedTeamId],
+  );
+
+  // The Personal team lives in its own org, so `teams` (scoped to the selected
+  // org) can lack it — add its tab back so the Personal feed is always reachable.
+  const personalTeam = allTeams.find((t) => t.isPersonal);
+  const teamTabs =
+    personalTeam && !teams.some((t) => t.id === personalTeam.id) ? [personalTeam, ...teams] : teams;
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
   const [myPostsLoading, setMyPostsLoading] = useState(false);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
@@ -156,26 +176,10 @@ export default function Huddle() {
       return;
     }
     if (!teamsReady) return;
-    const inScope = teams.some((t) => t.id === pendingTeamId);
-    const crossOrg = inScope ? null : allTeams.find((t) => t.id === pendingTeamId);
-    if (!inScope && !crossOrg) {
-      setPendingTeamId(null); // not a member of that team — nothing to switch to
-      return;
-    }
-    // A team outside the selected org is filtered out of `teams` and would be
-    // reset straight back by TeamContext, so switch the org along with it.
-    if (crossOrg) setSelectedOrgId(crossOrg.orgId);
-    setSelectedTeamId(pendingTeamId);
+    // Not a member of that team — nothing to switch to.
+    if (allTeams.some((t) => t.id === pendingTeamId)) selectTeamAcrossOrgs(pendingTeamId);
     setPendingTeamId(null);
-  }, [
-    pendingTeamId,
-    selectedTeamId,
-    teams,
-    allTeams,
-    teamsReady,
-    setSelectedTeamId,
-    setSelectedOrgId,
-  ]);
+  }, [pendingTeamId, selectedTeamId, allTeams, teamsReady, selectTeamAcrossOrgs]);
 
   useEffect(() => {
     if (!targetPostId) return;
@@ -226,6 +230,10 @@ export default function Huddle() {
         new Date(restPost.updatedAt).getTime() > new Date(ddpPost.updatedAt).getTime()
       ) {
         byId.set(id, restPost);
+      } else if (restPost.session?.endTime != null && ddpPost.session?.endTime == null) {
+        // Clock-out doesn't touch the post, so the DDP copy keeps its open
+        // session snapshot; take the closed one from the post-clock-out refetch.
+        byId.set(id, { ...ddpPost, session: restPost.session });
       }
     }
     const teamPosts = [...byId.values()].sort(
@@ -358,15 +366,16 @@ export default function Huddle() {
   // caller's own posts across every team.
   const activePosts = scope === 'me' ? myPosts : posts;
 
-  const filteredPosts = activePosts.filter((post) => {
-    if (!searchQuery.trim()) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      post.content.text.toLowerCase().includes(query) ||
-      post.userName?.toLowerCase().includes(query) ||
-      post.ticketTitle?.toLowerCase().includes(query)
+  const filteredPosts = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return activePosts;
+    return activePosts.filter(
+      (post) =>
+        post.content.text.toLowerCase().includes(query) ||
+        post.userName?.toLowerCase().includes(query) ||
+        post.ticketTitle?.toLowerCase().includes(query),
     );
-  });
+  }, [activePosts, searchQuery]);
 
   // Team admins (and org owners) get the extra session-title detail (hours,
   // no-wrap-up warning).
@@ -381,12 +390,12 @@ export default function Huddle() {
   }, [scope, allTeams]);
 
   // ── SuperChatInbox mapping (memoized — posts update via DDP) ──
-  // Keyed by an id:updatedAt fingerprint instead of the array identity,
-  // because filteredPosts is a fresh array every render.
-  const conversationKey = filteredPosts.map((p) => `${p.id}:${p.updatedAt}`).join(',');
+  // Keyed on the post arrays themselves: syncPosts/refreshMyPosts replace them
+  // on every change, including ones that don't bump `updatedAt` (clock-in
+  // linking a plan to its session, clock-out closing it).
   const conversations = useMemo(
     () => postsToConversations(filteredPosts, threadBy, viewer, undefined, getTeamName),
-    [conversationKey, threadBy, viewer, getTeamName],
+    [filteredPosts, threadBy, viewer, getTeamName],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
@@ -400,7 +409,10 @@ export default function Huddle() {
   useEffect(() => {
     setActiveConversationId(undefined);
   }, [threadBy, selectedTeamId]);
-  const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  // Same fallback SuperChatInbox uses for an unknown id, so the conversation
+  // on screen is the one whose permissions decide `readOnly` below.
+  const activeConversation =
+    conversations.find((c) => c.id === activeConversationId) ?? conversations[0];
   // A Personal-scope conversation spanning several teams has no single team
   // to post to, so it's read-only.
   const teamToPostIn = (conversation: SuperChatConversation) =>
@@ -439,7 +451,12 @@ export default function Huddle() {
     setEditError(null);
     try {
       const key = conversationGroupKey(meta.conversation.id);
-      const postDate = threadBy === 'day' ? key : toDateString(new Date());
+      // `nosession:<userId>:<YYYY-MM-DD>` — keep the thread's own day so the
+      // reply lands in the conversation it was sent from.
+      const noSessionDay = key.startsWith('nosession:')
+        ? key.slice(key.lastIndexOf(':') + 1)
+        : undefined;
+      const postDate = threadBy === 'day' ? key : (noSessionDay ?? toDateString(new Date()));
       const attachments = await Promise.all(
         meta.attachments.map(async (att) =>
           toPostAttachment(
@@ -452,7 +469,7 @@ export default function Huddle() {
         content: { text, mentions: meta.mentions },
         postDate,
         attachments,
-        ...(threadBy === 'session' && !key.startsWith('nosession:') ? { clockEventId: key } : {}),
+        ...(threadBy === 'session' && !noSessionDay ? { clockEventId: key } : {}),
         ...(threadBy === 'ticket' && key !== 'none' ? { ticketId: key } : {}),
       });
       await (scope === 'me' ? refreshMyPosts() : refreshFeed());
@@ -496,7 +513,7 @@ export default function Huddle() {
               <TabsTrigger value="drafts">Drafts</TabsTrigger>
             </TabsList>
           </Tabs>
-          <div className="ml-auto flex items-center gap-2">
+          <ButtonGroup className="ms-auto">
             {feedTab === 'feed' && (
               <Dropdown
                 trigger={
@@ -541,7 +558,7 @@ export default function Huddle() {
             >
               <FontAwesomeIcon icon={faBell} />
             </Button>
-          </div>
+          </ButtonGroup>
         </div>
 
         {showSearch && feedTab === 'feed' && (
@@ -564,9 +581,9 @@ export default function Huddle() {
             refetches. */}
         {feedTab === 'feed' && (
           <div className="huddle-inbox-controls flex shrink-0 flex-col gap-2">
-            <Tabs variant="pills" value={selectedTeamId ?? ''} onValueChange={setSelectedTeamId}>
+            <Tabs variant="pills" value={selectedTeamId ?? ''} onValueChange={selectTeamAcrossOrgs}>
               <TabsList aria-label="Team" className="flex-wrap">
-                {teams.map((t) => (
+                {teamTabs.map((t) => (
                   <TabsTrigger key={t.id} value={t.id}>
                     {t.name}
                   </TabsTrigger>
@@ -664,7 +681,7 @@ export default function Huddle() {
                   filteredPosts.length > 0 && (
                     <SuperChatInbox
                       conversations={conversations}
-                      activeConversationId={activeConversationId}
+                      activeConversationId={activeConversation?.id}
                       onConversationOpened={(conversation) =>
                         setActiveConversationId(conversation.id)
                       }

@@ -337,11 +337,9 @@ back into either team.
       buttons aren't in the message box yet. Also say that comments are no longer shown (and
       likes, if Milestone 9 removed them). (`release-notes/1.0.4.md`; verified it renders on
       `/release-notes`.)
-- [x] `npm run test:all` passes. (**Does not pass** — see the Milestone 8 note above. `npm run
-test:unit` (168 tests) passes; the huddle-related slice of `npm run test` (Playwright) does
-      not, for reasons unrelated to regressions in the shipped behavior itself — the tests still
-      drive the old, now-removed composer/card-view DOM. Confirmed by actually starting a full run:
-      the first 33 non-Huddle tests passed, then `composer-actions.spec.ts` timed out as expected.)
+- [x] `npm run test:all` passes. (`npm run test:unit` and the full Playwright suite, after the
+      Huddle specs, the `HuddlePage` page object and the deep-link spec were rewritten against
+      `SuperChatInbox` — resolving the Milestone 8 follow-up above.)
 - [x] `npm run lint && npm run typecheck` pass.
 - [x] `npm run format` is clean.
 - [ ] Browser smoke test, as a **member** and as an **admin**:

@@ -3,6 +3,13 @@ import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { ObjectId } from 'mongodb';
 
+/**
+ * A session can hold several posts (the plan plus replies sent from the Huddle
+ * inbox). Its plan/wrap-up post is the one carrying the wrap-up, else the
+ * earliest — never simply the newest, which may be an inbox reply.
+ */
+export const SESSION_POST_SORT = { wrapUpAt: -1, createdAt: 1 };
+
 const METEOR_BASE_URL = process.env.ROOT_URL?.replace(/\/$/, '') ?? 'http://localhost:3100';
 
 // Safe ObjectId conversion — only converts 24-char hex strings
@@ -609,7 +616,7 @@ Meteor.methods({
 
     const post = await rawDb().collection('huddlePosts').findOne(
       { teamId, userId, clockEventId, status: { $ne: 'draft' } },
-      { sort: { createdAt: -1 } }
+      { sort: SESSION_POST_SORT }
     );
     return { post: post ? await enrichPost(post) : null };
   },
