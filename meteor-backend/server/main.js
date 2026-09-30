@@ -16,7 +16,6 @@ import { Random } from 'meteor/random';
 import { Accounts } from 'meteor/accounts-base';
 
 import { buildMailUrl } from './mail-url';
-import { isDevQuickLoginEnabled } from './dev-quick-login-gate';
 import './collections';
 import './migration-login-handler';
 import { rawDb } from './collections';
@@ -58,13 +57,13 @@ import { initAgenda } from './agenda';
 import { bearerContextMiddleware } from './bearer-context';
 import { apiBodyLimitMiddleware } from './api-body-limit';
 
-// One-click role sign-in for local development and PR previews. Imported
-// dynamically so the handler is never registered in a production server.
-if (isDevQuickLoginEnabled({ isDevelopment: Meteor.isDevelopment, env: process.env })) {
-  Meteor.startup(async () => {
-    await import('./dev-quick-login');
-  });
-}
+// One-click role sign-in for local development and PR previews. Always
+// registered so a no-flag production request gets a real `forbidden` from the
+// handler's own isDevQuickLoginEnabled() gate, rather than Meteor's generic
+// "unrecognized options" — the module itself does nothing without the flag.
+Meteor.startup(async () => {
+  await import('./dev-quick-login');
+});
 
 /**
  * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
