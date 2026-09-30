@@ -1,6 +1,7 @@
 /**
  * TicketBulkActionBar — shown above a `TicketTable` once at least one row is
- * selected. Delete is functional; Archive and Close Issues are static
+ * selected. Delete removes Huddle tickets for good and takes Redmine issues
+ * out of TimeHuddle only (never out of Redmine); Archive and Close Issues are static
  * placeholders (no backend/model support yet, always disabled) reserved for
  * a later milestone. The primary action is context-sensitive: "Move to My
  * Board" on the Tickets tab, "Remove from My Board" on the My Board tab.
@@ -9,6 +10,8 @@ import { faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Text } from '@mieweb/ui';
 import React from 'react';
+
+import { removalText } from './ticketRemovalStrings';
 
 export interface TicketBulkActionBarProps {
   selectedCount: number;
@@ -43,7 +46,7 @@ export const TicketBulkActionBar: React.FC<TicketBulkActionBarProps> = ({
         onClick={onDelete}
         disabled={!canDeleteSelected}
         aria-label="Delete selected tickets"
-        title={canDeleteSelected ? undefined : 'Only tickets you created can be bulk-deleted'}
+        title={canDeleteSelected ? undefined : removalText.deleteDisabled}
       >
         <FontAwesomeIcon icon={faTrash} className="mr-1.5 text-xs" />
         Delete

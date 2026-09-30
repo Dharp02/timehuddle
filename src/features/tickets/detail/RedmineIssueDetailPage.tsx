@@ -80,6 +80,7 @@ interface LoadedIssue {
   baseUrl: string | null;
   me: number | null;
   pinned: boolean;
+  removed: boolean;
   issue: RedmineIssueDetail;
   journals: RedmineJournal[];
   timeEntries: RedmineTimeEntry[] | null;
@@ -266,11 +267,14 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
       void stopTimer({ sessionId: runningTicket.sessionId, ticketKey, label });
       return;
     }
-    // Pinned, or assigned to me, means the table already has it: nothing to pin.
+    // Pinned, or assigned to me and not removed, means the table already has it:
+    // nothing to pin.
     // Anything else is pinned, which is harmless when it is in the table anyway
     // (assigned to one of my groups): at the pin cap the server accepts an
     // issue assigned to me through a group, as the table does.
-    const inTable = !!loaded?.pinned || (loaded?.me != null && issue?.assignedTo?.id === loaded.me);
+    const inTable =
+      !!loaded?.pinned ||
+      (!loaded?.removed && loaded?.me != null && issue?.assignedTo?.id === loaded.me);
     void startTimer({
       kind: 'ticket',
       ticket: { sourceId: 'redmine', id: String(issueId) },

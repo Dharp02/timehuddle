@@ -1736,6 +1736,8 @@ export interface MyBoardRef {
 /** A "My Board" entry as stored server-side — no title/status snapshot. */
 export interface MyBoardEntry extends MyBoardRef {
   addedAt: string;
+  /** A Huddle ticket the caller can no longer see (deleted, or a team they left). */
+  unavailable?: boolean;
 }
 
 export const myBoardApi = {
@@ -2174,7 +2176,7 @@ export interface RedmineStatus {
  * first one — the server sorts them, so the choice is not the client's to make.
  */
 export type RedmineRelevanceReason =
-  'running' | 'assigned' | 'logged' | 'activity' | 'watching' | 'pinned';
+  'running' | 'assigned' | 'logged' | 'activity' | 'watching' | 'pinned' | 'board';
 
 /** How the server read a search query, so an empty result can be explained. */
 export type RedmineSearchKind = 'id' | 'url' | 'assignee' | 'text';
@@ -2294,6 +2296,12 @@ export interface RedmineRelevantIssue extends RedmineIssue {
 export interface RedmineRelevantIssueList extends RedmineIssueList {
   issues: RedmineRelevantIssue[];
   partial: boolean;
+  /**
+   * My Board issue ids Redmine was asked for and did not return — deleted, or no
+   * longer visible to the caller. Never an issue that merely failed to load.
+   * Absent when the account is not connected.
+   */
+  unavailableBoardIds?: number[];
 }
 
 /** Response for `redmine.issues.search`. At most 25 issues, titles matched only. */
@@ -2452,6 +2460,14 @@ export const redmineApi = {
     search: (query: string): Promise<RedmineSearchResult> =>
       wormholeCall<RedmineSearchResult>('redmine.issues.search', { query }),
 
+    /**
+     * Take issues out of the caller's Tickets table and off their My Board.
+     * Nothing changes in Redmine. Starting a timer on one brings it back.
+     * At most 100 ids per call.
+     */
+    removeFromTable: (issueIds: number[]): Promise<{ removedCount: number }> =>
+      wormholeCall<{ removedCount: number }>('redmine.issues.removeFromTable', { issueIds }),
+
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (
       issueId: number,
@@ -2461,6 +2477,8 @@ export const redmineApi = {
       me: number | null;
       /** The caller pinned this issue, so it is in their Tickets table. */
       pinned: boolean;
+      /** The caller took this issue out of their Tickets table (bulk Delete). */
+      removed: boolean;
       issue: RedmineIssueDetail;
       journals: RedmineJournal[];
       /**

@@ -36,7 +36,7 @@ import {
   toNameMap,
   toNamedList,
 } from './redmine-issues';
-import { isIssuePinned } from './redmine-prefs';
+import { PINNED, REMOVED, issuePrefState } from './redmine-prefs';
 import { pushedEntryIdsFor } from './redmine-time-sync';
 import {
   buildUpdatePayload,
@@ -217,18 +217,20 @@ Meteor.methods({
     enforceRedmineLimit(issueReadLimiter, userId);
     const account = await requireAccount(userId);
 
-    const [raw, timeEntries, me, pinned] = await Promise.all([
+    const [raw, timeEntries, me, prefState] = await Promise.all([
       loadRawIssue(account, issueId),
       loadTimeEntries(userId, account, issueId),
       // Best-effort, like the time entries: without it the page still loads,
       // it just can't pick out the caller's own activity.
       redmineUserIdFor(userId, account).catch(() => null),
-      isIssuePinned(userId, issueId),
+      issuePrefState(userId, issueId),
     ]);
     return {
       baseUrl: account.baseUrl,
       me,
-      pinned,
+      pinned: prefState === PINNED,
+      // Taken out of the Tickets table: being assigned no longer puts it there.
+      removed: prefState === REMOVED,
       issue: toIssueDetail(raw),
       journals: await loadJournals(userId, account, raw),
       timeEntries,
