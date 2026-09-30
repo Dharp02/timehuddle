@@ -26,25 +26,37 @@ export interface TicketActivityCardProps {
   entries: ActivityEntry[];
   /** Shown under the heading, e.g. what the timeline includes. */
   note?: string;
+  /** Beside the heading, e.g. a filter. */
+  headerAction?: React.ReactNode;
+  /** Replaces "No activity yet." when there is nothing to show. */
+  emptyText?: string;
 }
 
-export function TicketActivityCard({ entries, note }: TicketActivityCardProps) {
+export function TicketActivityCard({
+  entries,
+  note,
+  headerAction,
+  emptyText = 'No activity yet.',
+}: TicketActivityCardProps) {
   return (
     <Card>
       <CardContent className="ticket-activity-section">
-        <div className="ticket-activity-header mb-3">
-          <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300">
-            Activity
-          </Text>
-          {note && (
-            <Text size="xs" variant="muted">
-              {note}
+        <div className="ticket-activity-header mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div className="ticket-activity-heading min-w-0">
+            <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300">
+              Activity
             </Text>
-          )}
+            {note && (
+              <Text size="xs" variant="muted">
+                {note}
+              </Text>
+            )}
+          </div>
+          {headerAction}
         </div>
         {entries.length === 0 ? (
           <Text size="sm" className="italic text-neutral-400">
-            No activity yet.
+            {emptyText}
           </Text>
         ) : (
           // 12rem leaves room for the app header and the card's own chrome.

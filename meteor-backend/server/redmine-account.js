@@ -9,7 +9,8 @@
 import { Meteor } from 'meteor/meteor';
 
 import { RedmineLinks } from './collections';
-import { linkedRedmineBaseUrl } from './redmine-client';
+import { createUserTtlCache } from './redmine-cache';
+import { getCurrentUser, linkedRedmineBaseUrl } from './redmine-client';
 import { decryptStoredSecret, encryptSecret, envKey } from './redmine-crypto';
 
 /**
@@ -46,4 +47,24 @@ export async function requireRedmineAccount(userId) {
   const account = await findRedmineAccount(userId);
   if (!account) throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
   return account;
+}
+
+/** The caller's own Redmine user id, per user, for an hour. See `redmineUserIdFor`. */
+const redmineUserIdCache = createUserTtlCache(60 * 60 * 1000);
+
+/**
+ * The caller's own Redmine user id: what `/activity.atom` needs (it has no `me`),
+ * and what the issue page and its form tell "mine" apart by.
+ *
+ * Almost always free: `redmine.connect` already stored it on the link row. The
+ * `/users/current.json` fallback is for rows written before it did, and is cached
+ * for an hour because a Redmine user id never changes.
+ */
+export async function redmineUserIdFor(userId, account) {
+  const link = await RedmineLinks.findOneAsync({ userId }, { fields: { redmineUserId: 1 } });
+  if (link?.redmineUserId != null) return link.redmineUserId;
+  return redmineUserIdCache.get(userId, 'redmineUserId', async () => {
+    const user = await getCurrentUser(account);
+    return user?.id ?? null;
+  });
 }

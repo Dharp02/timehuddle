@@ -86,7 +86,7 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
             variant="ghost"
             type="button"
             onClick={() => onSortChange(sortField)}
-            className="hover:text-foreground flex h-auto items-center gap-1 p-0 text-inherit transition-colors"
+            className="hover:text-foreground flex h-auto shrink-0 items-center gap-1 p-0 font-[inherit] text-inherit text-[length:inherit] transition-colors"
             aria-label={`Sort by ${label} ${isSorted && sort.direction === 'asc' ? 'descending' : 'ascending'}`}
           >
             {label}

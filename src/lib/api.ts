@@ -1736,6 +1736,8 @@ export interface MyBoardRef {
 /** A "My Board" entry as stored server-side — no title/status snapshot. */
 export interface MyBoardEntry extends MyBoardRef {
   addedAt: string;
+  /** A Huddle ticket the caller can no longer see (deleted, or a team they left). */
+  unavailable?: boolean;
 }
 
 export const myBoardApi = {
@@ -1752,7 +1754,9 @@ export const myBoardApi = {
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
-export type AttachmentKind = 'clock' | 'ticket';
+export type AttachmentKind = 'clock' | 'ticket' | 'redmine';
+/** The kinds a ticket page attaches to: a Huddle ticket or a Redmine issue. */
+export type TicketAttachmentKind = Exclude<AttachmentKind, 'clock'>;
 export type AttachmentType = 'video' | 'image' | 'link';
 
 export interface Attachment {
@@ -1985,12 +1989,10 @@ export const videoApi = {
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
    */
-  reserve: (ticketId: string, existingVideoid?: string) =>
+  reserve: (ticketId: string, existingVideoid?: string, target: TicketAttachmentKind = 'ticket') =>
     wormholeCall<{ videoid: string; uploadToken: string; uploadLink?: string }>(
       'pulsevault.reserve',
-      existingVideoid
-        ? { target: 'ticket', ticketId, existingVideoid }
-        : { target: 'ticket', ticketId },
+      existingVideoid ? { target, ticketId, existingVideoid } : { target, ticketId },
     ),
 
   /** Reserve a videoid for a media library upload (no ticket context). */
@@ -2174,12 +2176,12 @@ export interface RedmineStatus {
  * first one — the server sorts them, so the choice is not the client's to make.
  */
 export type RedmineRelevanceReason =
-  'running' | 'assigned' | 'logged' | 'activity' | 'watching' | 'pinned';
+  'running' | 'assigned' | 'logged' | 'activity' | 'watching' | 'pinned' | 'board';
 
 /** How the server read a search query, so an empty result can be explained. */
 export type RedmineSearchKind = 'id' | 'url' | 'assignee' | 'text';
 
-/** What TimeHuddle may remember about a Redmine issue. `null` clears it. */
+/** What TimeHuddle may remember about a Redmine issue. `null` lifts a hide; a pin stays. */
 export type RedmineIssuePrefState = 'pinned' | 'dismissed' | null;
 
 /** Why a previewed ticket-day cannot be sent, or null when it can. */
@@ -2229,6 +2231,8 @@ export interface RedmineTimeEntryPushOutcome {
   ok: boolean;
   /** Present on failure: `no-log-time-permission`, `unreachable`, … */
   reason?: string;
+  /** Redmine's own messages for a `rejected-by-redmine`, e.g. "Activity is not included in the list". */
+  detail?: string[];
   entryId?: number;
   storedHours?: number;
 }
@@ -2292,6 +2296,12 @@ export interface RedmineRelevantIssue extends RedmineIssue {
 export interface RedmineRelevantIssueList extends RedmineIssueList {
   issues: RedmineRelevantIssue[];
   partial: boolean;
+  /**
+   * My Board issue ids Redmine was asked for and did not return — deleted, or no
+   * longer visible to the caller. Never an issue that merely failed to load.
+   * Absent when the account is not connected.
+   */
+  unavailableBoardIds?: number[];
 }
 
 /** Response for `redmine.issues.search`. At most 25 issues, titles matched only. */
@@ -2324,6 +2334,20 @@ export interface RedmineJournal {
   createdAt: string | null;
   notes: string;
   changes: RedmineJournalChange[];
+}
+
+/**
+ * Time logged on an issue in Redmine, by anyone. `spentOn` is the day the work
+ * was for (`YYYY-MM-DD`); `createdAt` is when it was logged.
+ */
+export interface RedmineTimeEntry {
+  id: number;
+  user: RedmineNamed | null;
+  hours: number;
+  activity: RedmineNamed | null;
+  comments: string;
+  spentOn: string | null;
+  createdAt: string | null;
 }
 
 /** A Redmine issue priority. `isDefault` is the instance's own default. */
@@ -2436,13 +2460,33 @@ export const redmineApi = {
     search: (query: string): Promise<RedmineSearchResult> =>
       wormholeCall<RedmineSearchResult>('redmine.issues.search', { query }),
 
+    /**
+     * Take issues out of the caller's Tickets table and off their My Board.
+     * Nothing changes in Redmine. Starting a timer on one brings it back.
+     * At most 100 ids per call.
+     */
+    removeFromTable: (issueIds: number[]): Promise<{ removedCount: number }> =>
+      wormholeCall<{ removedCount: number }>('redmine.issues.removeFromTable', { issueIds }),
+
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (
       issueId: number,
     ): Promise<{
       baseUrl: string | null;
+      /** The caller's Redmine user id, to pick out their own activity. */
+      me: number | null;
+      /** The caller pinned this issue, so it is in their Tickets table. */
+      pinned: boolean;
+      /** The caller took this issue out of their Tickets table (bulk Delete). */
+      removed: boolean;
       issue: RedmineIssueDetail;
       journals: RedmineJournal[];
+      /**
+       * The newest time logged on the issue in Redmine (up to 10), leaving out
+       * the entries TimeHuddle pushed for the caller: those show as their own
+       * sessions. `null` when Redmine would not list them.
+       */
+      timeEntries: RedmineTimeEntry[] | null;
     }> => wormholeCall('redmine.issues.get', { issueId }),
 
     /** Create an issue as the caller (authored under their own key). */
@@ -2521,28 +2565,13 @@ export const redmineApi = {
      */
     push: (entries: RedmineTimeEntryPushRequest[]): Promise<RedmineTimeEntryPushResult> =>
       wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
+
+    /**
+     * Never send one ticket-day's unsent time to Redmine. Nothing is written to
+     * Redmine and the time stays in TimeHuddle; only time tracked on that day
+     * later is offered again.
+     */
+    discard: (ticketId: string, date: string): Promise<{ discardedSeconds: number }> =>
+      wormholeCall<{ discardedSeconds: number }>('redmine.timeEntries.discard', { ticketId, date }),
   },
 };
-
-// ─── TimeHarbor Share ─────────────────────────────────────────────────────────
-
-/**
- * Flag a single ticket as shared with TimeHarbor.
- * One-way: this only sets the flag on the TimeHuddle record; TimeHarbor pulls it.
- */
-export const shareTicketWithTimeharbor = (id: string, shared: boolean): Promise<void> =>
-  wormholeCall<{ ok: boolean }>('tickets.shareWithTimeharbor', { ticketId: id, shared }).then(
-    () => undefined,
-  );
-
-/**
- * Flag multiple tickets as shared with (or unshared from) TimeHarbor in one request.
- */
-export const bulkShareTicketsWithTimeharbor = (
-  ticketIds: string[],
-  shared: boolean,
-): Promise<void> =>
-  wormholeCall<{ modifiedCount: number }>('tickets.bulkShareWithTimeharbor', {
-    ticketIds,
-    shared,
-  }).then(() => undefined);

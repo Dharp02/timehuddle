@@ -24,7 +24,7 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './redmine';
 import './redmine-issue-methods';
-import './redmine-suggestions';
+import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
 import './my-board';
@@ -1036,7 +1036,7 @@ Meteor.startup(async() => {
 
   Wormhole.expose('redmine.issues.relevant', {
     description:
-      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, timer running)",
+      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, on My Board, timer running)",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1073,10 +1073,27 @@ Meteor.startup(async() => {
         state: {
           type: ['string', 'null'],
           enum: ['pinned', 'dismissed', null],
-          description: 'null clears the preference (Undo / Restore)',
+          description: 'null lifts a hide (Undo / Restore); a pin stays',
         },
       },
       required: ['issueId', 'state'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.removeFromTable', {
+    description:
+      "Take Redmine issues out of the caller's Tickets table and My Board (bulk Delete). Never touches Redmine",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issueIds: {
+          type: 'array',
+          items: { type: 'integer' },
+          minItems: 1,
+          maxItems: MAX_REMOVE_PER_CALL,
+        },
+      },
+      required: ['issueIds'],
     },
   });
 
@@ -1167,6 +1184,19 @@ Meteor.startup(async() => {
     description:
       'Preview the ticket-day totals a push would send to Redmine. Read-only — creates nothing.',
     inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.timeEntries.discard', {
+    description:
+      "Never send one ticket-day's unsent time to Redmine. Writes nothing to Redmine; the time stays in TimeHuddle.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string', description: 'Redmine issue id' },
+        date: { type: 'string', description: 'The day, YYYY-MM-DD' },
+      },
+      required: ['ticketId', 'date'],
+    },
   });
 
   Wormhole.expose('redmine.timeEntries.push', {
@@ -2117,7 +2147,7 @@ Meteor.startup(async() => {
 
   // ── Attachments ────────────────────────────────────────────────────────────
 
-  Wormhole.expose('attachments.list', { description: 'List attachments for an entity', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['clock', 'ticket'] }, id: { type: 'string' } }, required: ['kind', 'id'] } });
+  Wormhole.expose('attachments.list', { description: 'List attachments for an entity', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['clock', 'ticket', 'redmine'] }, id: { type: 'string' } }, required: ['kind', 'id'] } });
   Wormhole.expose('attachments.add', { description: 'Add attachment to an entity', inputSchema: { type: 'object', properties: { url: { type: 'string' }, type: { type: 'string', enum: ['video', 'image', 'link'] }, title: { type: 'string' }, thumbnail: { type: 'string' }, attachedTo: { type: 'object', properties: { kind: { type: 'string' }, id: { type: 'string' } }, required: ['kind', 'id'] } }, required: ['url', 'type', 'attachedTo'] } });
   Wormhole.expose('attachments.remove', { description: 'Delete attachment (owner only)', inputSchema: { type: 'object', properties: { attachmentId: { type: 'string' } }, required: ['attachmentId'] } });
 
@@ -2137,7 +2167,7 @@ Meteor.startup(async() => {
       properties: {
         ticketId: { type: 'string' },
         existingVideoid: { type: 'string' },
-        target: { type: 'string', enum: ['ticket', 'library'] },
+        target: { type: 'string', enum: ['ticket', 'redmine', 'library'] },
       },
     },
     outputSchema: {

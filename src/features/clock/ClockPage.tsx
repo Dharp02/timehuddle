@@ -60,6 +60,8 @@ import {
 import { ComposerProgress } from '../huddle/ComposerProgress';
 import { ComposerError } from '../huddle/ComposerError';
 import type { MediaItem } from '../huddle/types';
+import { useTicketStart } from '../timers/TicketStartProvider';
+import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerStrings';
 import { RedminePushPanel } from './RedminePushPanel';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -98,6 +100,8 @@ export const ClockPage: React.FC = () => {
 
   // Active ticket under the session timer — shared hook (getRunning + getDay).
   const runningTicket = useRunningTicket(isClockedIn);
+  // A timer started while clocked out, waiting for this clock-in (#586).
+  const { pending: pendingStart, cancelPending: cancelPendingStart } = useTicketStart();
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
@@ -621,6 +625,25 @@ export const ClockPage: React.FC = () => {
           )}
         </div>
 
+        {/* ── A ticket timer waiting for this clock-in (see TicketStartProvider) ── */}
+        {!isClockedIn && pendingStart && (
+          <div
+            className="clock-pending-start flex shrink-0 flex-wrap items-center gap-2"
+            role="status"
+          >
+            <FontAwesomeIcon icon={faTicket} className="text-neutral-500" aria-hidden />
+            <Text size="sm">{timerText.pendingStart(pendingStart.request.label)}</Text>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={cancelPendingStart}
+              aria-label={timerText.cancelPendingStartLabel(pendingStart.request.label)}
+            >
+              {timerText.cancelPendingStart}
+            </Button>
+          </div>
+        )}
+
         {/* ── Composer — plan before clock-in / wrap-up before clock-out ── */}
         {composerMode && (
           <div className="clock-plan-composer flex shrink-0 flex-col gap-2 md:gap-3">
@@ -764,6 +787,15 @@ export const ClockPage: React.FC = () => {
               </Button>
             )}
           </div>
+        )}
+
+        {/* Clocking out closes every ticket timer (clock.stop), so say so first. */}
+        {isClockedIn && runningTicket && (
+          <Text variant="muted" size="sm" className="clock-out-stops-timer shrink-0 text-center">
+            {timerText.clockOutStopsTimer(
+              timerLabel(runningTicket.source, runningTicket.id, runningTicket.title),
+            )}
+          </Text>
         )}
 
         {clockOutBlockedReason && (

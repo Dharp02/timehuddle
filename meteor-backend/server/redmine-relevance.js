@@ -30,6 +30,7 @@
  * while the rest of the list still arrives.
  */
 import {
+  ASSIGNED_ISSUES_LIMIT,
   listActivityIssueIds,
   listAssignedIssues,
   listIssuesByIds,
@@ -69,7 +70,8 @@ export const RECENT_DAYS = 14;
  * a ranking of *how sure the signal is that the user wants this issue now*. A
  * timer running on an issue is certainty; something assigned to them is a
  * standing obligation; time they logged is proof they worked on it; a watch is a
- * standing interest at best.
+ * standing interest at best. An issue on My Board was put there by hand, which
+ * says as much as a pin.
  */
 export const SIGNAL_SCORES = {
   running: 100,
@@ -77,6 +79,7 @@ export const SIGNAL_SCORES = {
   logged: 50,
   activity: 40,
   pinned: 30,
+  board: 30,
   watching: 20,
 };
 
@@ -98,8 +101,25 @@ const DECAY_PER_DAY = 2;
  */
 const CLOSED_PENALTY = -50;
 
-/** How many issues the relevant list may return. */
+/** How many issues the relevant list may return, beyond the Tickets table's own rows. */
 export const MAX_RELEVANT_ISSUES = 100;
+
+/**
+ * The reasons that put an issue in the Tickets table. Those rows are never cut
+ * by `MAX_RELEVANT_ISSUES`: the table promises to show every issue that is
+ * assigned to the user, pinned, or on My Board, and a cap that dropped one
+ * would leave a My Board entry pointing at nothing.
+ */
+export const TABLE_REASONS = ['assigned', 'pinned', 'board'];
+
+/** Redmine's `limit` ceiling, and so the most ids one `listIssuesByIds` call may ask for. */
+const IDS_PER_REQUEST = 100;
+
+/**
+ * The most pinned and My Board issues fetched in one build — the pin cap (500)
+ * with room for a board as long again. A bound on requests, not a feature.
+ */
+export const MAX_KEPT_ISSUES = 1000;
 
 /**
  * A `SlimIssue` (as `toIssue` shapes one) plus why it is in the list — the
@@ -192,6 +212,7 @@ function idsOf(signal) {
  * @param {{issueId: number, lastAt: string|null}[]} [signals.activity] from `latestByIssue`
  * @param {(number|{issueId: number})[]} [signals.watching] ids the user watches
  * @param {(number|{issueId: number})[]} [signals.pinned]   ids the user pinned
+ * @param {(number|{issueId: number})[]} [signals.board]    ids on the user's My Board
  * @param {Map<number, object>} issuesById  slim issue DTOs, keyed by id
  * @param {number} [now]  epoch ms the decay is measured from
  * @returns {RelevantIssue[]} best first
@@ -212,7 +233,7 @@ export function scoreRelevantIssues(signals, issuesById, now = Date.now()) {
     return held;
   };
 
-  for (const reason of ['running', 'assigned', 'watching', 'pinned']) {
+  for (const reason of ['running', 'assigned', 'watching', 'pinned', 'board']) {
     for (const issueId of idsOf(signals?.[reason])) {
       contribute(issueId, reason, SIGNAL_SCORES[reason]);
     }
@@ -277,6 +298,28 @@ function isoDay(ms) {
 }
 
 /**
+ * Fetch issues by id, `IDS_PER_REQUEST` at a time, in parallel. One failed
+ * request fails the lot: the caller reads "did not answer" as "unknown", and a
+ * half-answer would pass off the missing half as issues that do not exist.
+ */
+async function listIssuesByIdsChunked(account, issueIds, options) {
+  const chunks = [];
+  for (let start = 0; start < issueIds.length; start += IDS_PER_REQUEST) {
+    chunks.push(issueIds.slice(start, start + IDS_PER_REQUEST));
+  }
+  return (await Promise.all(chunks.map((ids) => listIssuesByIds(account, ids, options)))).flat();
+}
+
+/**
+ * The pinned and My Board ids to fetch, board first, without repeats, bounded.
+ * Board first because an entry left unresolved is a row the user put on their
+ * board by hand, now missing from it.
+ */
+export function keptIssueIds(pinnedIds = [], boardIds = []) {
+  return [...new Set([...boardIds, ...pinnedIds].map(Number))].slice(0, MAX_KEPT_ISSUES);
+}
+
+/**
  * Ask Redmine every filtered question at once, and report which ones answered.
  *
  * `Promise.allSettled`, not `Promise.all`: a signal that fails or times out is
@@ -284,11 +327,16 @@ function isoDay(ms) {
  * answer beats an error page. Each call carries its own 6-second bound, so one
  * slow query cannot spend the whole budget.
  *
- * `activity` is skipped when the caller's Redmine id is unknown, and `pinned`
- * when they have no pins — there is nothing to ask in either case.
+ * `activity` is skipped when the caller's Redmine id is unknown, and `kept` (the
+ * pinned and My Board issues, fetched together) when there are none — there is
+ * nothing to ask in either case.
  */
-export async function gatherRemoteSignals(account, { from, redmineUserId = null, pinnedIds = [] } = {}) {
+export async function gatherRemoteSignals(
+  account,
+  { from, redmineUserId = null, pinnedIds = [], boardIds = [] } = {},
+) {
   const bound = { timeoutMs: SIGNAL_TIMEOUT_MS };
+  const keptIds = keptIssueIds(pinnedIds, boardIds);
   const tasks = [
     ['assigned', () => listAssignedIssues(account, bound)],
     ['watching', () => listWatchedIssues(account, bound)],
@@ -297,8 +345,8 @@ export async function gatherRemoteSignals(account, { from, redmineUserId = null,
   if (redmineUserId != null) {
     tasks.push(['activity', () => listActivityIssueIds(account, { redmineUserId, from, ...bound })]);
   }
-  if (pinnedIds.length) {
-    tasks.push(['pinned', () => listIssuesByIds(account, pinnedIds.slice(0, MAX_RELEVANT_ISSUES), bound)]);
+  if (keptIds.length) {
+    tasks.push(['kept', () => listIssuesByIdsChunked(account, keptIds, bound)]);
   }
 
   const settled = await Promise.allSettled(tasks.map(([, run]) => run()));
@@ -324,8 +372,9 @@ const issueIdsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) =>
  *
  * The order matters in two places. Dismissals are removed **before** the cap, so
  * hiding a suggestion pulls the next one up instead of leaving the list a row
- * short. And the "assigned to me" answer is handed to `hiddenIssueIds`, so the
- * reassignment rule (A3, rule 5) can be applied without a second Redmine call.
+ * short. And the "assigned to me" answer is handed to `resolvePrefs`, so the
+ * reassignment rules (A3, rules 5 and 10) can be applied without a second
+ * Redmine call.
  *
  * Throws the first signal's own error when *every* signal failed — mapping it to
  * something a client understands is the Meteor layer's job.
@@ -333,22 +382,30 @@ const issueIdsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) =>
  * @param {{apiKey: string, baseUrl: string}} account
  * @param {object} [context]
  * @param {number[]} [context.pinnedIds]   the caller's pins
+ * @param {number[]} [context.boardIds]    the Redmine issues on the caller's My Board
  * @param {number[]} [context.runningIds]  the issue a timer is running on, if any
  * @param {number|null} [context.redmineUserId]  for the activity feed
- * @param {(assignedIssueIds: number[]) => Promise<number[]>} [context.hiddenIssueIds]
- *   the ids to leave out, given what Redmine says is assigned to the caller
+ * @param {(assignedIssueIds: number[], assignedKnown: boolean) =>
+ *   Promise<{hiddenIds?: number[], removedIds?: number[]}>} [context.resolvePrefs]
+ *   given what Redmine says is assigned to the caller: the ids to leave out
+ *   (`hiddenIds`), and the ids whose assignment no longer counts because the
+ *   caller took them out of their Tickets table (`removedIds`)
  * @param {number} [context.now]  the date the decay and `from` are measured from
  * @param {() => number} [context.clock]  wall clock for the time budget; separate
  *   from `now` so a test can fix the date and still move time along
- * @returns {Promise<{issues: RelevantIssue[], partial: boolean}>}
+ * @returns {Promise<{issues: RelevantIssue[], partial: boolean, unavailableBoardIds: number[]}>}
+ *   `unavailableBoardIds` — My Board ids Redmine was asked for and did not
+ *   return: deleted, or no longer visible to the caller. Empty whenever that
+ *   question went unanswered, so it never names an issue that merely failed to load.
  */
 export async function buildRelevantIssues(
   account,
   {
     pinnedIds = [],
+    boardIds = [],
     runningIds = [],
     redmineUserId = null,
-    hiddenIssueIds,
+    resolvePrefs,
     now = Date.now(),
     clock = Date.now,
   } = {},
@@ -360,6 +417,7 @@ export async function buildRelevantIssues(
     from,
     redmineUserId,
     pinnedIds,
+    boardIds,
   });
 
   // Every question failing is a different situation from some of them failing:
@@ -367,15 +425,28 @@ export async function buildRelevantIssues(
   if (failures.length === attempted) throw failures[0].reason;
 
   const assignedIssueIds = issueIdsIn(answered.assigned);
-  const hidden = new Set(hiddenIssueIds ? await hiddenIssueIds(assignedIssueIds) : []);
+  // "Not in the list" means "not assigned" only when the list is whole: a failed
+  // signal, or one cut off at its limit, would forget removals that still stand.
+  const assignedKnown =
+    'assigned' in answered && assignedIssueIds.length < ASSIGNED_ISSUES_LIMIT;
+  const prefs = resolvePrefs ? await resolvePrefs(assignedIssueIds, assignedKnown) : {};
+  const hidden = new Set(prefs.hiddenIds ?? []);
+  const removed = new Set(prefs.removedIds ?? []);
 
-  // `assigned`, `watching` and `pinned` answer with whole issues, so their slim
+  // `assigned`, `watching` and `kept` answer with whole issues, so their slim
   // fields are already in hand; only `logged`, `activity` and the running timer
   // arrive as bare ids.
   const issuesById = new Map();
-  for (const raw of [...(answered.assigned ?? []), ...(answered.watching ?? []), ...(answered.pinned ?? [])]) {
+  for (const raw of [...(answered.assigned ?? []), ...(answered.watching ?? []), ...(answered.kept ?? [])]) {
     if (raw?.id != null && !hidden.has(raw.id)) issuesById.set(raw.id, toIssue(raw));
   }
+
+  // Only a `kept` fetch that answered can say an issue is gone; one that failed
+  // says nothing, and the board keeps its entries.
+  const keptReturned = new Set(issueIdsIn(answered.kept));
+  const keptAsked = new Set(keptIssueIds(pinnedIds, boardIds));
+  const unavailableBoardIds =
+    'kept' in answered ? boardIds.filter((id) => keptAsked.has(id) && !keptReturned.has(id)) : [];
 
   const logged = latestByIssue(answered.logged);
   const activity = latestByIssue(answered.activity);
@@ -413,9 +484,12 @@ export async function buildRelevantIssues(
   const issues = scoreRelevantIssues(
     {
       running: runningIds,
-      assigned: assignedIssueIds,
+      // A removed issue is still assigned in Redmine; the assignment just no
+      // longer counts (rule 8). Its other signals still apply.
+      assigned: assignedIssueIds.filter((id) => !removed.has(id)),
       watching: issueIdsIn(answered.watching),
       pinned: pinnedIds,
+      board: boardIds,
       logged,
       activity,
     },
@@ -423,5 +497,22 @@ export async function buildRelevantIssues(
     now,
   );
 
-  return { issues: issues.slice(0, MAX_RELEVANT_ISSUES), partial: failures.length > 0 || resolveFailed };
+  return {
+    issues: capKeepingTableRows(issues),
+    partial: failures.length > 0 || resolveFailed,
+    unavailableBoardIds,
+  };
+}
+
+/**
+ * The first `MAX_RELEVANT_ISSUES` issues, plus every Tickets table row past
+ * them, in the original order.
+ */
+function capKeepingTableRows(issues) {
+  let others = 0;
+  return issues.filter((issue) => {
+    if (issue.reasons.some((reason) => TABLE_REASONS.includes(reason))) return true;
+    others += 1;
+    return others <= MAX_RELEVANT_ISSUES;
+  });
 }

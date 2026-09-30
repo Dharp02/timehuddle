@@ -15,13 +15,33 @@
  * | 3. It expires 15 days after `updatedAt` | `partitionIssuePrefs` (below) + the TTL index |
  * | 4. Dismissing again restarts the 15 days | `updatedAt` is rewritten on every set |
  * | 5. Reassignment to the user clears it | `partitionIssuePrefs` (below) |
- * | 6. A pin replaces a dismissal; `null` clears either | one row per (user, issue), unique index |
+ * | 6. A pin replaces a dismissal; `null` clears a dismissal | one row per (user, issue), unique index |
+ * | 7. Hiding a pinned issue keeps the pin | the hide is `dismissedAt` on the pin's row |
+ *
+ * Removing an issue from the Tickets table (bulk Delete) is a third state, with
+ * rules of its own:
+ *
+ * | Rule | Where it lives |
+ * | --- | --- |
+ * | 8. A removal replaces a pin, and stops "assigned to me" counting for the table | `removeIssuesFromTable` + `partitionIssuePrefs` |
+ * | 9. A pin (starting a timer) replaces a removal | one row per (user, issue), unique index |
+ * | 10. A removal lasts only while the issue stays among the user's open assigned issues: once it is reassigned or closed it is forgotten, so being handed it again (or it reopening) brings it back | `partitionIssuePrefs` (below) |
+ * | 11. A hide survives a removal, like it survives on a pin | the hide is `dismissedAt` on the removal's row |
+ *
+ * Rule 7 exists because a pin is what keeps an issue someone else owns in the
+ * Tickets table (and so on My Board), while a hide is only about the search
+ * suggestions. Were the hide to replace the pin, hiding a suggestion would drop
+ * the issue from the table. Storing it on the pin's row, rather than turning the
+ * row into a dismissal, also keeps the pin out of reach of the TTL index, which
+ * sweeps `state: 'dismissed'` rows only.
  *
  * Kept free of Meteor imports, like redmine-issues.js and redmine-activities.js.
  */
 
 export const PINNED = 'pinned';
 export const DISMISSED = 'dismissed';
+/** Taken out of the user's Tickets table by bulk Delete. Nothing in Redmine changes. */
+export const REMOVED = 'removed';
 
 /**
  * How long a dismissal lasts. Long enough that hiding a suggestion feels like it
@@ -63,7 +83,8 @@ export const MAX_PINS_PER_USER = 500;
 /**
  * Read one user's preference rows into the three answers callers need.
  *
- * - `pinnedIds` — worth 30 points to the relevant list, and never expire.
+ * - `pinnedIds` — worth 30 points to the relevant list, and never expire. A
+ *   pinned issue that is also hidden is in both lists (rule 7).
  * - `dismissedIds` — hide these from the suggestions, newest dismissal first.
  *   Rows past their 15 days are left out here as well as swept by the TTL index:
  *   Mongo's sweeper runs about once a minute, and "15 days" should not mean
@@ -78,16 +99,43 @@ export const MAX_PINS_PER_USER = 500;
  * the same call that notices the reassignment — the caller does not have to
  * re-read to get an accurate answer.
  *
- * @param {{issueId: number, state: string, updatedAt: Date, assignedToMeAtDismissal?: boolean}[]} rows
- * @param {{assignedIssueIds?: number[], now?: number}} [options]
+ * A revived pinned issue keeps its pin: the caller clears only the hide.
+ *
+ * - `removedIds` — issues taken out of the Tickets table that are still assigned
+ *   to the user, so their assignment must not put them back (rule 8).
+ * - `forgetRemovalIds` — removals of issues no longer assigned to the user, which
+ *   the caller should now delete (rule 10). Only decided when `assignedKnown`:
+ *   without Redmine's whole answer about what is assigned (it failed, or was cut
+ *   off at its limit), "not in the list" means "not asked", and forgetting on
+ *   that would undo every removal at once.
+ *
+ * @param {{issueId: number, state: string, updatedAt: Date, dismissedAt?: Date, assignedToMeAtDismissal?: boolean}[]} rows
+ * @param {{assignedIssueIds?: number[], assignedKnown?: boolean, now?: number}} [options]
  */
-export function partitionIssuePrefs(rows, { assignedIssueIds = [], now = Date.now() } = {}) {
+export function partitionIssuePrefs(
+  rows,
+  { assignedIssueIds = [], assignedKnown = false, now = Date.now() } = {},
+) {
   const assigned = new Set(assignedIssueIds.map(Number));
   const cutoff = now - DISMISSAL_TTL_MS;
 
   const pinnedIds = [];
   const dismissals = [];
   const reviveIds = [];
+  const removedIds = [];
+  const forgetRemovalIds = [];
+
+  const considerDismissal = (issueId, dismissedAt, assignedToMeAtDismissal) => {
+    if (assignedToMeAtDismissal === false && assigned.has(issueId)) {
+      reviveIds.push(issueId);
+      return;
+    }
+    const at = new Date(dismissedAt ?? 0).getTime();
+    // An unparseable date is treated as expired: a row we cannot age is a row we
+    // cannot honour, and the safe direction is to show the issue again.
+    if (!Number.isFinite(at) || at <= cutoff) return;
+    dismissals.push({ issueId, at });
+  };
 
   for (const row of Array.isArray(rows) ? rows : []) {
     const issueId = Number(row?.issueId);
@@ -95,25 +143,26 @@ export function partitionIssuePrefs(rows, { assignedIssueIds = [], now = Date.no
 
     if (row.state === PINNED) {
       pinnedIds.push(issueId);
-      continue;
+      if (row.dismissedAt != null) {
+        considerDismissal(issueId, row.dismissedAt, row.assignedToMeAtDismissal);
+      }
+    } else if (row.state === DISMISSED) {
+      considerDismissal(issueId, row.updatedAt, row.assignedToMeAtDismissal);
+    } else if (row.state === REMOVED) {
+      if (assignedKnown && !assigned.has(issueId)) forgetRemovalIds.push(issueId);
+      else removedIds.push(issueId);
+      if (row.dismissedAt != null) {
+        considerDismissal(issueId, row.dismissedAt, row.assignedToMeAtDismissal);
+      }
     }
-    if (row.state !== DISMISSED) continue;
-
-    if (row.assignedToMeAtDismissal === false && assigned.has(issueId)) {
-      reviveIds.push(issueId);
-      continue;
-    }
-    const at = new Date(row.updatedAt ?? 0).getTime();
-    // An unparseable date is treated as expired: a row we cannot age is a row we
-    // cannot honour, and the safe direction is to show the issue again.
-    if (!Number.isFinite(at) || at <= cutoff) continue;
-    dismissals.push({ issueId, at });
   }
 
   return {
     pinnedIds,
     dismissedIds: dismissals.sort((a, b) => b.at - a.at).map((row) => row.issueId),
     reviveIds,
+    removedIds,
+    forgetRemovalIds,
   };
 }
 

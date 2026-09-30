@@ -56,6 +56,8 @@ import {
   type RedmineActivityList,
 } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
+import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
+import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
@@ -757,6 +759,9 @@ const RedmineConnection: React.FC = () => {
       const next = await redmineApi.connect(key, url);
       setStatus(next);
       setApiKey('');
+      // The search bar caches its suggestions (or "not connected") for the
+      // session; the link just changed what they should be.
+      invalidateSuggestionsCache();
       await loadActivities();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to connect to Redmine');
@@ -771,6 +776,8 @@ const RedmineConnection: React.FC = () => {
     try {
       const next = await redmineApi.disconnect();
       setStatus(next);
+      // Drop the cached suggestions too, so their issue titles go with the link.
+      invalidateSuggestionsCache();
       setBaseUrl(next.defaultBaseUrl ?? '');
       setActivities(null);
       setActivityError(null);
@@ -868,6 +875,8 @@ const RedmineConnection: React.FC = () => {
             </Text>
           )}
         </div>
+
+        <RedmineHiddenSuggestions />
 
         {error && (
           <Text size="xs" variant="destructive" role="alert">

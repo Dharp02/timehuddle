@@ -317,10 +317,18 @@ export async function getCurrentUser(account) {
  * the one query that is both cheap and bounded on a large instance: Redmine
  * filters by assignee before it checks visibility.
  */
+/** How many open assigned issues the "assigned" signal returns, newest first. */
+export const ASSIGNED_ISSUES_LIMIT = 100;
+
 export function listAssignedIssues(account, { timeoutMs } = {}) {
   return issueQuery(
     account,
-    { assigned_to_id: 'me', status_id: 'open', sort: 'updated_on:desc', limit: '100' },
+    {
+      assigned_to_id: 'me',
+      status_id: 'open',
+      sort: 'updated_on:desc',
+      limit: String(ASSIGNED_ISSUES_LIMIT),
+    },
     { timeoutMs },
   );
 }
@@ -608,6 +616,23 @@ export async function getIssueDetail(account, issueId) {
     if (err?.status === 404 || err?.status === 403) return null;
     throw err;
   }
+}
+
+/**
+ * The newest time entries logged on one issue, by anyone the caller's key can
+ * see (`GET /time_entries.json?issue_id=`), newest `spent_on` first — Redmine's
+ * default order. Redmine keeps time entries apart from an issue's journals, so
+ * the issue page asks for them separately. Depending on the Redmine version the
+ * `issue_id` filter can include subtasks; the caller keeps only the issue's own.
+ */
+export async function listIssueTimeEntries(account, issueId, { limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams({
+    issue_id: String(issueId),
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const data = await redmineRequest(`/time_entries.json?${params.toString()}`, { account });
+  return data?.time_entries ?? [];
 }
 
 /**

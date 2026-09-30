@@ -87,6 +87,8 @@ export interface RedmineOutcomeShape {
   hours?: number;
   ok: boolean;
   reason?: string;
+  /** Redmine's own messages on a `rejected-by-redmine`. */
+  detail?: string[];
   entryId?: number;
   storedHours?: number;
 }
@@ -109,6 +111,11 @@ export interface RedmineIssueShape {
   description?: string;
   author?: RedmineNamedShape | null;
   allowedStatuses?: (RedmineNamedShape & { isClosed: boolean })[];
+  /**
+   * Why `issues.relevant` returned it, strongest first. The table shows
+   * `assigned`, `pinned` and `board` ones.
+   */
+  reasons?: string[];
 }
 
 /** A recorded request body, as the app POSTed it. */
@@ -166,9 +173,17 @@ const DISCONNECTED: Record<string, unknown> = {
   disconnect: { connected: false },
   'issues.relevant': { connected: false, baseUrl: null, issues: [], partial: false },
   'issues.search': { connected: false, baseUrl: null, kind: 'text', issues: [] },
+  'issues.removeFromTable': { removedCount: 0 },
   'prefs.set': { ok: true },
   'prefs.listDismissed': { connected: false, baseUrl: null, issues: [] },
-  'issues.get': { baseUrl: null, issue: null, journals: [] },
+  'issues.get': {
+    baseUrl: null,
+    me: null,
+    pinned: false,
+    removed: false,
+    issue: null,
+    journals: [],
+  },
   'issues.create': { baseUrl: null, issue: null, mismatches: [], issueId: 0, confirmed: false },
   'issues.update': { baseUrl: null, issue: null, mismatches: [] },
   'projects.list': { projects: [] },
@@ -381,6 +396,9 @@ export function redmineIssue(overrides: Partial<RedmineIssueShape> = {}): Redmin
     tracker: { id: 1, name: 'Bug' },
     createdAt: '2026-01-05T09:00:00.000Z',
     updatedAt: '2026-02-01T11:30:00.000Z',
+    // The real `issues.relevant` always sends reasons, and the Tickets table keeps
+    // only `assigned` ones; other calls ignore the field.
+    reasons: ['assigned'],
     ...overrides,
   };
 }
