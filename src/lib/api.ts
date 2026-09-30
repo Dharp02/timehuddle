@@ -1754,7 +1754,9 @@ export const myBoardApi = {
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
-export type AttachmentKind = 'clock' | 'ticket';
+export type AttachmentKind = 'clock' | 'ticket' | 'redmine';
+/** The kinds a ticket page attaches to: a Huddle ticket or a Redmine issue. */
+export type TicketAttachmentKind = Exclude<AttachmentKind, 'clock'>;
 export type AttachmentType = 'video' | 'image' | 'link';
 
 export interface Attachment {
@@ -1987,12 +1989,10 @@ export const videoApi = {
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
    */
-  reserve: (ticketId: string, existingVideoid?: string) =>
+  reserve: (ticketId: string, existingVideoid?: string, target: TicketAttachmentKind = 'ticket') =>
     wormholeCall<{ videoid: string; uploadToken: string; uploadLink?: string }>(
       'pulsevault.reserve',
-      existingVideoid
-        ? { target: 'ticket', ticketId, existingVideoid }
-        : { target: 'ticket', ticketId },
+      existingVideoid ? { target, ticketId, existingVideoid } : { target, ticketId },
     ),
 
   /** Reserve a videoid for a media library upload (no ticket context). */

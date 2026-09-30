@@ -38,14 +38,13 @@ import { AppPage } from '../../../ui/AppPage';
 import { MarkdownContent } from '../../../ui/MarkdownContent';
 import { useRouter } from '../../../ui/router';
 import { UserAvatar } from '../../../ui/UserAvatar';
-import { AttachmentsPanel } from '../../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../../pulse-upload/PulseUploadButton';
 import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
 import { huddleTicketRef } from '../sources';
 
 import { fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
 import { TicketActivityCard } from './TicketActivityCard';
+import { TicketAttachmentsCard } from './TicketAttachmentsCard';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -122,7 +121,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   const [saving, setSaving] = useState(false);
-  const [attachmentRefresh, setAttachmentRefresh] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Load ticket + activity
@@ -462,24 +460,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
             </CardContent>
           </Card>
 
-          {/* Attachments */}
-          <Card>
-            <CardContent className="ticket-attachments-section">
-              <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
-                Attachments
-              </Text>
-              <AttachmentsPanel
-                key={attachmentRefresh}
-                kind="ticket"
-                entityId={ticket.id}
-                currentUserId={user?.id}
-              />
-              <PulseUploadButton
-                ticketId={ticket.id}
-                onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
-              />
-            </CardContent>
-          </Card>
+          <TicketAttachmentsCard kind="ticket" ticketId={ticket.id} />
 
           {/* Activity: the ticket's history plus your own timer sessions */}
           <TicketActivityCard

@@ -102,6 +102,53 @@ test.describe('Redmine issue detail', () => {
     await expect(sidebar(page)).toBeVisible();
   });
 
+  test('lists and adds TimeHuddle attachments on the issue', async ({ page }) => {
+    // The backend gates `redmine` attachments on the caller's Redmine key, which
+    // the stub account does not have, so answer the attachment calls here too.
+    const saved = {
+      id: 'a1',
+      url: 'https://example.com/spec',
+      type: 'link',
+      title: 'Intake spec',
+      thumbnail: null,
+      attachedTo: { kind: 'redmine', id: String(ISSUE_ID) },
+      addedBy: 'someone-else',
+      addedAt: '2026-02-01T11:30:00.000Z',
+    };
+    const listed: unknown[] = [];
+    const added: unknown[] = [];
+    await page.route('**/api/attachments_*', async (route) => {
+      const body = route.request().postDataJSON();
+      const method = new URL(route.request().url()).pathname.split('/').pop();
+      if (method === 'attachments_add') added.push(body);
+      else listed.push(body);
+      const result =
+        method === 'attachments_add' ? { attachment: saved } : { attachments: [saved] };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ result }),
+      });
+    });
+
+    await openIssue(page, { 'issues.get': detailResponse() });
+
+    const links = page.getByRole('list', { name: 'Attached links' });
+    await expect(links.getByRole('link', { name: 'Intake spec' })).toBeVisible();
+    expect(listed[0]).toEqual({ kind: 'redmine', id: String(ISSUE_ID) });
+    await expect(page.getByRole('button', { name: 'Upload video to this ticket' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Add link' }).click();
+    await page.getByPlaceholder('https://...').fill('https://example.com/spec');
+    await page.getByRole('button', { name: 'Save' }).click();
+
+    await expect.poll(() => added.length).toBe(1);
+    expect(added[0]).toMatchObject({
+      url: 'https://example.com/spec',
+      attachedTo: { kind: 'redmine', id: String(ISSUE_ID) },
+    });
+  });
+
   test('shows Redmine history and your own timer sessions in one activity list', async ({
     page,
   }) => {
