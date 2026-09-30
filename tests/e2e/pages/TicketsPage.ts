@@ -30,7 +30,11 @@ export class TicketsPage extends BasePage {
     super(page);
     this.heading = this.page.getByRole('heading', { level: 1, name: /Tickets/i });
     this.newTicketButton = this.page.getByRole('button', { name: 'New Ticket' });
-    this.searchInput = this.page.getByPlaceholder('Search tickets…');
+    // One input with two jobs since Redmine MVP2: it filters the table and opens
+    // the Redmine suggestion dropdown, so it is a combobox.
+    this.searchInput = this.page.getByRole('combobox', {
+      name: 'Search tickets and Redmine issues',
+    });
     this.closedSwitch = this.page.getByRole('switch', { name: /Closed/i });
     this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
     this.selectAllCheckbox = this.page.getByRole('checkbox', { name: /Select all tickets/i });
@@ -127,9 +131,13 @@ export class TicketsPage extends BasePage {
     await this.page.waitForTimeout(1000);
   }
 
-  /** Search for a ticket */
+  /**
+   * Filter the table. Escape closes the suggestion dropdown the input opens, so
+   * it cannot sit over the table rows a test goes on to click.
+   */
   async search(query: string) {
     await this.searchInput.fill(query);
+    await this.searchInput.press('Escape');
     await this.page.waitForTimeout(500);
   }
 

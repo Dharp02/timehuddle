@@ -10,12 +10,20 @@
  *
  * Since MVP2 the rows come from `redmine.issues.relevant` rather than "every
  * issue the key can see": on a large instance that response was enormous and
- * every subject in it may carry PHI. The table therefore shows the user's own
- * work — assigned, recently logged against, recently touched, watched, pinned —
- * and anything else is reached through the search bar. `includeDismissed` is on,
- * because hiding a search suggestion must not quietly remove a row from a table.
+ * every subject in it may carry PHI. The table shows the issues **assigned to
+ * the user** (their groups included, as Redmine's `assigned_to_id=me` counts
+ * them) and the issues they **pinned**. Starting a timer from a search
+ * suggestion pins the issue, which is how an issue someone else owns joins the
+ * table — and so My Board, which only shows rows the table has. An issue on My
+ * Board is a table row too (`board`), so a board entry never outlives its row
+ * because the issue was closed or reassigned. The rest of the
+ * relevant list (recently logged, recent activity, watched) belongs to the
+ * search bar's suggestions. `includeDismissed` is on, because hiding a search
+ * suggestion must not quietly remove a row from a table.
  */
-import { redmineApi, type RedmineIssue } from '../../../lib/api';
+import { useSyncExternalStore } from 'react';
+
+import { redmineApi, type RedmineIssue, type RedmineRelevanceReason } from '../../../lib/api';
 
 import { ticketKey, type SourceCapabilities, type TicketSource, type UnifiedTicket } from './types';
 
@@ -31,6 +39,9 @@ const PRIORITY_RANK: Record<string, number> = {
   urgent: 4,
   immediate: 5,
 };
+
+/** The relevance reasons that put an issue in the Tickets table. */
+const TABLE_REASONS: readonly RedmineRelevanceReason[] = ['assigned', 'pinned', 'board'];
 
 const CAPABILITIES: SourceCapabilities = {
   edit: true,
@@ -54,11 +65,34 @@ export interface RedmineRaw {
  * so linking an account in Settings and coming back refetches instead of
  * replaying a stale "not connected" state.
  */
-const listCache = new Map<string, RedmineRaw[]>();
+const listCache = new Map<string, { raws: RedmineRaw[]; unavailableBoardIds: number[] }>();
+
+/** Told whenever the cache changes, for `useUnavailableRedmineBoardIds`. */
+const cacheListeners = new Set<() => void>();
+const notifyCacheChanged = () => cacheListeners.forEach((listener) => listener());
 
 /** Drop cached issues so the next fetch goes to Redmine. */
 export function invalidateRedmineCache(): void {
   listCache.clear();
+  notifyCacheChanged();
+}
+
+const NO_IDS: number[] = [];
+
+/**
+ * My Board issues Redmine confirmed it no longer returns (deleted, or out of the
+ * user's sight), from the last fetch — so the Tickets page can offer to drop
+ * those board entries, and only those, never an entry that merely failed to
+ * load. Re-renders whenever a fetch lands.
+ */
+export function useUnavailableRedmineBoardIds(userId: string | null): number[] {
+  return useSyncExternalStore(
+    (listener) => {
+      cacheListeners.add(listener);
+      return () => cacheListeners.delete(listener);
+    },
+    () => (userId && listCache.get(userId)?.unavailableBoardIds) || NO_IDS,
+  );
 }
 
 export const redmineSource: TicketSource<RedmineRaw> = {
@@ -76,14 +110,17 @@ export const redmineSource: TicketSource<RedmineRaw> = {
     if (!userId) return [];
 
     const cached = listCache.get(userId);
-    if (cached) return cached;
+    if (cached) return cached.raws;
 
     // `includeDismissed: true` — a dismissal is about the search dropdown only.
     const result = await redmineApi.issues.relevant(true);
     if (!result.connected) return [];
 
-    const raws = result.issues.map((issue) => ({ issue, baseUrl: result.baseUrl }));
-    listCache.set(userId, raws);
+    const raws = result.issues
+      .filter((issue) => issue.reasons.some((reason) => TABLE_REASONS.includes(reason)))
+      .map((issue) => ({ issue, baseUrl: result.baseUrl }));
+    listCache.set(userId, { raws, unavailableBoardIds: result.unavailableBoardIds ?? NO_IDS });
+    notifyCacheChanged();
     return raws;
   },
 

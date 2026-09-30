@@ -189,7 +189,10 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
         aria-label={triggerAriaLabel}
         className={
           trigger
-            ? 'flex items-center rounded focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none'
+            ? // An icon trigger takes only the icon's width: `Button`'s default
+              // `h-10 px-4` squeezed header labels into ellipses and, in narrow
+              // columns, clipped the icon away entirely.
+              'flex h-auto shrink-0 items-center rounded p-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none'
             : `flex items-center gap-1 whitespace-nowrap text-xs font-medium transition-colors ${
                 activeLabel
                   ? 'text-neutral-900 dark:text-neutral-100'

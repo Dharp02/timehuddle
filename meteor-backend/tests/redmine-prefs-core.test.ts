@@ -90,9 +90,84 @@ describe('partitionIssuePrefs', () => {
     expect(dismissedIds).toEqual([]);
   });
 
+  describe('a hidden pin (rule 7)', () => {
+    const hiddenPin = (issueId: number, hiddenDaysAgo: number, assignedToMeAtDismissal = true) => ({
+      ...pin(issueId, 30),
+      dismissedAt: daysAgo(hiddenDaysAgo),
+      assignedToMeAtDismissal,
+    });
+
+    it('stays pinned while it is hidden', () => {
+      const { pinnedIds, dismissedIds } = read([hiddenPin(4, 1)]);
+      expect(pinnedIds).toEqual([4]);
+      expect(dismissedIds).toEqual([4]);
+    });
+
+    it('dates the hide from dismissedAt, not from the pin', () => {
+      // The pin is 30 days old; the hide is 1 day old and must still count.
+      expect(read([hiddenPin(4, 1)]).dismissedIds).toEqual([4]);
+      expect(read([hiddenPin(4, DISMISSAL_TTL_DAYS)]).dismissedIds).toEqual([]);
+    });
+
+    it('keeps the pin when the hide expires', () => {
+      expect(read([hiddenPin(4, DISMISSAL_TTL_DAYS + 5)]).pinnedIds).toEqual([4]);
+    });
+
+    it('revives on reassignment and keeps the pin (rule 5)', () => {
+      const { pinnedIds, dismissedIds, reviveIds } = read([hiddenPin(4, 1, false)], [4]);
+      expect(reviveIds).toEqual([4]);
+      expect(dismissedIds).toEqual([]);
+      expect(pinnedIds).toEqual([4]);
+    });
+
+    it('sorts among plain dismissals by when it was hidden', () => {
+      expect(read([dismissal(1, 5), hiddenPin(2, 1), dismissal(3, 9)]).dismissedIds).toEqual([2, 1, 3]);
+    });
+  });
+
+  describe('a removal from the Tickets table (rules 8–11)', () => {
+    const removal = (issueId: number, over: Record<string, unknown> = {}) => ({
+      issueId,
+      state: 'removed',
+      updatedAt: daysAgo(40),
+      ...over,
+    });
+    /** A read after Redmine has said what is assigned to the user. */
+    const readKnowing = (rows: unknown[], assignedIssueIds: number[]) =>
+      partitionIssuePrefs(rows as never, { assignedIssueIds, assignedKnown: true, now: NOW });
+
+    it('holds, however old, while the issue stays assigned (rule 8)', () => {
+      const { removedIds, forgetRemovalIds, pinnedIds } = readKnowing([removal(6)], [6]);
+      expect(removedIds).toEqual([6]);
+      expect(forgetRemovalIds).toEqual([]);
+      expect(pinnedIds).toEqual([]);
+    });
+
+    it('is forgotten once the issue is no longer assigned (rule 10)', () => {
+      const { removedIds, forgetRemovalIds } = readKnowing([removal(6)], [7]);
+      expect(removedIds).toEqual([]);
+      expect(forgetRemovalIds).toEqual([6]);
+    });
+
+    it('is never forgotten when what is assigned is not known', () => {
+      // The first read of a build, and any build whose "assigned" signal failed.
+      const { removedIds, forgetRemovalIds } = read([removal(6)]);
+      expect(removedIds).toEqual([6]);
+      expect(forgetRemovalIds).toEqual([]);
+    });
+
+    it('keeps a hide it carries, dated from dismissedAt (rule 11)', () => {
+      const hidden = removal(6, { dismissedAt: daysAgo(1), assignedToMeAtDismissal: true });
+      expect(readKnowing([hidden], [6]).dismissedIds).toEqual([6]);
+      const expired = removal(6, { dismissedAt: daysAgo(DISMISSAL_TTL_DAYS + 1) });
+      expect(readKnowing([expired], [6]).dismissedIds).toEqual([]);
+    });
+  });
+
   it('copes with no rows at all', () => {
-    expect(read([])).toEqual({ pinnedIds: [], dismissedIds: [], reviveIds: [] });
-    expect(partitionIssuePrefs(null as never)).toEqual({ pinnedIds: [], dismissedIds: [], reviveIds: [] });
+    const empty = { pinnedIds: [], dismissedIds: [], reviveIds: [], removedIds: [], forgetRemovalIds: [] };
+    expect(read([])).toEqual(empty);
+    expect(partitionIssuePrefs(null as never)).toEqual(empty);
   });
 });
 

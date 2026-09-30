@@ -35,6 +35,7 @@ import {
 import { rawDb } from './collections.js';
 import { requireIdentity, resolveToken } from './auth-bridge.js';
 import { createAttachment } from './attachments.js';
+import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
@@ -95,7 +96,9 @@ export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecre
 });
 
 /**
- * artifactId -> { userId, ticketId } | { userId, target: 'library' }
+ * artifactId -> { userId, ticketId, target? } | { userId, target: 'library' }
+ * (`target: 'redmine'` marks `ticketId` as a Redmine issue id; absent means a
+ * Huddle ticket, which is what every reservation made before it looks like.)
  * Backed by a Mongo collection so reservations survive server restarts —
  * meteor hot-reloads on every server file change, and a restart between
  * upload-finish and `onUploadComplete` would otherwise wipe the context,
@@ -260,7 +263,10 @@ async function attachUploadedVideo(artifactId, reservation, size = 0) {
       url: videoUrl,
       type: 'video',
       title,
-      attachedTo: { kind: 'ticket', id: reservation.ticketId },
+      attachedTo: {
+        kind: reservation.target === REDMINE ? REDMINE : 'ticket',
+        id: reservation.ticketId,
+      },
       addedBy: reservation.userId,
     });
     console.log('[pulsevault] created attachment for ticket:', reservation.ticketId, 'video:', artifactId);
@@ -608,6 +614,9 @@ Meteor.methods({
 
     if (target === 'library' || !ticketId) {
       await persistReservation(videoid, { userId: identity.userId, target: 'library' });
+    } else if (target === REDMINE) {
+      await resolveTicketRef(identity.userId, REDMINE, ticketId);
+      await persistReservation(videoid, { userId: identity.userId, ticketId, target: REDMINE });
     } else {
       const ticket = await rawDb().collection('tickets').findOne({ _id: new ObjectId(ticketId) });
       if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');

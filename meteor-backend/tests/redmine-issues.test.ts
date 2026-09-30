@@ -17,6 +17,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  collectUnpushedTimeEntries,
   toFormOptions,
   toIssue,
   toIssueDetail,
@@ -24,6 +25,7 @@ import {
   toJournals,
   toNameMap,
   toNamedList,
+  toTimeEntries,
 } from '../server/redmine-issues';
 
 const rawIssue = {
@@ -286,6 +288,104 @@ describe('redmine-issues toJournals (M6 issue page)', () => {
   it('drops empty journals and tolerates malformed input', () => {
     expect(toJournals([{ id: 1, notes: '', details: [] }, null, { notes: 'no id' }])).toEqual([]);
     expect(toJournals(undefined)).toEqual([]);
+  });
+});
+
+describe('redmine-issues toTimeEntries (issue page activity)', () => {
+  const rawEntry = {
+    id: 900,
+    project: { id: 7, name: 'Platform' },
+    issue: { id: 101 },
+    user: { id: 42, name: 'Jane Doe' },
+    activity: { id: 9, name: 'Development' },
+    hours: 1.5,
+    comments: '  Paired on the fix  ',
+    spent_on: '2026-09-28',
+    created_on: '2026-09-28T16:20:00Z',
+    updated_on: '2026-09-28T16:20:00Z',
+    custom_fields: [{ id: 1, value: 'x' }],
+  };
+
+  it('shapes who logged how long, under which activity, on which day', () => {
+    expect(toTimeEntries([rawEntry])).toEqual([
+      {
+        id: 900,
+        user: { id: 42, name: 'Jane Doe' },
+        hours: 1.5,
+        activity: { id: 9, name: 'Development' },
+        comments: 'Paired on the fix',
+        spentOn: '2026-09-28',
+        createdAt: '2026-09-28T16:20:00.000Z',
+      },
+    ]);
+  });
+
+  it('tolerates missing fields and string hours', () => {
+    const [entry] = toTimeEntries([{ id: 1, hours: '0.25' }]);
+    expect(entry).toEqual({
+      id: 1,
+      user: null,
+      hours: 0.25,
+      activity: null,
+      comments: '',
+      spentOn: null,
+      createdAt: null,
+    });
+  });
+
+  it('drops entries without an id, and non-array input', () => {
+    expect(toTimeEntries([null, { hours: 2 }])).toEqual([]);
+    expect(toTimeEntries(undefined)).toEqual([]);
+  });
+});
+
+describe('redmine-issues collectUnpushedTimeEntries (issue page activity)', () => {
+  const entry = (id: number, issueId = 101) => ({ id, issue: { id: issueId }, hours: 1 });
+  /** Redmine's newest-first list, served a page at a time; records each offset asked for. */
+  const pager = (entries: object[]) => {
+    const offsets: number[] = [];
+    const fetchPage = async (offset: number, size: number) => {
+      offsets.push(offset);
+      return entries.slice(offset, offset + size);
+    };
+    return { fetchPage, offsets };
+  };
+
+  it('reads past a page full of TimeHuddle pushes to find older entries', async () => {
+    const pushed = Array.from({ length: 50 }, (_, i) => entry(1000 - i));
+    const { fetchPage, offsets } = pager([...pushed, entry(10), entry(9)]);
+    const result = await collectUnpushedTimeEntries(fetchPage, {
+      issueId: 101,
+      pushedIds: new Set(pushed.map((e) => e.id)),
+      limit: 10,
+    });
+    expect(result.map((e) => e.id)).toEqual([10, 9]);
+    expect(offsets).toEqual([0, 50]);
+  });
+
+  it('stops once it has enough, and keeps only the issue’s own entries', async () => {
+    const entries = [entry(30, 999), ...Array.from({ length: 60 }, (_, i) => entry(29 - i))];
+    const { fetchPage, offsets } = pager(entries);
+    const result = await collectUnpushedTimeEntries(fetchPage, {
+      issueId: 101,
+      pushedIds: new Set(),
+      limit: 3,
+    });
+    expect(result.map((e) => e.id)).toEqual([29, 28, 27]);
+    expect(offsets).toEqual([0]);
+  });
+
+  it('gives up after maxPages on an issue that is all pushes', async () => {
+    const pushed = Array.from({ length: 500 }, (_, i) => entry(i + 1));
+    const { fetchPage, offsets } = pager(pushed);
+    const result = await collectUnpushedTimeEntries(fetchPage, {
+      issueId: 101,
+      pushedIds: new Set(pushed.map((e) => e.id)),
+      limit: 10,
+      maxPages: 3,
+    });
+    expect(result).toEqual([]);
+    expect(offsets).toEqual([0, 50, 100]);
   });
 });
 

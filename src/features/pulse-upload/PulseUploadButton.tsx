@@ -4,7 +4,12 @@ import { Button, Text } from '@mieweb/ui';
 import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
-import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
+import {
+  attachmentApi,
+  TIMECORE_BASE_URL,
+  videoApi,
+  type TicketAttachmentKind,
+} from '../../lib/api';
 import {
   getStoreOS,
   isNativeApp,
@@ -59,29 +64,32 @@ function uploadParams(videoid: string, uploadToken: string): URLSearchParams {
 // Persisting the videoid in localStorage means that if the user closes PulseCam
 // before uploading and then reopens it from the same ticket, the exact same
 // videoid (and therefore the same PulseCam session with its recorded segments)
-// is reused rather than starting fresh.
+// is reused rather than starting fresh. Keyed by kind, so a Huddle ticket keeps
+// its original `pulsevault:ticket:<id>` key and a Redmine issue gets its own.
 
-const PULSEVAULT_STORAGE_PREFIX = 'pulsevault:ticket:';
+function storageKey(kind: TicketAttachmentKind, ticketId: string): string {
+  return `pulsevault:${kind}:${ticketId}`;
+}
 
-function getStoredVideoid(ticketId: string): string | null {
+function getStoredVideoid(key: string): string | null {
   try {
-    return localStorage.getItem(`${PULSEVAULT_STORAGE_PREFIX}${ticketId}`);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function setStoredVideoid(ticketId: string, videoid: string): void {
+function setStoredVideoid(key: string, videoid: string): void {
   try {
-    localStorage.setItem(`${PULSEVAULT_STORAGE_PREFIX}${ticketId}`, videoid);
+    localStorage.setItem(key, videoid);
   } catch {
     // localStorage may be unavailable in some native contexts — degrade gracefully.
   }
 }
 
-function clearStoredVideoid(ticketId: string): void {
+function clearStoredVideoid(key: string): void {
   try {
-    localStorage.removeItem(`${PULSEVAULT_STORAGE_PREFIX}${ticketId}`);
+    localStorage.removeItem(key);
   } catch {
     // ignore
   }
@@ -89,14 +97,18 @@ function clearStoredVideoid(ticketId: string): void {
 
 interface PulseUploadButtonProps {
   ticketId: string;
+  /** What `ticketId` names: a Huddle ticket (default) or a Redmine issue. */
+  kind?: TicketAttachmentKind;
   onUploadComplete: () => void;
 }
 
 export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
   ticketId,
+  kind = 'ticket',
   onUploadComplete,
 }) => {
   const isNative = isNativeApp();
+  const videoidKey = storageKey(kind, ticketId);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const knownAttachmentIds = useRef<Set<string>>(new Set());
@@ -114,13 +126,13 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
     if (!modalOpen) return;
     const interval = setInterval(async () => {
       try {
-        const attachments = await attachmentApi.list('ticket', ticketId);
+        const attachments = await attachmentApi.list(kind, ticketId);
         const hasNew = attachments.some(
           (a) => a.type === 'video' && !knownAttachmentIds.current.has(a.id),
         );
         if (hasNew) {
           clearInterval(interval);
-          clearStoredVideoid(ticketId);
+          clearStoredVideoid(videoidKey);
           setModalOpen(false);
           onUploadComplete();
         }
@@ -129,7 +141,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [modalOpen, ticketId, onUploadComplete]);
+  }, [modalOpen, kind, ticketId, videoidKey, onUploadComplete]);
 
   const doReserve = async (): Promise<{ videoid: string; uploadLink: string } | null> => {
     setReserving(true);
@@ -137,9 +149,9 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
     try {
       // Re-use any videoid already stored for this ticket so PulseCam can resume
       // a recording session that was interrupted before uploading.
-      const existingVideoid = getStoredVideoid(ticketId) ?? undefined;
-      const { videoid, uploadToken } = await videoApi.reserve(ticketId, existingVideoid);
-      setStoredVideoid(ticketId, videoid);
+      const existingVideoid = getStoredVideoid(videoidKey) ?? undefined;
+      const { videoid, uploadToken } = await videoApi.reserve(ticketId, existingVideoid, kind);
+      setStoredVideoid(videoidKey, videoid);
       // Build deep link client-side so it always uses TIMECORE_BASE_URL
       // (the same URL the Capacitor app already talks to).
       const link = buildUploadDeepLink(videoid, uploadToken);
@@ -174,7 +186,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
 
     // On desktop: seed known attachment IDs, then show QR modal.
     try {
-      const existing = await attachmentApi.list('ticket', ticketId);
+      const existing = await attachmentApi.list(kind, ticketId);
       knownAttachmentIds.current = new Set(existing.map((a) => a.id));
     } catch {
       knownAttachmentIds.current = new Set();
@@ -200,7 +212,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
         setProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },
       onSuccess() {
-        clearStoredVideoid(ticketId);
+        clearStoredVideoid(videoidKey);
         setUploadToken(null);
         setProgress(null);
         onUploadComplete();

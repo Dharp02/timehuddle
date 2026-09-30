@@ -23,7 +23,7 @@
  * stays lean: `toIssueDetail` (one issue, with `description`, `author` and the
  * status transitions the caller may make), `toNamedList` (projects, trackers)
  * and `toFormOptions` (a project's trackers, assignable members, priorities),
- * plus `toJournals` for the issue page's history.
+ * plus `toJournals` and `toTimeEntries` for the issue page's history.
  */
 
 /** Shape a Redmine `{ id, name }` sub-object, or null when absent. */
@@ -236,6 +236,49 @@ export function toJournals(raw, lookups = {}) {
         : [],
     }))
     .filter((journal) => journal.notes || journal.changes.length > 0);
+}
+
+/**
+ * An issue's Redmine time entries for its page's Activity: who logged how many
+ * hours, under which activity, on which day, with their comment. Shown on the
+ * issue's own page, like its journals' notes — not on any list or search.
+ */
+export function toTimeEntries(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && entry.id != null)
+    .map((entry) => ({
+      id: entry.id,
+      user: toNamed(entry.user),
+      hours: Number(entry.hours) || 0,
+      activity: toNamed(entry.activity),
+      comments: normalizeText(entry.comments).trim(),
+      spentOn: typeof entry.spent_on === 'string' ? entry.spent_on : null,
+      createdAt: toIsoDate(entry.created_on),
+    }));
+}
+
+/**
+ * The issue's newest `limit` time entries TimeHuddle did not push for the caller,
+ * shaped by `toTimeEntries`. Filtering after a single page could come up empty on
+ * a busy issue whose newest entries are all TimeHuddle's, so pages are read until
+ * `limit` are collected, Redmine runs out, or `maxPages` bounds the cost.
+ * `fetchPage(offset, pageSize)` resolves to one page of raw entries, newest first.
+ */
+export async function collectUnpushedTimeEntries(
+  fetchPage,
+  { issueId, pushedIds, limit, pageSize = 50, maxPages = 4 },
+) {
+  const kept = [];
+  for (let page = 0; page < maxPages && kept.length < limit; page += 1) {
+    const raw = await fetchPage(page * pageSize, pageSize);
+    const rows = Array.isArray(raw) ? raw : [];
+    kept.push(
+      ...rows.filter((entry) => Number(entry?.issue?.id) === issueId && !pushedIds.has(entry.id)),
+    );
+    if (rows.length < pageSize) break;
+  }
+  return toTimeEntries(kept).slice(0, limit);
 }
 
 /** An id → name map from `{ id, name }` items, for `toJournals` lookups. */

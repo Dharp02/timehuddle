@@ -22,6 +22,8 @@ import React, { useState } from 'react';
 
 import { formatDate, formatDuration, formatTime } from '../../lib/timeUtils';
 import { type ClockEvent, type ShiftTicketSession } from '../../lib/api';
+import { useRouter } from '../../ui/router';
+import { ticketDetailPath } from '../tickets/sources/types';
 import { roundDurationSecondsForDisplay } from './timesheetUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -194,20 +196,23 @@ function splitAtMidnight(rows: TimelineRow[]): TimelineRow[] {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-/** Open a ticket session's target — in-app for Huddle, the instance for Redmine. */
+/**
+ * Open a ticket session's ticket page in TimeHuddle — the Huddle ticket page, or
+ * the Redmine issue page (which links on to Redmine itself). A real `href`, so
+ * Cmd/Ctrl-click and middle-click still open it in a new tab.
+ */
 function TicketSessionLink({ ticket }: { ticket: ShiftTicketSession }) {
+  const { navigate } = useRouter();
   const label = ticket.title ?? `#${ticket.ticketId}`;
-  if (!ticket.url) {
-    return (
-      <Text size="xs" variant="muted">
-        {label}
-      </Text>
-    );
-  }
+  const path = ticketDetailPath({ sourceId: ticket.source, id: ticket.ticketId });
   return (
     <a
-      href={ticket.url}
-      {...(ticket.source === 'redmine' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      href={path}
+      onClick={(e) => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        navigate(path);
+      }}
       className="text-xs text-neutral-700 hover:text-primary hover:underline dark:text-neutral-300"
       title={label}
     >

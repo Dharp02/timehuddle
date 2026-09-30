@@ -38,21 +38,17 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  ApiError,
   myBoardApi,
   teamApi,
   ticketApi,
-  timerApi,
-  shareTicketWithTimeharbor,
+  type RedmineIssue,
   type Team,
   type TeamMember,
   type Ticket,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
-import { toLocalDateStr } from '../../lib/date';
 import { useSession } from '../../lib/useSession';
-import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
@@ -67,13 +63,20 @@ import { TicketTable } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
 import { RedmineIssueCreateModal } from './redmine/RedmineIssueCreateModal';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
+import { RedmineSuggestions } from './redmine/RedmineSuggestions';
 import {
   huddleSource,
   invalidateRedmineCache,
+  redmineSource,
+  useUnavailableRedmineBoardIds,
   useUnifiedTickets,
   type UnifiedTicket,
 } from './sources';
+import { removalText } from './ticketRemovalStrings';
+import type { TicketTimerOutcome } from './startTicketTimer';
 import { useMeAssigneeKeys } from './useMeAssigneeKeys';
+import { useTicketStart } from '../timers/TicketStartProvider';
+import { timerLabel } from '../timers/ticketTimerStrings';
 import { useTicketTableView } from './useTicketTableView';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -86,11 +89,22 @@ const STATUS_OPTIONS = [
   { value: 'reviewed', label: 'Reviewed' },
 ];
 
+/** The most Redmine ids `redmine.issues.removeFromTable` takes per call. */
+const REDMINE_REMOVE_CHUNK = 100;
+
+/** `items` in slices of at most `size`. */
+function chunk<T>(items: T[], size: number): T[][] {
+  const slices: T[][] = [];
+  for (let start = 0; start < items.length; start += size) {
+    slices.push(items.slice(start, start + size));
+  }
+  return slices;
+}
+
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
   const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
-  const { isClockedIn, clockIn } = useClockToggle();
   const { navigate, pathname } = useRouter();
 
   // Map from teamId → members for cross-team member lookups
@@ -100,11 +114,8 @@ export const TicketsPage: React.FC = () => {
   // Keyed by `${sourceId}:${id}`, not id: a Redmine issue #42 and a Huddle
   // ticket are different rows that can share neither state nor identity.
   const runningTicket = useRunningTicket(true);
-  const [timerLoadingKey, setTimerLoadingKey] = useState<string | null>(null);
-  const [timerError, setTimerError] = useState<string | null>(null);
-  const [pendingStartTicket, setPendingStartTicket] = useState<UnifiedTicket | null>(null);
-  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
-  const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
+  // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
+  const { start: startTimer, stop: stopTimer, busyKey: timerLoadingKey } = useTicketStart();
 
   // Fetch members for all teams
   useEffect(() => {
@@ -273,11 +284,29 @@ export const TicketsPage: React.FC = () => {
   // UnifiedTicket.key). Display fields are resolved by filtering allTickets,
   // never snapshotted server-side (Core Model Data Discipline).
   const [boardKeys, setBoardKeys] = useState<Set<string>>(new Set());
+  // Huddle board entries the server says the user can no longer see.
+  const [unavailableHuddleKeys, setUnavailableHuddleKeys] = useState<Set<string>>(new Set());
+  // Reloaded on tickets:refetch too: a timer start (from anywhere, including
+  // one that waited for a clock-in) can add a ticket to the board.
+  // A failed reload keeps the board as it was rather than emptying it.
+  const loadBoard = useCallback(
+    () =>
+      void myBoardApi
+        .list()
+        .then((entries) => {
+          const keyOf = (e: { sourceId: string; ticketId: string }) =>
+            `${e.sourceId}:${e.ticketId}`;
+          setBoardKeys(new Set(entries.map(keyOf)));
+          setUnavailableHuddleKeys(new Set(entries.filter((e) => e.unavailable).map(keyOf)));
+        })
+        .catch(() => {}),
+    [],
+  );
   useEffect(() => {
-    void myBoardApi.list().then((entries) => {
-      setBoardKeys(new Set(entries.map((e) => `${e.sourceId}:${e.ticketId}`)));
-    });
-  }, []);
+    loadBoard();
+    window.addEventListener('tickets:refetch', loadBoard);
+    return () => window.removeEventListener('tickets:refetch', loadBoard);
+  }, [loadBoard]);
   const boardTickets = useMemo(
     () => allTickets.filter((t) => boardKeys.has(t.key)),
     [allTickets, boardKeys],
@@ -291,23 +320,46 @@ export const TicketsPage: React.FC = () => {
   const redmineConnected = redmineStatus === null ? null : redmineStatus.connected;
   const redmineBaseUrl = redmineStatus?.connected ? (redmineStatus.baseUrl ?? null) : null;
 
-  /**
-   * Board entries with no ticket behind them. A board row is identity-only, so
-   * it outlives the ticket it points at: a Redmine issue is unreachable while
-   * the account is unlinked, and a Huddle ticket may have been deleted.
-   */
-  const unresolvedBoardNotice = useMemo(() => {
-    const missing = [...boardKeys].filter((key) => !allTickets.some((t) => t.key === key));
-    if (ticketsLoading || missing.length === 0) return null;
-    const redmineCount = missing.filter((key) => key.startsWith('redmine:')).length;
-    if (redmineCount > 0 && redmineConnected === false) {
-      return `Connect your Redmine account in Settings to see ${redmineCount} Redmine issue${redmineCount === 1 ? '' : 's'} on your board.`;
-    }
-    return `${missing.length} ticket${missing.length === 1 ? '' : 's'} on your board ${missing.length === 1 ? 'is' : 'are'} no longer available.`;
-  }, [boardKeys, allTickets, ticketsLoading, redmineConnected]);
   // Superset lookup for resolving a selection key (Tickets or My Board tab)
   // back to its ticket, e.g. to gate the bulk Delete button.
   const ticketByKey = useMemo(() => new Map(allTickets.map((t) => [t.key, t])), [allTickets]);
+
+  /**
+   * Board entries with no ticket behind them. A board row is identity-only, so
+   * it outlives the ticket it points at: a Redmine issue is unreachable while
+   * the account is unlinked, or deleted, and a Huddle ticket may have been
+   * deleted. Only entries the server confirmed gone are offered for removal —
+   * never one that merely failed to load.
+   */
+  const unavailableRedmineIds = useUnavailableRedmineBoardIds(userId);
+  const [removeUnavailableFailed, setRemoveUnavailableFailed] = useState(false);
+  const unresolvedBoard = useMemo(() => {
+    const missing = [...boardKeys].filter((key) => !ticketByKey.has(key));
+    if (ticketsLoading || missing.length === 0) return null;
+    const redmineCount = missing.filter((key) => key.startsWith('redmine:')).length;
+    if (redmineCount > 0 && redmineConnected === false) {
+      return { message: removalText.connectRedmine(redmineCount), removableKeys: [] };
+    }
+    const goneRedmine = new Set(unavailableRedmineIds.map((id) => `redmine:${id}`));
+    const removableKeys = missing.filter(
+      (key) => goneRedmine.has(key) || unavailableHuddleKeys.has(key),
+    );
+    return {
+      message:
+        removableKeys.length > 0
+          ? removalText.boardUnavailable(removableKeys.length)
+          : removalText.boardNotLoaded(missing.length),
+      removableKeys,
+    };
+  }, [
+    boardKeys,
+    ticketByKey,
+    ticketsLoading,
+    redmineConnected,
+    unavailableRedmineIds,
+    unavailableHuddleKeys,
+  ]);
+  const unresolvedBoardNotice = unresolvedBoard?.message ?? null;
 
   // Search/filter/sort/paginate/select — one independent pipeline per tab, so
   // switching tabs never resets or leaks the other tab's state.
@@ -343,7 +395,12 @@ export const TicketsPage: React.FC = () => {
 
   // Delete state — a list so the same confirm modal covers single-row (⋮ menu)
   // and bulk (action bar) delete without two code paths.
-  const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  // Huddle tickets are deleted outright; Redmine issues only leave TimeHuddle.
+  const [deleteRequest, setDeleteRequest] = useState<{
+    huddleIds: string[];
+    redmineIds: number[];
+  } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Edit modal state (creator only)
   const [editTicket, setEditTicket] = useState<Ticket | null>(null);
@@ -372,100 +429,42 @@ export const TicketsPage: React.FC = () => {
 
   // ── Handlers ──
 
-  // ── Ticket timers (started only from My Board — M3 D1) ──
-
-  /**
-   * Turn a rejected timer start into something the user can act on. The shift
-   * gate is the common one: `isClockedIn` can be stale (another tab clocked
-   * out, the 8h auto-clockout fired), so the server's answer is authoritative.
-   */
-  const timerErrorMessage = (err: unknown): string => {
-    const code = err instanceof ApiError ? err.code : undefined;
-    if (code === 'no-active-shift') return 'Clock in to start a ticket timer.';
-    if (code === 'not-connected')
-      return 'Connect your Redmine account in Settings to time this issue.';
-    if (code === 'unreachable' || code === 'invalid-key')
-      return 'Could not reach Redmine to start this timer.';
-    return 'Could not start the timer. Please try again.';
-  };
-
-  const startTimerForTicket = useCallback(async (ticket: UnifiedTicket) => {
-    setTimerLoadingKey(ticket.key);
-    setTimerError(null);
-    try {
-      const result = await timerApi.createEntry({
-        ticketId: ticket.id,
-        source: ticket.sourceId,
-        date: toLocalDateStr(new Date()),
-        startNow: true,
-        notifyAdmins: false,
-      });
-
-      if (result.session) {
-        // Hook refreshes via DDP / tickets:refetch once the open timer lands.
-        window.dispatchEvent(new CustomEvent('tickets:refetch'));
-      }
-    } catch (err) {
-      setTimerError(timerErrorMessage(err));
-    } finally {
-      setTimerLoadingKey(null);
-    }
-  }, []);
+  // ── Ticket timers (started from My Board — M3 D1 — and Redmine suggestions) ──
 
   const handleToggleTimer = useCallback(
-    async (ticket: UnifiedTicket) => {
-      // Starting a second ticket's timer auto-stops the first (M3 D5) — that is
-      // `closeRunningSession` server-side, and needs no confirmation here.
+    (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
+      const label = timerLabel(ticket.sourceId, ticket.id, ticket.title);
       if (runningTicket?.key === ticket.key && runningTicket.sessionId) {
-        setTimerLoadingKey(ticket.key);
-        setTimerError(null);
-        try {
-          await timerApi.stopSession(runningTicket.sessionId);
-          window.dispatchEvent(new CustomEvent('tickets:refetch'));
-        } catch {
-          setTimerError('Could not stop the timer. Please try again.');
-        } finally {
-          setTimerLoadingKey(null);
-        }
-        return;
+        return stopTimer({ sessionId: runningTicket.sessionId, ticketKey: ticket.key, label });
       }
-
-      // A ticket timer requires an active shift (M3 D3). Offer to clock in
-      // rather than letting the server reject the start.
-      if (!isClockedIn) {
-        setPendingStartTicket(ticket);
-        setClockInPromptError(null);
-        setShowClockInPrompt(true);
-        return;
-      }
-
-      await startTimerForTicket(ticket);
+      // Clocked out, this opens the clock-in prompt; a Redmine suggestion that
+      // is not a table row yet is pinned into the table (`startTicketTimer`).
+      return startTimer({
+        kind: 'ticket',
+        ticket,
+        label,
+        inTable: ticketByKey.has(ticket.key),
+        onBoard: boardKeys.has(ticket.key),
+      });
     },
-    [runningTicket, isClockedIn, startTimerForTicket],
+    [runningTicket, startTimer, stopTimer, ticketByKey, boardKeys],
   );
 
-  const handleClockInAndStart = useCallback(async () => {
-    if (!pendingStartTicket) return;
+  // A suggestion is a Redmine issue, not yet a table row: shape it the way the
+  // table would, so it goes through the same start/stop and clock-in path.
+  const handleSuggestionTimer = useCallback(
+    (issue: RedmineIssue) =>
+      handleToggleTimer(redmineSource.toUnified({ issue, baseUrl: redmineBaseUrl }, sourceCtx)),
+    [handleToggleTimer, redmineBaseUrl, sourceCtx],
+  );
 
-    if (!selectedTeamId) {
-      setClockInPromptError('Select a team before clocking in.');
-      return;
-    }
-
-    setClockInPromptError(null);
-    const clockedIn = await clockIn();
-    if (!clockedIn) {
-      // Plan-first gate: today's plan post is required before clocking in.
-      setClockInPromptError('Write today’s plan first — see the Clock page or Huddle.');
-      return;
-    }
-
-    const ticket = pendingStartTicket;
-    setShowClockInPrompt(false);
-    setPendingStartTicket(null);
-
-    await startTimerForTicket(ticket);
-  }, [pendingStartTicket, selectedTeamId, clockIn, startTimerForTicket]);
+  // Redmine issues already in the table, so "More from Redmine" offers only new ones.
+  const tableRedmineIssueIds = useMemo(
+    () => new Set(allTickets.filter((t) => t.sourceId === 'redmine').map((t) => Number(t.id))),
+    [allTickets],
+  );
+  const runningRedmineIssueId =
+    runningTicket?.source === 'redmine' ? Number(runningTicket.id) : null;
 
   const startHuddleCreate = useCallback(() => {
     setNewTicketMenuOpen(false);
@@ -556,19 +555,64 @@ export const TicketsPage: React.FC = () => {
     }
   }, [changeStatusTicket, changeStatusValue, refetch]);
 
+  const requestDelete = useCallback((tickets: UnifiedTicket[]) => {
+    setDeleteError(null);
+    setDeleteRequest({
+      huddleIds: tickets.filter((t) => t.sourceId === 'huddle').map((t) => t.id),
+      redmineIds: tickets.filter((t) => t.sourceId === 'redmine').map((t) => Number(t.id)),
+    });
+  }, []);
+
+  const closeDeleteDialog = useCallback(() => setDeleteRequest(null), []);
+
   const handleDelete = useCallback(async () => {
-    if (deleteIds.length === 0) return;
+    if (!deleteRequest) return;
+    const { huddleIds, redmineIds } = deleteRequest;
     setDeleteLoading(true);
+    setDeleteError(null);
+    // A deleted Huddle ticket leaves its board entries behind; the server drops
+    // the Redmine ones along with the removal.
+    const huddleBoardRefs = huddleIds
+      .filter((id) => boardKeys.has(`huddle:${id}`))
+      .map((id) => ({ sourceId: 'huddle', ticketId: id }));
+    let failed: boolean;
     try {
-      await Promise.all(deleteIds.map((id) => ticketApi.deleteTicket(id)));
-      setDeleteIds([]);
-      ticketsView.clearSelection();
-      boardView.clearSelection();
-      void refetch();
+      const results = await Promise.allSettled([
+        ...huddleIds.map((id) => ticketApi.deleteTicket(id)),
+        ...chunk(redmineIds, REDMINE_REMOVE_CHUNK).map((ids) =>
+          redmineApi.issues.removeFromTable(ids),
+        ),
+        ...(huddleBoardRefs.length ? [myBoardApi.removeMany(huddleBoardRefs)] : []),
+      ]);
+      failed = results.some((r) => r.status === 'rejected');
     } finally {
       setDeleteLoading(false);
     }
-  }, [deleteIds, refetch, ticketsView, boardView]);
+    if (redmineIds.length) invalidateRedmineCache();
+    void refetch();
+    loadBoard();
+    ticketsView.clearSelection();
+    boardView.clearSelection();
+    if (failed) {
+      setDeleteError(removalText.deleteFailed);
+      return;
+    }
+    setDeleteRequest(null);
+  }, [deleteRequest, boardKeys, refetch, loadBoard, ticketsView, boardView]);
+
+  /** Drop the board entries the server confirmed point at nothing. */
+  const handleRemoveUnavailable = useCallback(() => {
+    const refs = (unresolvedBoard?.removableKeys ?? []).map((key) => {
+      const [sourceId, ticketId] = key.split(/:(.*)/s);
+      return { sourceId, ticketId };
+    });
+    if (!refs.length) return;
+    setRemoveUnavailableFailed(false);
+    void myBoardApi
+      .removeMany(refs)
+      .then(loadBoard)
+      .catch(() => setRemoveUnavailableFailed(true));
+  }, [unresolvedBoard, loadBoard]);
 
   // Ticket is eligible for the caller to delete — the same gate the row's ⋮
   // menu already applies (`capabilities.delete && isCreator`).
@@ -578,24 +622,26 @@ export const TicketsPage: React.FC = () => {
   );
 
   // The bulk Delete button is disabled unless every currently selected
-  // ticket (on whichever tab) is eligible.
+  // ticket (on whichever tab) is eligible. A Redmine issue always is: deleting
+  // it only takes it out of TimeHuddle.
   const canDeleteSelection = useCallback(
     (selectedKeys: Set<string>) =>
       selectedKeys.size > 0 &&
       [...selectedKeys].every((key) => {
         const ticket = ticketByKey.get(key);
-        return ticket ? canDelete(ticket) : false;
+        if (!ticket) return false;
+        return ticket.sourceId === 'redmine' || canDelete(ticket);
       }),
     [ticketByKey, canDelete],
   );
 
   const handleBulkDeleteRequest = useCallback(
     (selectedKeys: Set<string>) => {
-      setDeleteIds(
-        [...selectedKeys].map((key) => ticketByKey.get(key)?.id).filter((id): id is string => !!id),
+      requestDelete(
+        [...selectedKeys].map((key) => ticketByKey.get(key)).filter((t): t is UnifiedTicket => !!t),
       );
     },
-    [ticketByKey],
+    [ticketByKey, requestDelete],
   );
 
   const handleMoveToBoard = useCallback(() => {
@@ -623,8 +669,14 @@ export const TicketsPage: React.FC = () => {
         return next;
       });
       boardView.clearSelection();
+      // A Redmine issue on the board is a table row for that reason alone
+      // (`board`), so the table may lose it too.
+      if (refs.some((ref) => ref.sourceId === 'redmine')) {
+        invalidateRedmineCache();
+        void refetch();
+      }
     });
-  }, [boardView]);
+  }, [boardView, refetch]);
 
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
@@ -693,21 +745,16 @@ export const TicketsPage: React.FC = () => {
                   newTicketButton
                 )}
 
-                <div className="relative min-w-0 flex-1">
-                  <FontAwesomeIcon
-                    icon={faSearch}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
-                  />
-                  <Input
-                    label="Search"
-                    hideLabel
-                    placeholder="Search tickets…"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`pl-8 rounded-lg ${noFocusRingClass}`}
-                    size="sm"
-                  />
-                </div>
+                <RedmineSuggestions
+                  userId={userId}
+                  query={searchQuery}
+                  onQueryChange={setSearchQuery}
+                  baseUrl={redmineBaseUrl}
+                  tableIssueIds={tableRedmineIssueIds}
+                  runningIssueId={runningRedmineIssueId}
+                  onToggleTimer={handleSuggestionTimer}
+                  inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
+                />
 
                 <div className="flex shrink-0 items-center gap-3">
                   <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
@@ -796,16 +843,8 @@ export const TicketsPage: React.FC = () => {
                   showClosed={showClosed}
                   onToggleTimer={handleToggleTimer}
                   onEditRequest={(t) => void openEditModal(t)}
-                  onDeleteRequest={(t) => setDeleteIds([t.id])}
+                  onDeleteRequest={(t) => requestDelete([t])}
                   onChangeStatusRequest={handleChangeStatusRequest}
-                  onShareWithTimeharbor={async (t, shared) => {
-                    try {
-                      await shareTicketWithTimeharbor(t.id, shared);
-                      refetch();
-                    } catch {
-                      // Silently ignore — user can retry
-                    }
-                  }}
                   emptyState={
                     <EmptyState
                       title={
@@ -906,17 +945,35 @@ export const TicketsPage: React.FC = () => {
               />
             )}
 
-            {/* Timer failures and unresolvable board entries, announced politely. */}
-            <div role="status" aria-live="polite" className="empty:hidden">
-              {timerError && (
-                <Text size="xs" className="block text-danger">
-                  {timerError}
-                </Text>
-              )}
-              {unresolvedBoardNotice && (
-                <Text size="xs" variant="muted" className="block">
-                  {unresolvedBoardNotice}
-                </Text>
+            {/* Unresolvable board entries, announced politely. */}
+            <div
+              role="status"
+              aria-live="polite"
+              className="board-unresolved-notice flex flex-wrap items-center gap-2 empty:hidden"
+            >
+              {unresolvedBoard && (
+                <>
+                  <Text size="xs" variant="muted">
+                    {unresolvedBoard.message}
+                  </Text>
+                  {removeUnavailableFailed && (
+                    <Text size="xs" variant="destructive">
+                      {removalText.removeUnavailableFailed}
+                    </Text>
+                  )}
+                  {unresolvedBoard.removableKeys.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleRemoveUnavailable}
+                      aria-label={removalText.removeUnavailableLabel(
+                        unresolvedBoard.removableKeys.length,
+                      )}
+                    >
+                      {removalText.removeUnavailable}
+                    </Button>
+                  )}
+                </>
               )}
             </div>
 
@@ -946,16 +1003,8 @@ export const TicketsPage: React.FC = () => {
                   onToggleTimer={handleToggleTimer}
                   showTimerColumn
                   onEditRequest={(t) => void openEditModal(t)}
-                  onDeleteRequest={(t) => setDeleteIds([t.id])}
+                  onDeleteRequest={(t) => requestDelete([t])}
                   onChangeStatusRequest={handleChangeStatusRequest}
-                  onShareWithTimeharbor={async (t, shared) => {
-                    try {
-                      await shareTicketWithTimeharbor(t.id, shared);
-                      refetch();
-                    } catch {
-                      // Silently ignore — user can retry
-                    }
-                  }}
                   emptyState={
                     <EmptyState
                       title={
@@ -1141,75 +1190,41 @@ export const TicketsPage: React.FC = () => {
 
         {/* Delete confirmation — covers both single-row (⋮ menu) and bulk delete */}
         <Modal
-          open={deleteIds.length > 0}
-          onOpenChange={(open) => !open && setDeleteIds([])}
+          open={deleteRequest !== null}
+          onOpenChange={(open) => !open && closeDeleteDialog()}
           size="sm"
         >
           <ModalHeader>
             <ModalTitle>
-              {deleteIds.length > 1 ? `Delete ${deleteIds.length} Tickets?` : 'Delete Ticket?'}
+              {removalText.deleteTitle(
+                (deleteRequest?.huddleIds.length ?? 0) + (deleteRequest?.redmineIds.length ?? 0),
+              )}
             </ModalTitle>
             <ModalClose />
           </ModalHeader>
-          <ModalBody>
-            <Text variant="muted" size="sm">
-              {deleteIds.length > 1
-                ? 'This will permanently delete these tickets and remove them from all clock events.'
-                : 'This will permanently delete this ticket and remove it from all clock events.'}
-            </Text>
+          <ModalBody className="space-y-2">
+            {!!deleteRequest?.redmineIds.length && (
+              <Text variant="muted" size="sm">
+                {removalText.redmineRemoved(deleteRequest.redmineIds.length)}
+              </Text>
+            )}
+            {!!deleteRequest?.huddleIds.length && (
+              <Text variant="muted" size="sm">
+                {removalText.huddleDeleted(deleteRequest.huddleIds.length)}
+              </Text>
+            )}
+            {deleteError && (
+              <Alert variant="danger" role="alert">
+                <AlertDescription>{deleteError}</AlertDescription>
+              </Alert>
+            )}
           </ModalBody>
           <ModalFooter>
-            <Button variant="outline" onClick={() => setDeleteIds([])}>
+            <Button variant="outline" onClick={closeDeleteDialog}>
               Cancel
             </Button>
             <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
               Delete
-            </Button>
-          </ModalFooter>
-        </Modal>
-
-        {/* Clock-In Prompt Modal */}
-        <Modal
-          open={showClockInPrompt}
-          onOpenChange={(open) => {
-            setShowClockInPrompt(open);
-            if (!open) {
-              setPendingStartTicket(null);
-              setClockInPromptError(null);
-            }
-          }}
-          size="sm"
-          aria-labelledby="clock-in-prompt-title"
-        >
-          <ModalHeader>
-            <ModalTitle id="clock-in-prompt-title">Clock In Required</ModalTitle>
-            <ModalClose />
-          </ModalHeader>
-          <ModalBody>
-            <div className="space-y-2">
-              <Text size="sm">
-                You must be clocked in before starting a timer. Do you want to clock in now?
-              </Text>
-              {clockInPromptError && (
-                <Text size="xs" className="text-danger">
-                  {clockInPromptError}
-                </Text>
-              )}
-            </div>
-          </ModalBody>
-          <ModalFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowClockInPrompt(false);
-                setPendingStartTicket(null);
-                setClockInPromptError(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleClockInAndStart}>
-              Clock In Now
             </Button>
           </ModalFooter>
         </Modal>

@@ -12,10 +12,19 @@
  *        confirmation states the consequence in words.
  *   D2 — the push is **manual**. Huddle holds the time until the user says so,
  *        which is what makes "is the day finished?" answerable at all.
+ *
+ * A row can also be marked **Never send** (e.g. one Redmine keeps rejecting):
+ * nothing goes to Redmine, the time stays in TimeHuddle, and the row stops
+ * being offered. Only time tracked on that day later comes back.
  */
+import { faTrash } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
+  Alert,
+  AlertDescription,
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   Modal,
@@ -33,7 +42,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
   redmineApi,
@@ -63,6 +72,27 @@ const FAILURE_TEXT: Record<string, string> = {
   'invalid-activity': 'That activity no longer exists in Redmine',
 };
 
+/**
+ * Redmine messages whose wording hides the fix, keyed by their English text.
+ * "Issue is invalid" is what Redmine answers when the issue is fine but you may
+ * not log time on it: it drops an issue the key cannot see, or one in a project
+ * where your role lacks "Log spent time" or time tracking is switched off.
+ */
+const REDMINE_MESSAGE_HINTS: Record<string, string> = {
+  'Issue is invalid':
+    "Redmine won't take time on this issue from you: its project may have time tracking switched off, or your role there may be missing “Log spent time”.",
+};
+
+/** Why a row failed: Redmine's own words when it gave any, else our summary. */
+function failureText(outcome: RedmineTimeEntryPushOutcome): string {
+  if (outcome.detail?.length) {
+    return outcome.detail
+      .map((message) => REDMINE_MESSAGE_HINTS[message] ?? `Redmine: ${message}`)
+      .join(' ');
+  }
+  return FAILURE_TEXT[outcome.reason ?? ''] ?? outcome.reason ?? 'Not sent';
+}
+
 /** `0.51` → `0:31`, so hours read the way the rest of the app shows time. */
 function asClock(hours: number): string {
   const totalMinutes = Math.round(hours * 60);
@@ -80,6 +110,12 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   // sent rows drop out of it, so results must not be rendered from the live list.
   const [pushedRows, setPushedRows] = useState<RedmineTimeEntryRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // The row waiting for "Never send" to be confirmed, and one being discarded.
+  const [confirmDiscard, setConfirmDiscard] = useState<RedmineTimeEntryRow | null>(null);
+  const [discarding, setDiscarding] = useState(false);
+  // The trash button that asked, so "Keep it" can hand focus back to it.
+  const discardTrigger = useRef<HTMLElement | null>(null);
+  const discardPromptId = useId();
 
   const load = useCallback(async () => {
     try {
@@ -148,11 +184,32 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
     }
   };
 
+  const discardRow = async (row: RedmineTimeEntryRow) => {
+    setDiscarding(true);
+    try {
+      await redmineApi.timeEntries.discard(row.ticketId, row.date);
+      setPushedRows((prev) => prev.filter((r) => rowKey(r) !== rowKey(row)));
+      setConfirmDiscard(null);
+      setError(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not discard that time.');
+    } finally {
+      setDiscarding(false);
+    }
+  };
+
+  const keepRow = () => {
+    setConfirmDiscard(null);
+    discardTrigger.current?.focus();
+  };
+
   const closeModal = () => {
     setOpen(false);
     setResults(null);
     setOverrides({});
     setError(null);
+    setConfirmDiscard(null);
   };
 
   // Nothing to offer: not linked, or nothing unsent beyond a few seconds. Kept
@@ -165,7 +222,9 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   const tableRows = results ? pushedRows : offeredRows;
 
   const idle = preview.idle;
-  const canSend = idle && sendable.length > 0;
+  // Opens with only blocked rows too, so one can still be marked Never send;
+  // the Send button inside needs a sendable row.
+  const canOpen = idle && offeredRows.length > 0;
 
   return (
     <Card padding="lg" className="redmine-push-panel mb-4 shrink-0">
@@ -183,7 +242,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
           <Button
             variant="primary"
             onClick={() => setOpen(true)}
-            disabled={!canSend}
+            disabled={!canOpen}
             title={
               idle
                 ? undefined
@@ -217,6 +276,9 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                 <TableHead>Hours</TableHead>
                 <TableHead>Activity</TableHead>
                 {results && <TableHead>Result</TableHead>}
+                <TableHead>
+                  <span className="sr-only">Actions</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -277,17 +339,74 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                         ) : outcome.ok ? (
                           <Badge variant="success">Sent</Badge>
                         ) : (
-                          <Badge variant="danger">
-                            {FAILURE_TEXT[outcome.reason ?? ''] ?? outcome.reason}
-                          </Badge>
+                          // Text, not a badge: Redmine's reason can be a sentence.
+                          <Text size="xs" variant="destructive" className="redmine-push-failure">
+                            {failureText(outcome)}
+                          </Text>
                         )}
                       </TableCell>
                     )}
+                    <TableCell>
+                      {/* Anything not sent can be discarded; a sent row is permanent (D1). */}
+                      {!outcome?.ok && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Never send #${row.ticketId} on ${row.date} to Redmine`}
+                          title="Never send this time to Redmine"
+                          disabled={pushing || discarding}
+                          onClick={(event) => {
+                            discardTrigger.current = event.currentTarget;
+                            setConfirmDiscard(row);
+                          }}
+                        >
+                          <FontAwesomeIcon icon={faTrash} className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                 );
               })}
             </TableBody>
           </Table>
+
+          {confirmDiscard && (
+            <Alert
+              variant="warning"
+              className="redmine-push-discard-confirm mt-3"
+              role="alertdialog"
+              aria-labelledby={discardPromptId}
+            >
+              <AlertDescription>
+                <Text size="sm" id={discardPromptId}>
+                  Never send #{confirmDiscard.ticketId} on {confirmDiscard.date} (
+                  {asClock(confirmDiscard.hours)}) to Redmine? The time stays in TimeHuddle; it just
+                  won&apos;t be offered here again.
+                </Text>
+                <ButtonGroup className="mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    // Focus moves into the prompt, so keyboard and screen-reader
+                    // users land on it; the safe choice takes it.
+                    autoFocus
+                    onClick={keepRow}
+                    disabled={discarding}
+                  >
+                    Keep it
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => void discardRow(confirmDiscard)}
+                    isLoading={discarding}
+                  >
+                    Never send
+                  </Button>
+                </ButtonGroup>
+              </AlertDescription>
+            </Alert>
+          )}
 
           {error && (
             <Text size="xs" variant="destructive" className="mt-3 block" aria-live="polite">
