@@ -9,9 +9,10 @@
  * assert the next sign-in puts it back.
  *
  * Runs against the test Meteor instance, which is `meteor run` and therefore
- * development mode; a production server never registers the handler at all.
- * The gate that decides that (dev mode, or the PR-preview opt-in flag) is
- * unit tested at the bottom of this file.
+ * development mode. main.js registers this handler unconditionally; the gate
+ * tested at the bottom of this file decides whether a given request is
+ * authorized (dev mode, or the PR-preview opt-in flag) — an unauthorized
+ * request gets a `forbidden` error instead of provisioning anything.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { isDevQuickLoginEnabled } from '../server/dev-quick-login-gate';
