@@ -136,10 +136,30 @@ function systemMessagesForSession(session: SessionInfo): SuperChatMessage[] {
   return messages;
 }
 
+/**
+ * Each session's plan/wrap-up post: the one with the wrap-up, else the earliest
+ * (same pick as the backend's SESSION_POST_SORT). Any other post in a session
+ * is a reply sent from the inbox.
+ */
+function sessionPostIds(posts: HuddlePost[]): Set<string> {
+  const bySession = new Map<string, HuddlePost>();
+  for (const post of posts) {
+    if (!post.clockEventId) continue;
+    const current = bySession.get(post.clockEventId);
+    const better =
+      !current ||
+      (!!post.wrapUpAt !== !!current.wrapUpAt
+        ? !!post.wrapUpAt
+        : new Date(post.createdAt).getTime() < new Date(current.createdAt).getTime());
+    if (better) bySession.set(post.clockEventId, post);
+  }
+  return new Set([...bySession.values()].map((p) => p.id));
+}
+
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 Onboarding checklist". */
-function postLabelParts(post: HuddlePost, teamName?: string): string[] {
+function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
   const parts: string[] = [];
-  if (post.clockEventId) {
+  if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
   if (post.ticketTitle) {
@@ -153,13 +173,17 @@ function postLabelParts(post: HuddlePost, teamName?: string): string[] {
 
 /** Message text for the inbox: body first (the sidebar preview shows the
  *  first line), then attachments, then an italic plan/ticket label. */
-function postToInboxMessageText(post: HuddlePost, teamName?: string): string {
+function postToInboxMessageText(
+  post: HuddlePost,
+  isSessionPost: boolean,
+  teamName?: string,
+): string {
   const parts = [post.content.text];
   const attachments = attachmentsNotInlined(post);
   if (attachments.length > 0) {
     parts.push(attachments.map(attachmentMarkdown).join('\n\n'));
   }
-  const label = postLabelParts(post, teamName);
+  const label = postLabelParts(post, isSessionPost, teamName);
   if (label.length > 0) {
     parts.push(`*${label.join(' · ')}*`);
   }
@@ -224,6 +248,7 @@ export function postsToConversations(
   getTeamName?: (teamId: string) => string | undefined,
 ): SuperChatConversation[] {
   const groups = new Map<string, HuddlePost[]>();
+  const planPostIds = sessionPostIds(posts);
   for (const post of posts) {
     const key = groupKeyFor(post, threadBy);
     const bucket = groups.get(key);
@@ -259,7 +284,7 @@ export function postsToConversations(
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
-      text: postToInboxMessageText(post, getTeamName?.(post.teamId)),
+      text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
       time: post.createdAt,
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
     }));

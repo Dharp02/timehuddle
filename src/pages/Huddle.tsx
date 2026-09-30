@@ -76,6 +76,7 @@ export default function Huddle() {
   // a feed-load failure and takes the feed's place on screen.
   const [editError, setEditError] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
+  const [threadByMenuOpen, setThreadByMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // Top-level tab: the team feed or the user's private drafts.
   const [feedTab, setFeedTab] = useState<'feed' | 'drafts'>('feed');
@@ -378,8 +379,13 @@ export default function Huddle() {
   }, [activePosts, searchQuery]);
 
   // Team admins (and org owners) get the extra session-title detail (hours,
-  // no-wrap-up warning).
-  const viewer = useMemo(() => ({ userId: user?.id ?? '', isAdmin }), [user?.id, isAdmin]);
+  // no-wrap-up warning). Not in Personal: `isAdmin` there reflects the
+  // Personal team, where everyone is admin, not the posts' source teams.
+  const viewerIsAdmin = scope === 'team' && isAdmin;
+  const viewer = useMemo(
+    () => ({ userId: user?.id ?? '', isAdmin: viewerIsAdmin }),
+    [user?.id, viewerIsAdmin],
+  );
 
   // Only the Personal ("me") scope labels messages with their team — a
   // single-team feed already has that context from the page itself.
@@ -456,7 +462,13 @@ export default function Huddle() {
       const noSessionDay = key.startsWith('nosession:')
         ? key.slice(key.lastIndexOf(':') + 1)
         : undefined;
-      const postDate = threadBy === 'day' ? key : (noSessionDay ?? toDateString(new Date()));
+      // A reply to a session keeps that session's day, not today's.
+      const sessionDay =
+        threadBy === 'session' && !noSessionDay
+          ? activePosts.find((p) => p.clockEventId === key)?.postDate
+          : undefined;
+      const postDate =
+        threadBy === 'day' ? key : (noSessionDay ?? sessionDay ?? toDateString(new Date()));
       const attachments = await Promise.all(
         meta.attachments.map(async (att) =>
           toPostAttachment(
@@ -516,6 +528,8 @@ export default function Huddle() {
           <ButtonGroup className="ms-auto">
             {feedTab === 'feed' && (
               <Dropdown
+                open={threadByMenuOpen}
+                onOpenChange={setThreadByMenuOpen}
                 trigger={
                   <Button
                     variant="ghost"
@@ -531,7 +545,11 @@ export default function Huddle() {
                   <DropdownItem
                     key={option}
                     icon={option === threadBy ? <FontAwesomeIcon icon={faCheck} /> : undefined}
-                    onClick={() => setThreadBy(option)}
+                    onClick={() => {
+                      setThreadBy(option);
+                      // DropdownItem doesn't close its menu on its own.
+                      setThreadByMenuOpen(false);
+                    }}
                   >
                     {THREAD_BY_LABELS[option]}
                   </DropdownItem>

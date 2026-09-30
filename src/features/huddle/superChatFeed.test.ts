@@ -178,6 +178,42 @@ describe('postsToConversations', () => {
     });
   });
 
+  describe('plan / wrap-up labels', () => {
+    const session = { startTime: SEP_29_0858, endTime: null };
+    const textOf = (posts: HuddlePost[], id: string) =>
+      postsToConversations(posts, 'session', VIEWER_MEMBER, NOW)[0].thread.find((m) => m.id === id)
+        ?.text;
+
+    it('labels only the earliest session post as the plan, not later inbox replies', () => {
+      const posts = [
+        makePost({ id: 'plan', clockEventId: 'evt-1', session }),
+        makePost({
+          id: 'reply',
+          clockEventId: 'evt-1',
+          session,
+          createdAt: new Date(SEP_29_1032).toISOString(),
+        }),
+      ];
+      expect(textOf(posts, 'plan')).toContain('*Plan*');
+      expect(textOf(posts, 'reply')).not.toContain('Plan');
+    });
+
+    it('labels the wrap-up post and leaves an earlier reply unlabeled', () => {
+      const posts = [
+        makePost({ id: 'reply', clockEventId: 'evt-1', session }),
+        makePost({
+          id: 'wrapup',
+          clockEventId: 'evt-1',
+          session,
+          createdAt: new Date(SEP_29_1032).toISOString(),
+          wrapUpAt: new Date(SEP_29_1032).toISOString(),
+        }),
+      ];
+      expect(textOf(posts, 'wrapup')).toContain('*Wrap-up*');
+      expect(textOf(posts, 'reply')).not.toMatch(/Plan|Wrap-up/);
+    });
+  });
+
   describe('posts without a session or ticket', () => {
     it('handles session-grouped posts with no clockEventId (fallback bucket, no clock messages)', () => {
       const posts = [makePost({ id: 'p1', postDate: '2026-09-29' })];
