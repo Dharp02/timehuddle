@@ -1,35 +1,58 @@
 /**
  * Huddle Feed — Pulse Video Tests
  *
- * Verifies two ways a video ends up playable in a huddle post:
- *  1. Direct upload from the composer's AttachmentBar ("Video" button) — a
+ * Verifies two ways a video ends up in a huddle post:
+ *  1. Direct upload from the composer's attach bar ("Video" button) — a
  *     file-picker path through PulseVault TUS, independent of any ticket.
+ *     Driven through the Clock tab's plan composer.
  *  2. Cross-posting: a ticket that already has a Pulse video attached is
  *     picked via the composer's TicketPicker, and that video is
  *     automatically pulled into the post (HuddleComposer.tsx's `ticketVideos`
- *     state) without any extra upload step.
+ *     state) without any extra upload step. Only HuddleComposer does this, and
+ *     the Huddle page shows it just for a team's first post — so this one runs
+ *     on a freshly created, empty team.
  *
- * Both assert against the real backend — the post's <video src> must
- * resolve to the actual /pulsevault/artifacts/:id playback URL, not just
- * "some video element exists".
+ * Both assert against the real backend — the post must link to the actual
+ * /pulsevault/artifacts/:id playback URL (the inbox renders video attachments
+ * as links), not just "some video exists".
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { selectSharedTestTeam } from '../fixtures/team';
 import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from '../tickets/helpers';
 import {
   attachTicket,
+  clockOut,
   composerEditor,
-  openComposer as goToHuddle,
-  postContainer,
-  switchToCardView,
+  openComposer,
+  openPostInInbox,
+  setSharedTeamPlanGate,
+  submitPost,
 } from './helpers';
 
+/** Create a team through the UI; the app switches to it. */
+async function createFreshTeam(page: Page, name: string): Promise<void> {
+  await page.goto('/app/teams');
+  await page.getByRole('button', { name: 'Create Team' }).click();
+  await page.getByPlaceholder('Team name').fill(name);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
+}
+
 test.describe('Huddle — direct video upload', () => {
-  test.setTimeout(60000);
+  test.setTimeout(90000);
+
+  test.beforeAll(() => setSharedTeamPlanGate(true));
+  test.afterAll(() => setSharedTeamPlanGate(false));
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
-    await goToHuddle(page);
+    await selectSharedTestTeam(page);
+    await openComposer(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await clockOut(page);
   });
 
   test("uploading a video via the composer's Video button posts a playable video", async ({
@@ -43,16 +66,13 @@ test.describe('Huddle — direct video upload', () => {
     const videoInput = page.locator('input[type="file"][accept="video/*"]');
     await videoInput.setInputFiles(TEST_MP4);
 
-    // AttachmentBar shows the filename as a chip once uploadMedia() resolves.
+    // The attach bar shows the filename as a chip once uploadMedia() resolves.
     await expect(page.getByText('test-video.mp4')).toBeVisible({ timeout: 20000 });
 
-    await page.getByRole('button', { name: 'Post', exact: true }).click();
+    await submitPost(page);
 
-    await switchToCardView(page);
-
-    const post = postContainer(page, postText);
-    await expect(post).toBeVisible({ timeout: 10000 });
-    await expect(post.locator('video[src*="/pulsevault/artifacts/"]')).toBeVisible({
+    const post = await openPostInInbox(page, postText);
+    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({
       timeout: 10000,
     });
   });
@@ -65,6 +85,8 @@ test.describe('Huddle — ticket video cross-posting', () => {
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
+    // "Test Team" prefix: global teardown only removes orphaned teams named that way.
+    await createFreshTeam(page, `Test Team Cross-post ${Date.now()}`);
     await createTicket(page, TICKET_TITLE);
     await uploadVideoToTicket(page, TICKET_TITLE);
   });
@@ -76,7 +98,9 @@ test.describe('Huddle — ticket video cross-posting', () => {
   test("a ticket's attached Pulse video is pulled into the post when the ticket is attached", async ({
     page,
   }) => {
-    await goToHuddle(page);
+    await page.goto('/app/huddle');
+    await page.getByRole('button', { name: 'Share an update...' }).click();
+    await composerEditor(page).waitFor({ state: 'visible', timeout: 20000 });
 
     const postText = `Huddle Cross-post Test ${Date.now()}`;
     await composerEditor(page).fill(postText);
@@ -89,11 +113,8 @@ test.describe('Huddle — ticket video cross-posting', () => {
 
     await page.getByRole('button', { name: 'Post', exact: true }).click();
 
-    await switchToCardView(page);
-
-    const post = postContainer(page, postText);
-    await expect(post).toBeVisible({ timeout: 10000 });
-    await expect(post.locator('video[src*="/pulsevault/artifacts/"]')).toBeVisible({
+    const post = await openPostInInbox(page, postText);
+    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({
       timeout: 10000,
     });
   });

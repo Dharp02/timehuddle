@@ -11,19 +11,15 @@
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
+import { openPostInInbox, postFromHuddle, seedPost } from '../huddle/helpers';
 
 test.describe('Real-time Huddle Posts', () => {
   let session1: Page;
   let session2: Page;
+  let teamId: string;
 
-  async function ensureCardView(page: Page): Promise<void> {
-    const switchBtn = page.getByRole('button', { name: 'Switch to card view' });
-    if (await switchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await switchBtn.click();
-      await page.getByRole('button', { name: 'Switch to chat view' }).waitFor({ timeout: 5000 });
-    }
-    await page.waitForTimeout(1500);
-  }
+  const conversations = (page: Page) =>
+    page.locator('[data-slot="superchat-conversation-list"] [role="listitem"]');
 
   test.beforeEach(async ({ browser }) => {
     const context1 = await browser.newContext();
@@ -35,19 +31,13 @@ test.describe('Real-time Huddle Posts', () => {
     await loginAs(session1, TEST_USERS.admin1);
     await loginAs(session2, TEST_USERS.admin2);
 
-    // Navigate to Huddle
-    await session1.goto('http://localhost:3002/app/huddle');
-    await session2.goto('http://localhost:3002/app/huddle');
-
-    await session1.waitForLoadState('networkidle');
-    await session2.waitForLoadState('networkidle');
-
     // Both sessions must view the same team feed for cross-session sync
     // assertions to be meaningful — each user's Personal team is private.
-    await selectSharedTestTeam(session1);
+    teamId = await selectSharedTestTeam(session1);
     await selectSharedTestTeam(session2);
-    await ensureCardView(session1);
-    await ensureCardView(session2);
+
+    await session1.goto('http://localhost:3002/app/huddle');
+    await session2.goto('http://localhost:3002/app/huddle');
   });
 
   test.afterEach(async () => {
@@ -56,44 +46,32 @@ test.describe('Real-time Huddle Posts', () => {
   });
 
   test('should sync new huddle posts across sessions', async () => {
-    // Get initial post count in session 1
-    const postCards1 = session1.locator('[data-testid="post-card"]');
-    const postCards2 = session2.locator('[data-testid="post-card"]');
-    const initialCount1 = await postCards1.count();
+    const text = `Test real-time sync post ${Date.now()}`;
+    await postFromHuddle(session1, text);
 
-    // Create a new post in session 1. The composer starts collapsed, and its
-    // editing surface is a ProseMirror contenteditable (Kerebron RichEditor),
-    // not a <textarea> — a loose `textarea` selector matches the unrelated,
-    // disabled "Read-only conversation" message composer instead.
-    await session1.getByText('Share an update...').click();
-    const postInput = session1.locator('.markdown-editor .ProseMirror').first();
-
-    if ((await postInput.count()) > 0) {
-      await postInput.fill('Test real-time sync post');
-
-      const postButton = session1.getByRole('button', { name: 'Post', exact: true });
-      if ((await postButton.count()) > 0) {
-        await postButton.click();
-
-        // Session 1 should show the new post
-        await expect
-          .poll(async () => postCards1.count(), { timeout: 15000 })
-          .toBeGreaterThan(initialCount1);
-        const newCount1 = await postCards1.count();
-
-        // Session 2 should automatically show the new post
-        await expect.poll(async () => postCards2.count(), { timeout: 15000 }).toBe(newCount1);
-      }
-    }
+    // Session 1 finds its own post in the feed…
+    await openPostInInbox(session1, text);
+    // …and session 2 picks it up without a reload.
+    await openPostInInbox(session2, text);
   });
 
-  test('should show same post count in both sessions', async () => {
-    await session1.waitForTimeout(1000);
-    await session2.waitForTimeout(1000);
+  test('should show same conversation count in both sessions', async () => {
+    // Seed a post and wait for a row on both sides — two still-loading, empty
+    // feeds would otherwise pass as 0 === 0. Seeded through the API so neither
+    // page's grouping or search changes; the counts are only comparable if
+    // both pages show the same view.
+    await seedPost(session1, { teamId, text: `Conversation count seed ${Date.now()}` });
+    await expect(conversations(session1).first()).toBeVisible({ timeout: 15000 });
+    await expect(conversations(session2).first()).toBeVisible({ timeout: 15000 });
 
-    const postCount1 = await session1.locator('[data-testid="post-card"]').count();
-    const postCount2 = await session2.locator('[data-testid="post-card"]').count();
-
-    expect(postCount1).toBe(postCount2);
+    await expect
+      .poll(
+        async () =>
+          (await conversations(session1).count()) === (await conversations(session2).count()),
+        {
+          timeout: 15000,
+        },
+      )
+      .toBe(true);
   });
 });

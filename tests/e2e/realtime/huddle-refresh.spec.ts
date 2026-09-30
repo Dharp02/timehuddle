@@ -14,19 +14,11 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
+import { openPostInInbox, postFromHuddle } from '../huddle/helpers';
 
 test.describe('Huddle Feed Refresh', () => {
   let context: BrowserContext;
   let page: Page;
-
-  async function ensureCardView(p: Page): Promise<void> {
-    const switchBtn = p.getByRole('button', { name: 'Switch to card view' });
-    if (await switchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await switchBtn.click();
-      await p.getByRole('button', { name: 'Switch to chat view' }).waitFor({ timeout: 5000 });
-    }
-    await p.waitForTimeout(1500);
-  }
 
   /**
    * Fire pull-to-refresh by dispatching a synthetic touch drag directly on the
@@ -77,11 +69,9 @@ test.describe('Huddle Feed Refresh', () => {
     page = await context.newPage();
 
     await loginAs(page, TEST_USERS.admin1);
+    await selectSharedTestTeam(page);
     await page.goto('http://localhost:3002/app/huddle');
     await page.waitForLoadState('networkidle');
-
-    await selectSharedTestTeam(page);
-    await ensureCardView(page);
   });
 
   test.afterEach(async () => {
@@ -89,25 +79,11 @@ test.describe('Huddle Feed Refresh', () => {
   });
 
   test('creates a post and shows it in the feed', async () => {
-    const postCards = page.locator('[data-testid="post-card"]');
-    const initialCount = await postCards.count();
-
     const uniqueText = `Refresh test post ${Date.now()}`;
+    await postFromHuddle(page, uniqueText);
 
-    // The composer starts collapsed; its editing surface is a ProseMirror
-    // contenteditable, not a <textarea>.
-    await page.getByText('Share an update...').click();
-    const editor = page.locator('.markdown-editor .ProseMirror').first();
-    await editor.waitFor({ state: 'visible', timeout: 5000 });
-    await editor.fill(uniqueText);
-
-    await page.getByRole('button', { name: 'Post', exact: true }).click();
-
-    // The new post appears without a manual reload (addPost → refreshFeed).
-    await expect
-      .poll(async () => postCards.count(), { timeout: 15000 })
-      .toBeGreaterThan(initialCount);
-    await expect(postCards.filter({ hasText: uniqueText }).first()).toBeVisible({ timeout: 15000 });
+    // The new post appears without a manual reload (post → refreshFeed).
+    await openPostInInbox(page, uniqueText);
   });
 
   test('pull-to-refresh re-fetches the feed over REST', async () => {

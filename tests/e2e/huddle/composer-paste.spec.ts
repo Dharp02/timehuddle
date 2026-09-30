@@ -16,6 +16,10 @@
  * `img[src]` throughout, never a bare `img`: ProseMirror keeps a src-less
  * `<img class="ProseMirror-separator">` in the document at all times, so an
  * unqualified count is always one higher than the number of real images.
+ *
+ * Driven through the Clock tab's plan composer, which shares the editor and its
+ * paste/drop handling with the Huddle composer; the feed half is read back from
+ * the Huddle inbox.
  */
 import { expect, test } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
@@ -23,14 +27,16 @@ import { selectSharedTestTeam } from '../fixtures/team';
 import {
   FIXTURE,
   attachmentChipCount,
+  clockOut,
   composerEditor,
   dropFiles,
   openComposer,
+  openPostInInbox,
   pasteFiles,
   pasteText,
-  postContainer,
+  postButton,
+  setSharedTeamPlanGate,
   submitPost,
-  switchToCardView,
 } from './helpers';
 
 const SCREENSHOT = { fixture: FIXTURE.image, name: 'screenshot.png', type: 'image/png' };
@@ -38,10 +44,17 @@ const SCREENSHOT = { fixture: FIXTURE.image, name: 'screenshot.png', type: 'imag
 test.describe('Huddle composer — screenshot paste and drop', () => {
   test.setTimeout(120000);
 
+  test.beforeAll(() => setSharedTeamPlanGate(true));
+  test.afterAll(() => setSharedTeamPlanGate(false));
+
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await selectSharedTestTeam(page);
     await openComposer(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await clockOut(page);
   });
 
   test('pasting a screenshot uploads it as an attachment instead of inlining base64', async ({
@@ -62,10 +75,8 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     await expect(composerEditor(page)).toContainText(postText);
 
     await submitPost(page);
-    await switchToCardView(page);
 
-    const post = postContainer(page, postText);
-    await expect(post).toBeVisible({ timeout: 20000 });
+    const post = await openPostInInbox(page, postText);
 
     // Served from the media store, not embedded in the document — and shown
     // once, though the post carries it both inline and as an attachment.
@@ -82,22 +93,24 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
   });
 
   test('pasting a screenshot into an empty composer posts image-only', async ({ page }) => {
+    const upload = page.waitForResponse(
+      (res) => res.url().includes('/api/media/upload') && res.status() === 200,
+    );
     await pasteFiles(page, [SCREENSHOT]);
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
 
     // An attachment alone is enough content to post — the button must enable
     // without any text, and only once the upload has actually landed.
-    const postButton = page.getByRole('button', { name: 'Post', exact: true });
-    await expect(postButton).toBeEnabled();
+    await expect(postButton(page)).toBeEnabled();
     await submitPost(page);
 
-    await switchToCardView(page);
-    // Scoped to the newest card, not "any card in the feed": the suite is
-    // serial against a shared team, so earlier tests have already left images
-    // in this feed and an unscoped match would pass without posting anything.
-    // The feed sorts createdAt descending, so the first card is this post.
-    const newest = page.locator('[data-testid="post-card"]').first();
-    await expect(newest.locator('img[src*="/uploads/media/"]')).toBeVisible({ timeout: 20000 });
+    // The post has no text of its own to search for, but its body is the
+    // uploaded image's markdown — so its stored filename is unique to it.
+    const { item } = (await (await upload).json()) as { item: { url: string } };
+    const storedName = item.url.split('/').pop()!;
+    const img = page.locator(`[data-slot="superchat-message"] img[src*="${storedName}"]`).first();
+    await openPostInInbox(page, storedName, img);
+    await expect(img).toBeVisible({ timeout: 20000 });
   });
 
   test('pasting several images at once uploads every one', async ({ page }) => {
@@ -140,10 +153,10 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     // Same bar and labelling as a picker-driven upload — a paste is not a
     // second, quieter upload path.
     await expect(progressBar).toHaveAttribute('aria-label', 'Uploading attachment');
-    await expect(page.getByRole('button', { name: 'Post', exact: true })).toBeDisabled();
+    await expect(postButton(page)).toBeDisabled();
 
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
-    await expect(page.getByRole('button', { name: 'Post', exact: true })).toBeEnabled();
+    await expect(postButton(page)).toBeEnabled();
   });
 
   test('dropping a screenshot uploads it as an attachment instead of inlining base64', async ({
@@ -163,10 +176,8 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     await expect(composerEditor(page)).toContainText(postText);
 
     await submitPost(page);
-    await switchToCardView(page);
 
-    const post = postContainer(page, postText);
-    await expect(post).toBeVisible({ timeout: 20000 });
+    const post = await openPostInInbox(page, postText);
     await expect(post.locator('img[src^="data:"]')).toHaveCount(0);
 
     const img = post.locator('img[src*="/uploads/media/"]');
@@ -200,9 +211,8 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
 
     await submitPost(page);
-    await switchToCardView(page);
 
-    const post = postContainer(page, postText);
+    const post = await openPostInInbox(page, postText);
     await expect(post.locator('img[src*="/uploads/media/"]')).toHaveAttribute(
       'alt',
       /sprint-board/,

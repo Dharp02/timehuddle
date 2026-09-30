@@ -1,16 +1,22 @@
 /**
  * Shared helpers for the Huddle composer/feed specs.
  *
- * Every huddle spec needs the same four things — open the composer, drive one
- * of its attach actions, switch the feed to the view that renders attachments
- * inline, and find a post by its unique body text — so they live here rather
- * than being re-derived (slightly differently) in each file.
+ * The feed is a SuperChatInbox, and the Huddle page only shows its own rich
+ * composer for a team's very first post. The full composer (MarkdownEditor +
+ * the Photo/Video/Doc/Pulse/Ticket/@Mention bar) lives on the Clock tab as the
+ * plan-before-clock-in composer, so the composer specs drive that one: turn the
+ * shared team's plan gate on, write the plan, post it (which clocks in), then
+ * find the post in the inbox by its unique body text.
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
+import { MongoClient } from 'mongodb';
+import { ClockPage } from '../pages/ClockPage';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
+const MONGO_URL =
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
 /** Real fixture files, uploaded through the actual backend endpoints. */
 export const FIXTURE = {
@@ -28,29 +34,190 @@ export function composerEditor(page: Page) {
   return page.locator('.markdown-editor .ProseMirror').first();
 }
 
-/** Navigate to the huddle feed and expand the (initially collapsed) composer. */
-export async function openComposer(page: Page): Promise<void> {
-  await page.goto('/app/huddle');
-  await page.getByText('Share an update...').click();
-  await composerEditor(page).waitFor({ state: 'visible', timeout: 20000 });
-}
-
-/**
- * The feed defaults to chat view, where non-image attachments render as plain
- * links by design (see superChatFeed.ts). Inline <video>/<img> playback lives
- * in card view, so switch there before asserting on it.
- */
-export async function switchToCardView(page: Page): Promise<void> {
-  const toCardButton = page.getByRole('button', { name: 'Switch to card view' });
-  if (await toCardButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await toCardButton.click();
-    await page.getByRole('button', { name: 'Switch to chat view' }).waitFor({ timeout: 5000 });
+async function withDb<T>(fn: (db: import('mongodb').Db) => Promise<T>): Promise<T> {
+  const client = await MongoClient.connect(MONGO_URL);
+  try {
+    return await fn(client.db());
+  } finally {
+    await client.close();
   }
 }
 
-/** Locates a post's root container by the unique text in its body. */
-export function postContainer(page: Page, uniqueText: string) {
-  return page.locator('[data-testid="post-card"]').filter({ hasText: uniqueText });
+/**
+ * Turn the shared team's (TEST01) "require a plan" setting on or off. On, the
+ * Clock tab replaces its plain Clock in button with the plan composer. Call it
+ * from `beforeAll`/`afterAll` so the rest of the serial suite sees the default.
+ */
+export async function setSharedTeamPlanGate(enabled: boolean): Promise<void> {
+  await withDb((db) =>
+    db
+      .collection('teams')
+      .updateOne({ code: 'TEST01' }, { $set: { 'settings.requirePlanForClock': enabled } }),
+  );
+}
+
+/** The seed user's `_id`. */
+export async function getUserIdByEmail(email: string): Promise<string> {
+  const user = await withDb((db) =>
+    db.collection('users').findOne({ 'emails.address': email }, { projection: { _id: 1 } }),
+  );
+  if (!user) throw new Error(`Seed user ${email} not found — did global-setup run?`);
+  return String(user._id);
+}
+
+/** The stored huddle post whose body contains `text`. */
+export async function findPostByText(
+  text: string,
+): Promise<{ content: { text: string; mentions: string[] } } | null> {
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return withDb((db) =>
+    db
+      .collection<{ content: { text: string; mentions: string[] } }>('huddlePosts')
+      .findOne({ 'content.text': { $regex: escaped } }),
+  );
+}
+
+/**
+ * Open the Clock tab's plan composer. Needs the plan gate on for the selected
+ * team (see {@link setSharedTeamPlanGate}); a session left open by an earlier
+ * test is wrapped up and closed first, since that hides the plan composer.
+ */
+export async function openComposer(page: Page): Promise<void> {
+  await new ClockPage(page).ensureClockedOut();
+  await composerEditor(page).waitFor({ state: 'visible', timeout: 20000 });
+}
+
+/** The plan composer's submit button ("Publish" when it resumed a draft). */
+export function postButton(page: Page): Locator {
+  return page.getByRole('button', { name: /(Post|Publish) plan and clock in/ });
+}
+
+/** Close the session a posted plan opened, so the next test starts clocked out. */
+export async function clockOut(page: Page): Promise<void> {
+  await new ClockPage(page).ensureClockedOut();
+}
+
+/** A message in the open inbox conversation, by the unique text in its body. */
+export function inboxMessage(page: Page, uniqueText: string): Locator {
+  return page.locator('[data-slot="superchat-message"]').filter({ hasText: uniqueText });
+}
+
+/** The inbox's conversation list, whose header carries the page's filters. */
+export function conversationList(page: Page): Locator {
+  return page.locator('[data-slot="superchat-conversations"]');
+}
+
+/** One row per conversation in the inbox list. */
+export function conversationRows(page: Page): Locator {
+  return page.locator('[data-slot="superchat-conversation-list"] [role="listitem"]');
+}
+
+/** The inbox search box (in the list header once the inbox is on screen). */
+export function inboxSearch(page: Page): Locator {
+  return page.getByRole('searchbox', { name: 'Search posts' });
+}
+
+/**
+ * Go to the Huddle inbox and open the conversation holding the post whose body
+ * contains `query`. Searching narrows the inbox to that conversation, so
+ * whichever grouping is active, it is the first one listed. Retried because the
+ * post can reach the feed (DDP or the REST fallback) after the page renders.
+ *
+ * `message` defaults to the message whose visible text contains `query`; pass
+ * another locator when the match is only in markup (e.g. an image's src).
+ */
+export async function openPostInInbox(
+  page: Page,
+  query: string,
+  message: Locator = inboxMessage(page, query).first(),
+): Promise<Locator> {
+  if (!new URL(page.url()).pathname.endsWith('/app/huddle')) await page.goto('/app/huddle');
+  await inboxSearch(page).fill(query);
+
+  await expect(async () => {
+    await conversationRows(page).locator('button').first().click({ timeout: 2000 });
+    await expect(message).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 30000 });
+  return message;
+}
+
+/** Pick how the inbox groups posts into conversations. */
+export async function groupInboxBy(
+  page: Page,
+  option: 'Session' | 'Day' | 'Person' | 'Ticket',
+): Promise<void> {
+  await page.getByRole('button', { name: /^Group by:/ }).click();
+  await page.getByRole('menuitem', { name: option }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: `Group by: ${option}` })).toBeVisible();
+}
+
+/**
+ * Post through the Huddle page's "Share an update…" composer — the only place
+ * to post there, since the inbox itself is read-only.
+ */
+export async function postFromHuddle(page: Page, text: string): Promise<void> {
+  if (!new URL(page.url()).pathname.endsWith('/app/huddle')) await page.goto('/app/huddle');
+  await page.getByRole('button', { name: 'Share an update...' }).click();
+  await composerEditor(page).fill(text);
+  await page.getByRole('button', { name: 'Post', exact: true }).click();
+}
+
+/**
+ * Create a post straight through the API (the same `huddle.createPost` call
+ * the app makes), for specs that need one to exist rather than to test writing
+ * it. `postDate` ("YYYY-MM-DD") picks which day/session conversation it joins;
+ * `clockEventId` links it to one of the caller's own clock sessions.
+ */
+export async function seedPost(
+  page: Page,
+  params: { teamId: string; text: string; postDate?: string; clockEventId?: string },
+): Promise<string> {
+  const { status, body } = await page.evaluate(async ({ teamId, text, postDate, clockEventId }) => {
+    const token = localStorage.getItem('meteor_resume_token');
+    const res = await fetch('/api/huddle_createPost', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        teamId,
+        content: { text, mentions: [] },
+        postDate,
+        clockEventId,
+      }),
+    });
+    return { status: res.status, body: (await res.json()) as { result?: { id: string } } };
+  }, params);
+  if (!body.result?.id) throw new Error(`seedPost failed (HTTP ${status})`);
+  return body.result.id;
+}
+
+/**
+ * Insert a clock session straight into the test DB (as the timesheet specs
+ * do), so a post can be linked to a shift without driving the clock UI.
+ * `endTime: null` makes it live — pair with {@link deleteClockSession}.
+ */
+export async function seedClockSession(params: {
+  userId: string;
+  teamId: string;
+  startTime: number;
+  endTime: number | null;
+}): Promise<string> {
+  const { insertedId } = await withDb((db) =>
+    db.collection('clockevents').insertOne({
+      ...params,
+      accumulatedTime:
+        params.endTime == null ? 0 : Math.floor((params.endTime - params.startTime) / 1000),
+    }),
+  );
+  return insertedId.toHexString();
+}
+
+export async function deleteClockSession(clockEventId: string): Promise<void> {
+  const { ObjectId } = await import('mongodb');
+  await withDb((db) => db.collection('clockevents').deleteOne({ _id: new ObjectId(clockEventId) }));
 }
 
 /**
@@ -202,10 +369,11 @@ export async function attachTicket(page: Page, ticketTitle: string): Promise<voi
   await expect(page.getByRole('button', { name: 'Remove ticket' })).toBeVisible();
 }
 
-/** Submit the composer and wait for the progress bar to clear. */
+/**
+ * Post the plan and wait for the clock-in it triggers: the composer flips to
+ * the wrap-up prompt once the post has landed and the session is open.
+ */
 export async function submitPost(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Post', exact: true }).click();
-  await page
-    .locator('[data-testid="post-progress-bar"]')
-    .waitFor({ state: 'hidden', timeout: 30000 });
+  await postButton(page).click();
+  await page.getByText('Wrap up before you clock out').waitFor({ timeout: 30000 });
 }

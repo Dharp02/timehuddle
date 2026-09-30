@@ -16,7 +16,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { attachmentChipCount, openComposer } from './helpers';
+import { attachmentChipCount, openComposer, setSharedTeamPlanGate } from './helpers';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
 
@@ -77,6 +77,11 @@ test.describe('Large attachment uploads', () => {
   // for its own hooks. The payloads here are large enough to need the headroom
   // regardless.
   test.setTimeout(240000);
+
+  // The two photo tests go through the composer, which is the Clock tab's plan
+  // composer — only there while the team requires a plan.
+  test.beforeAll(() => setSharedTeamPlanGate(true));
+  test.afterAll(() => setSharedTeamPlanGate(false));
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);

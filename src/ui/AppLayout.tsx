@@ -360,8 +360,8 @@ const AppLayoutContent: React.FC = () => {
         : (route?.title ?? 'App');
   useClockDocumentTitle(documentTitle);
 
-  // Rendered in the body by <PageTitle />. Null on profile and ticket detail:
-  // both already lead with a more specific heading of their own.
+  // Rendered in the body by <PageTitle />. Null on profile and ticket detail
+  // (both already lead with a more specific heading of their own).
   const pageTitle = route?.title ?? null;
 
   const isTicketsRoute =

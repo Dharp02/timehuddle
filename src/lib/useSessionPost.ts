@@ -28,7 +28,13 @@ export function useSessionPost(teamId: string | null, clockEventId: string | nul
         .docs('huddlePosts')
         .map((p) => ({ ...p, id: (p.id ?? p._id) as string }) as unknown as HuddlePost)
         .filter((p) => p.teamId === teamId && p.clockEventId === clockEventId)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        // Same pick as the server's SESSION_POST_SORT: the wrap-up post, else the
+        // earliest (the plan) — later posts are inbox replies, not the plan.
+        .sort(
+          (a, b) =>
+            Number(!!b.wrapUpAt) - Number(!!a.wrapUpAt) ||
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
       setSessionPost(match[0] ?? null);
     };
 
