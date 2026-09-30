@@ -60,6 +60,14 @@ test.describe('Real-time Huddle Posts', () => {
   });
 
   test('should show same conversation count in both sessions', async () => {
+    // Seed a post and wait for it on both sides — two still-loading, empty
+    // feeds would otherwise pass as 0 === 0.
+    await openWritableConversation(session1, teamId);
+    const text = `Conversation count seed ${Date.now()}`;
+    await sendInboxMessage(session1, text);
+    await openPostInInbox(session2, text);
+    await expect(conversations(session1).first()).toBeVisible({ timeout: 15000 });
+
     await expect
       .poll(
         async () =>

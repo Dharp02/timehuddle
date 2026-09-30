@@ -102,6 +102,7 @@ export default function Huddle() {
     setSelectedOrgId,
     teamsReady,
     isAdmin,
+    currentTime,
   } = useTeam();
 
   // Scope follows the selected team: the Personal team shows "me" — the
@@ -398,10 +399,12 @@ export default function Huddle() {
   // ── SuperChatInbox mapping (memoized — posts update via DDP) ──
   // Keyed on the post arrays themselves: syncPosts/refreshMyPosts replace them
   // on every change, including ones that don't bump `updatedAt` (clock-in
-  // linking a plan to its session, clock-out closing it).
+  // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
+  // live session's worked duration moving without regrouping every second.
+  const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
   const conversations = useMemo(
-    () => postsToConversations(filteredPosts, threadBy, viewer, undefined, getTeamName),
-    [filteredPosts, threadBy, viewer, getTeamName],
+    () => postsToConversations(filteredPosts, threadBy, viewer, nowMinute, getTeamName),
+    [filteredPosts, threadBy, viewer, nowMinute, getTeamName],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
@@ -512,13 +515,15 @@ export default function Huddle() {
       {/* AppPage's own px-4 md:px-6 covers small screens; these extra
           breakpoints widen the side margins further as the viewport grows,
           instead of leaving them flat past md. */}
-      <div className="huddle flex h-full min-h-0 flex-col gap-4 lg:px-6 xl:px-10 2xl:px-16">
+      <div className="huddle flex h-full min-h-0 min-w-0 flex-col gap-4 lg:px-6 xl:px-10 2xl:px-16">
         {/* Feed / Drafts tabs + actions */}
-        <div className="huddle-actions flex shrink-0 items-center gap-2">
+        {/* Wraps on narrow phones rather than pushing the page sideways. */}
+        <div className="huddle-actions flex shrink-0 flex-wrap items-center gap-2">
           <Tabs
             variant="pills"
             value={feedTab}
             onValueChange={(v) => setFeedTab(v as 'feed' | 'drafts')}
+            className="w-fit"
           >
             <TabsList aria-label="Huddle feed or drafts" className="w-fit">
               <TabsTrigger value="feed">Feed</TabsTrigger>
@@ -567,9 +572,12 @@ export default function Huddle() {
                 <FontAwesomeIcon icon={faMagnifyingGlass} />
               </Button>
             )}
+            {/* The app header already has a bell on phones; this one only adds
+                width to a row that must fit a 320px screen. */}
             <Button
               variant="ghost"
               size="icon"
+              className="hidden md:inline-flex"
               onClick={() => navigate('/app/notifications')}
               aria-label="Notifications"
               title="Notifications"
@@ -646,7 +654,7 @@ export default function Huddle() {
 
         {/* Feed */}
         {feedTab === 'feed' && (
-          <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
+          <div className="huddle-feed min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
             {scope === 'team' && !selectedTeamId && (
               <div className="flex items-center justify-center py-16 px-4">
                 <p className="text-sm text-gray-500 dark:text-neutral-400">
@@ -711,7 +719,9 @@ export default function Huddle() {
                       onMessageEdited={(messageId, text) =>
                         void handleMessageEdited(messageId, text)
                       }
-                      className="h-full"
+                      // A long URL or token would otherwise widen its bubble
+                      // past the screen (SuperChat doesn't break long words).
+                      className="h-full [&_[data-slot=superchat-bubble]_*]:[overflow-wrap:anywhere]"
                     />
                   )}
               </>

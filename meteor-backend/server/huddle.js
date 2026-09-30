@@ -50,24 +50,29 @@ async function canModifyPost(userId, post, team) {
 }
 
 // Enrichment helpers
-async function getUserInfo(userId) {
-  // Query Meteor users collection
-  const user = await rawDb().collection('users').findOne({ _id: String(userId) });
-  
+function toUserInfo(user) {
   const userName = user?.profile?.name ?? 'Unknown User';
   const words = userName.trim().split(/\s+/);
   const userInitials = words.length >= 2
     ? (words[0][0] + words[words.length - 1][0]).toUpperCase()
     : userName.substring(0, 2).toUpperCase();
-  
+
   return { userName, userInitials };
 }
 
+async function getUserInfo(userId) {
+  // Query Meteor users collection
+  const user = await rawDb().collection('users').findOne({ _id: String(userId) });
+  return toUserInfo(user);
+}
+
 async function enrichPost(post) {
-  const { userName, userInitials } = await getUserInfo(post.userId);
-  
-  let ticketTitle = undefined;
-  if (post.ticketId) {
+  // `authorInfo` / `ticketTitle` are pre-filled by attachEnrichment for list
+  // call sites; single-post call sites fall back to their own lookups.
+  const { userName, userInitials } = post.authorInfo ?? (await getUserInfo(post.userId));
+
+  let ticketTitle = post.ticketTitle ?? undefined;
+  if (post.ticketId && post.ticketTitle === undefined) {
     const ticket = await rawDb().collection('tickets').findOne({ _id: toId(post.ticketId) });
     ticketTitle = ticket?.title;
   }
@@ -167,6 +172,39 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/**
+ * Batch lookups for a list of posts — one `$in` query each for sessions,
+ * authors and ticket titles instead of one per post, since
+ * `huddlePosts.byTeam`, `huddle.getPosts` and `huddle.getMyPosts` enrich an
+ * unbounded feed. Mutates each post with `session`, `authorInfo` and
+ * `ticketTitle`, which `enrichPost` then just passes through.
+ */
+async function attachEnrichment(posts) {
+  if (!posts.length) return posts;
+  const userIds = [...new Set(posts.map((p) => String(p.userId)))];
+  const ticketIds = [...new Set(posts.filter((p) => p.ticketId).map((p) => String(p.ticketId)))];
+  const [users, tickets] = await Promise.all([
+    rawDb()
+      .collection('users')
+      .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
+      .toArray(),
+    ticketIds.length
+      ? rawDb()
+          .collection('tickets')
+          .find({ _id: { $in: ticketIds.map(toId) } }, { projection: { title: 1 } })
+          .toArray()
+      : [],
+    attachSessions(posts),
+  ]);
+  const usersById = new Map(users.map((u) => [String(u._id), u]));
+  const titlesById = new Map(tickets.map((t) => [String(t._id), t.title]));
+  for (const post of posts) {
+    post.authorInfo = toUserInfo(usersById.get(String(post.userId)));
+    if (post.ticketId) post.ticketTitle = titlesById.get(String(post.ticketId)) ?? null;
+  }
+  return posts;
+}
+
 async function enrichComment(comment) {
   const { userName, userInitials } = await getUserInfo(comment.userId);
   
@@ -228,7 +266,7 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
   // Track which ids this subscription has sent, so a draft being published
   // (an update) is delivered as `added` rather than a no-op `changed`.
   const sentIds = new Set();
-  await attachSessions(posts);
+  await attachEnrichment(posts);
   for (const post of posts) {
     const enriched = await enrichPost(post);
     this.added('huddlePosts', enriched.id, enriched);
@@ -322,7 +360,7 @@ Meteor.methods({
       .sort({ createdAt: -1 })
       .toArray();
     
-    await attachSessions(posts);
+    await attachEnrichment(posts);
     const enriched = await Promise.all(posts.map(post => enrichPost(post)));
     return { posts: enriched };
   },
@@ -360,7 +398,7 @@ Meteor.methods({
       .sort({ createdAt: -1 })
       .toArray();
 
-    await attachSessions(posts);
+    await attachEnrichment(posts);
     const enriched = await Promise.all(
       posts.map((post) => enrichPost({ ...post, teamId: String(post.teamId) })),
     );
