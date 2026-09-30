@@ -160,6 +160,15 @@ export async function pinIssueIfUnset(userId, issueId) {
   await setIssuePref(userId, issueId, PINNED);
 }
 
+/**
+ * Whether this user has pinned the issue. A hidden pin counts: it is still a
+ * Tickets row (rule 7), and starting its timer lifts the hide (`pinIssueIfUnset`).
+ */
+export async function isIssuePinned(userId, issueId) {
+  const held = await RedmineIssuePrefs.findOneAsync({ userId, issueId }, { fields: { state: 1 } });
+  return held?.state === PINNED;
+}
+
 /** Keep only the newest `MAX_DISMISSALS_PER_USER` dismissals for one user. */
 async function trimDismissals(userId) {
   const surplus = surplusDismissalIds(await allPrefRows(userId));

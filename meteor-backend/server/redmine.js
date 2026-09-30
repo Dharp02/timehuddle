@@ -474,15 +474,6 @@ Meteor.methods({
   },
 
   /**
-   * Create one Redmine time entry per confirmed ticket-day (M5, D1 + D2).
-   *
-   * **Irreversible (D1): time entries are never edited or deleted.** The
-   * client says *which* ticket-days to send and may override the activity; it
-   * never supplies the hours. Those are recomputed here from the timer
-   * sessions, because a client-supplied number would let a stale or tampered
-   * dialog write a figure nobody worked.
-   */
-  /**
    * Never send one ticket-day's unsent time to Redmine ("Never send" in the push
    * dialog). Writes nothing to Redmine: the seconds unsent right now are recorded
    * as handled, so the row leaves the dialog for good. Time tracked on that day
@@ -491,6 +482,9 @@ Meteor.methods({
    */
   async 'redmine.timeEntries.discard'({ ticketId, date } = {}) {
     const { userId } = await requireIdentity(this);
+    // Not metered with `enforceRedmineLimit`, unlike its neighbours: it never
+    // calls Redmine (local timer data and one Mongo write), and the push lock
+    // below already serializes it per user.
     if (
       typeof ticketId !== 'string' ||
       !/^\d+$/.test(ticketId) ||
@@ -523,6 +517,15 @@ Meteor.methods({
     }
   },
 
+  /**
+   * Create one Redmine time entry per confirmed ticket-day (M5, D1 + D2).
+   *
+   * **Irreversible (D1): time entries are never edited or deleted.** The
+   * client says *which* ticket-days to send and may override the activity; it
+   * never supplies the hours. Those are recomputed here from the timer
+   * sessions, because a client-supplied number would let a stale or tampered
+   * dialog write a figure nobody worked.
+   */
   async 'redmine.timeEntries.push'({ entries = [] } = {}) {
     const { userId } = await requireIdentity(this);
 

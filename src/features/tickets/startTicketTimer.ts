@@ -53,15 +53,11 @@ export interface StartTicketTimerOptions {
  */
 export function timerErrorMessage(err: unknown): string {
   const code = err instanceof ApiError ? err.code : undefined;
-  if (code === 'no-active-shift') return 'Clock in to start a ticket timer.';
-  if (code === 'not-connected')
-    return 'Connect your Redmine account in Settings to time this issue.';
-  if (code === 'unreachable' || code === 'invalid-key')
-    return 'Could not reach Redmine to start this timer.';
-  return 'Could not start the timer. Please try again.';
+  if (code === 'no-active-shift') return text.errorNoShift;
+  if (code === 'not-connected') return text.errorNotConnected;
+  if (code === 'unreachable' || code === 'invalid-key') return text.errorUnreachable;
+  return text.errorStart;
 }
-
-export const STOP_TIMER_ERROR = 'Could not stop the timer. Please try again.';
 
 /** Pin a Redmine issue into the Tickets table. True when the pin cap refused it. */
 function pinRedmineIssue(issueId: number): Promise<boolean> {

@@ -125,7 +125,7 @@ export const WorkPage: React.FC = () => {
   const { teams, allTeams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
   const { isClockedIn } = useClockToggle();
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
-  const { start: startTimer, stop: stopTimer } = useTicketStart();
+  const { start: startTimer, stop: stopTimer, busyKey: timerBusyKey } = useTicketStart();
   const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
 
@@ -874,7 +874,9 @@ export const WorkPage: React.FC = () => {
                     <TableCell className="py-2 pr-0">
                       <TimerToggleButton
                         isRunning={isRunning}
-                        disabled={controlsDisabled}
+                        // One start or stop at a time, app-wide (TicketStartProvider).
+                        isLoading={timerBusyKey === `${de.entry.source}:${de.entry.ticketId}`}
+                        disabled={controlsDisabled || timerBusyKey !== null}
                         onClick={() =>
                           isRunning && runningSess
                             ? handleStop(de.entry, runningSess.id)

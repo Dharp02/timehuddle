@@ -172,7 +172,7 @@ const DISCONNECTED: Record<string, unknown> = {
   'issues.search': { connected: false, baseUrl: null, kind: 'text', issues: [] },
   'prefs.set': { ok: true },
   'prefs.listDismissed': { connected: false, baseUrl: null, issues: [] },
-  'issues.get': { baseUrl: null, issue: null, journals: [] },
+  'issues.get': { baseUrl: null, me: null, pinned: false, issue: null, journals: [] },
   'issues.create': { baseUrl: null, issue: null, mismatches: [], issueId: 0, confirmed: false },
   'issues.update': { baseUrl: null, issue: null, mismatches: [] },
   'projects.list': { projects: [] },

@@ -42,6 +42,13 @@ export const ticketTimerText = {
   selectTeamFirst: 'Select a team before clocking in.',
   clockInFailed: 'Could not clock in. Please try again.',
 
+  /** Why a start or stop failed; see `timerErrorMessage`. */
+  errorNoShift: 'Clock in to start a ticket timer.',
+  errorNotConnected: 'Connect your Redmine account in Settings to time this issue.',
+  errorUnreachable: 'Could not reach Redmine to start this timer.',
+  errorStart: 'Could not start the timer. Please try again.',
+  errorStop: 'Could not stop the timer. Please try again.',
+
   /** On the Clock page while a start waits for the clock-in. */
   pendingStart: (label: string) => `The timer on ${label} starts when you clock in.`,
   cancelPendingStart: 'Cancel',

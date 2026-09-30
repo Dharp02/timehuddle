@@ -79,6 +79,7 @@ function formatDate(iso: string | null): string {
 interface LoadedIssue {
   baseUrl: string | null;
   me: number | null;
+  pinned: boolean;
   issue: RedmineIssueDetail;
   journals: RedmineJournal[];
   timeEntries: RedmineTimeEntry[] | null;
@@ -265,16 +266,16 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
       void stopTimer({ sessionId: runningTicket.sessionId, ticketKey, label });
       return;
     }
-    // Assigned to me means the table already has it, and nothing needs pinning.
-    // Anything else is pinned, which is harmless when it is already in the table
-    // (pinned, or assigned to one of my groups): at the pin cap the server
-    // accepts an issue assigned to me through a group, as the table does.
-    const assignedToMe = loaded?.me != null && issue?.assignedTo?.id === loaded.me;
+    // Pinned, or assigned to me, means the table already has it: nothing to pin.
+    // Anything else is pinned, which is harmless when it is in the table anyway
+    // (assigned to one of my groups): at the pin cap the server accepts an
+    // issue assigned to me through a group, as the table does.
+    const inTable = !!loaded?.pinned || (loaded?.me != null && issue?.assignedTo?.id === loaded.me);
     void startTimer({
       kind: 'ticket',
       ticket: { sourceId: 'redmine', id: String(issueId) },
       label,
-      inTable: assignedToMe,
+      inTable,
       onBoard,
     });
   };

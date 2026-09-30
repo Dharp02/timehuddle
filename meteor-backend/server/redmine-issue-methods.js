@@ -36,6 +36,7 @@ import {
   toNameMap,
   toNamedList,
 } from './redmine-issues';
+import { isIssuePinned } from './redmine-prefs';
 import { pushedEntryIdsFor } from './redmine-time-sync';
 import {
   buildUpdatePayload,
@@ -207,7 +208,8 @@ Meteor.methods({
    * its Redmine history (`journals`, oldest first), and the newest time logged
    * on it in Redmine (`timeEntries`, see `loadTimeEntries`) for the issue page.
    * `me` is the caller's Redmine user id, so the page can tell their own
-   * activity apart.
+   * activity apart; `pinned` says whether they pinned the issue, so a timer
+   * start there knows the Tickets table already has it.
    */
   async 'redmine.issues.get'({ issueId } = {}) {
     const { userId } = await requireIdentity(this);
@@ -215,16 +217,18 @@ Meteor.methods({
     enforceRedmineLimit(issueReadLimiter, userId);
     const account = await requireAccount(userId);
 
-    const [raw, timeEntries, me] = await Promise.all([
+    const [raw, timeEntries, me, pinned] = await Promise.all([
       loadRawIssue(account, issueId),
       loadTimeEntries(userId, account, issueId),
       // Best-effort, like the time entries: without it the page still loads,
       // it just can't pick out the caller's own activity.
       redmineUserIdFor(userId, account).catch(() => null),
+      isIssuePinned(userId, issueId),
     ]);
     return {
       baseUrl: account.baseUrl,
       me,
+      pinned,
       issue: toIssueDetail(raw),
       journals: await loadJournals(userId, account, raw),
       timeEntries,

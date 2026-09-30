@@ -30,6 +30,7 @@ const detailResponse = (overrides = {}) => ({
   // assigned to them (see `issueDetail`), which is how the page knows it is in
   // the table and needs no pin.
   me: 8,
+  pinned: false,
   issue: issueDetail(overrides),
   journals: [
     {
@@ -440,6 +441,25 @@ test.describe('Redmine issue page timer', () => {
     ).toBeVisible();
     expect(rm.calls('prefs.set')).toContainEqual({ issueId: ISSUE_ID, state: 'pinned' });
     expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: String(ISSUE_ID) }] });
+  });
+
+  test('an issue you already pinned is not pinned again', async ({ page }) => {
+    await clock.ensureClockedIn();
+    const { boardAdds } = await stubTimer(page);
+    const rm = await openIssue(page, {
+      'issues.get': {
+        ...detailResponse({ assignedTo: { id: 3, name: 'Priya Patel' } }),
+        pinned: true,
+      },
+    });
+
+    await startButton(page).click();
+
+    await expect(
+      page.getByText(`Timer started on #${ISSUE_ID} and added to My Board`),
+    ).toBeVisible();
+    expect(rm.calls('prefs.set')).toHaveLength(0);
+    expect(boardAdds).toHaveLength(1);
   });
 
   test('at the pin limit the timer starts, and says it stayed off the table', async ({ page }) => {

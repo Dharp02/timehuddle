@@ -2459,6 +2459,8 @@ export const redmineApi = {
       baseUrl: string | null;
       /** The caller's Redmine user id, to pick out their own activity. */
       me: number | null;
+      /** The caller pinned this issue, so it is in their Tickets table. */
+      pinned: boolean;
       issue: RedmineIssueDetail;
       journals: RedmineJournal[];
       /**

@@ -39,7 +39,6 @@ import { useRunningTicket, type RunningTicket } from '../../lib/useRunningTicket
 import { useRouter } from '../../ui/router';
 import { invalidateRedmineCache } from '../tickets/sources';
 import {
-  STOP_TIMER_ERROR,
   startTicketTimer,
   timerErrorMessage,
   toastTimerOutcome,
@@ -206,7 +205,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
         try {
           await timerApi.stopSession(sessionId, Date.now());
         } catch {
-          toast.error(STOP_TIMER_ERROR);
+          toast.error(text.errorStop);
           return 'failed';
         }
         toastTimerOutcome(toast, 'stopped', label);
