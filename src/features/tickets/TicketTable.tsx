@@ -333,6 +333,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   onSelectedChange={onSelectedChange}
                   isTimerRunning={runningTicketKey === ticket.key}
                   timerLoading={timerLoadingKey === ticket.key}
+                  // One timer start or stop at a time (TicketStartProvider).
+                  timerDisabled={timerLoadingKey !== null}
                   onToggleTimer={onToggleTimer}
                   showTimerColumn={showTimerColumn}
                   onEditRequest={onEditRequest}

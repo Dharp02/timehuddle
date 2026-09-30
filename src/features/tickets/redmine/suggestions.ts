@@ -53,11 +53,17 @@ export function isCompleteQuery(raw: string): boolean {
  * The suggestions that match what the user typed, in the server's order.
  *
  * - `#12` or `12` matches issue numbers starting with those digits
- * - a pasted issue link matches that issue
+ * - a pasted issue link matches that issue, when it is on the connected
+ *   instance (`baseUrl`): issue numbers mean nothing across instances, so a
+ *   link elsewhere is left to the server search, which says so
  * - `@name` matches the assignee's name
  * - anything else matches the title, project or assignee, ignoring case
  */
-export function filterSuggestions<T extends RedmineIssue>(issues: T[], raw: string): T[] {
+export function filterSuggestions<T extends RedmineIssue>(
+  issues: T[],
+  raw: string,
+  baseUrl: string | null,
+): T[] {
   const query = raw.trim().toLowerCase();
   if (!query) return issues;
 
@@ -65,6 +71,8 @@ export function filterSuggestions<T extends RedmineIssue>(issues: T[], raw: stri
   if (number) return issues.filter((issue) => String(issue.id).startsWith(number));
 
   if (isLink(query)) {
+    const base = baseUrl?.replace(/\/+$/, '').toLowerCase();
+    if (!base || !query.startsWith(`${base}/issues/`)) return [];
     const id = query.match(ISSUE_URL_ID)?.[1];
     return id ? issues.filter((issue) => String(issue.id) === id) : [];
   }

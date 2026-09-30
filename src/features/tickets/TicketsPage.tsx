@@ -632,6 +632,7 @@ export const TicketsPage: React.FC = () => {
                   userId={userId}
                   query={searchQuery}
                   onQueryChange={setSearchQuery}
+                  baseUrl={redmineBaseUrl}
                   tableIssueIds={tableRedmineIssueIds}
                   runningIssueId={runningRedmineIssueId}
                   onToggleTimer={handleSuggestionTimer}

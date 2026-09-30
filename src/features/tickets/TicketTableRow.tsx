@@ -52,6 +52,8 @@ export interface TicketTableRowProps {
   onSelectedChange: (ticket: UnifiedTicket, selected: boolean) => void;
   isTimerRunning: boolean;
   timerLoading: boolean;
+  /** Another row's timer start or stop is in flight. */
+  timerDisabled?: boolean;
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /**
    * My Board only. Renders the ▶/⏸ column between the checkbox and Title
@@ -92,6 +94,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   onSelectedChange,
   isTimerRunning,
   timerLoading,
+  timerDisabled = false,
   onToggleTimer,
   showTimerColumn = false,
   onEditRequest,
@@ -184,6 +187,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
           <TimerToggleButton
             isRunning={isTimerRunning}
             isLoading={timerLoading}
+            disabled={timerDisabled}
             onClick={() => onToggleTimer(ticket)}
             ariaLabel={
               isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`

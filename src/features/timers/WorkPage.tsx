@@ -310,10 +310,15 @@ export const WorkPage: React.FC = () => {
 
   // ── Fetch day entries ──
 
+  // Several refreshes can overlap (clocking in, then the timer start that
+  // follows it, fire one each), and an older answer can land last. Only the
+  // newest request may write, so a pre-start snapshot never replaces a running row.
+  const fetchDaySeq = useRef(0);
   const fetchDay = useCallback(async () => {
+    const seq = ++fetchDaySeq.current;
     try {
       const entries = await timerApi.getDay(selectedDate);
-      setDayEntries(entries);
+      if (seq === fetchDaySeq.current) setDayEntries(entries);
     } catch {
       // keep previous
     }

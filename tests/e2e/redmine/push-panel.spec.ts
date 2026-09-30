@@ -185,7 +185,7 @@ test.describe('Redmine push panel', () => {
     await expect(page.getByText('Redmine time ready to send')).toHaveCount(0);
   });
 
-  test('a blocked-only preview shows the panel but refuses to send', async ({ page }) => {
+  test('a blocked-only preview opens, but only to mark rows Never send', async ({ page }) => {
     await openClock(page, {
       'timeEntries.preview': preview({
         rows: [previewRow({ ticketId: '99', blockedReason: 'issue-unavailable', subject: null })],
@@ -194,7 +194,13 @@ test.describe('Redmine push panel', () => {
 
     await expect(summary(page)).toContainText('0 ticket-days');
     await expect(summary(page)).toContainText('1 can’t be sent');
-    await expect(sendButton(page)).toBeDisabled();
+
+    // The dialog opens so the blocked row can be discarded; nothing can be sent.
+    await sendButton(page).click();
+    await expect(confirmButton(page)).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: /^Never send #99 on .* to Redmine$/ }),
+    ).toBeEnabled();
   });
 
   test('already-pushed time reappears as unsent time only (D5)', async ({ page }) => {

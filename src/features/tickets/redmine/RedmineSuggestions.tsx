@@ -52,6 +52,8 @@ interface RedmineSuggestionsProps {
   /** The search text. The parent filters the Tickets table with it. */
   query: string;
   onQueryChange: (query: string) => void;
+  /** The connected Redmine's base URL; a pasted link matches locally only on it. */
+  baseUrl: string | null;
   /** Redmine issue ids already in the Tickets table, left out of "More from Redmine". */
   tableIssueIds: ReadonlySet<number>;
   /** The Redmine issue a timer is running on, if any. */
@@ -107,6 +109,7 @@ export function RedmineSuggestions({
   userId,
   query,
   onQueryChange,
+  baseUrl,
   tableIssueIds,
   runningIssueId,
   onToggleTimer,
@@ -127,8 +130,8 @@ export function RedmineSuggestions({
   const trimmed = query.trim();
 
   const matching = useMemo(
-    () => filterSuggestions(suggestions.issues, trimmed),
-    [suggestions.issues, trimmed],
+    () => filterSuggestions(suggestions.issues, trimmed, baseUrl),
+    [suggestions.issues, trimmed, baseUrl],
   );
 
   const moreResults = useMemo(() => {

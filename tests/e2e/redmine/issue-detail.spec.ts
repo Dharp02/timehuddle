@@ -11,6 +11,7 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 
+import { createPlanRequiredTeam } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { ClockPage } from '../pages/ClockPage';
 import {
@@ -25,6 +26,10 @@ const ISSUE_ID = 15;
 
 const detailResponse = (overrides = {}) => ({
   baseUrl: BASE_URL,
+  // The caller's Redmine id, as `redmine.issues.get` returns it: the issue is
+  // assigned to them (see `issueDetail`), which is how the page knows it is in
+  // the table and needs no pin.
+  me: 8,
   issue: issueDetail(overrides),
   journals: [
     {
@@ -469,6 +474,46 @@ test.describe('Redmine issue page timer', () => {
     ).toBeVisible();
     expect(starts[0]).toMatchObject({ ticketId: String(ISSUE_ID), source: 'redmine' });
     expect(boardAdds).toHaveLength(1);
+  });
+
+  test('plan required: plan on the Clock page, then the issue timer starts and you are back', async ({
+    page,
+  }) => {
+    test.slow();
+    await clock.ensureClockedOut();
+    await createPlanRequiredTeam(page);
+    const { starts, boardAdds } = await stubTimer(page);
+    const rm = await openIssue(page, {
+      'issues.get': detailResponse({ assignedTo: null }),
+      'prefs.set': { ok: true },
+    });
+
+    await startButton(page).click();
+    await expect(
+      page.getByText(/Your team asks for today's plan before you clock in/),
+    ).toBeVisible();
+    await page.getByRole('button', { name: "Write today's plan" }).click();
+
+    await expect(page).toHaveURL(/\/app\/clock$/);
+    await expect(
+      page.getByText(`The timer on #${ISSUE_ID} starts when you clock in.`),
+    ).toBeVisible();
+    expect(starts).toHaveLength(0);
+    await clock.typePlan(`Plan before timing #${ISSUE_ID}`);
+    await clock.postPlanAndClockIn();
+
+    // Back on the issue page, timing it: pinned into the table and on My Board.
+    await expect(page).toHaveURL(new RegExp(`/app/tickets/redmine/${ISSUE_ID}$`), {
+      timeout: 15000,
+    });
+    await expect(
+      page.getByText(`Timer started on #${ISSUE_ID} and added to My Board`),
+    ).toBeVisible();
+    expect(starts[0]).toMatchObject({ ticketId: String(ISSUE_ID), source: 'redmine' });
+    expect(rm.calls('prefs.set')).toContainEqual({ issueId: ISSUE_ID, state: 'pinned' });
+    expect(boardAdds).toHaveLength(1);
+
+    await clock.ensureClockedOut();
   });
 
   test('a refused start says why', async ({ page }) => {

@@ -20,6 +20,7 @@
  */
 import {
   Button,
+  ButtonGroup,
   Modal,
   ModalBody,
   ModalClose,
@@ -114,6 +115,26 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const runningTicket = useRunningTicket(isClockedIn);
 
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // One start or stop at a time, app-wide. The state above lands a render late,
+  // so this ref is the guard: two overlapping starts could each find no open
+  // session on the server and both insert one.
+  const busyRef = useRef(false);
+
+  /** Run `op` unless another start or stop is in flight; `'failed'` (silently) if one is. */
+  const exclusive = useCallback(
+    async (key: string, op: () => Promise<TicketTimerOutcome>): Promise<TicketTimerOutcome> => {
+      if (busyRef.current) return 'failed';
+      busyRef.current = true;
+      setBusyKey(key);
+      try {
+        return await op();
+      } finally {
+        busyRef.current = false;
+        setBusyKey(null);
+      }
+    },
+    [],
+  );
   const [prompt, setPrompt] = useState<TicketStartRequest | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingTicketStart | null>(null);
@@ -140,16 +161,20 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
           ? timerLabel(running.source, running.id, running.title)
           : null;
 
-      setBusyKey(key);
-      try {
+      return exclusive(key, async () => {
         let outcome: TicketTimerOutcome;
-        if (request.kind === 'ticket') {
-          outcome = await startTicketTimer(request.ticket, request);
-          // A pinned issue joins the Redmine rows, which are cached per session.
-          if (request.ticket.sourceId === 'redmine' && !request.inTable) invalidateRedmineCache();
-        } else {
-          await timerApi.startSession(request.entryId, Date.now());
-          outcome = 'started';
+        try {
+          if (request.kind === 'ticket') {
+            outcome = await startTicketTimer(request.ticket, request);
+            // A pinned issue joins the Redmine rows, which are cached per session.
+            if (request.ticket.sourceId === 'redmine' && !request.inTable) invalidateRedmineCache();
+          } else {
+            await timerApi.startSession(request.entryId, Date.now());
+            outcome = 'started';
+          }
+        } catch (err) {
+          toast.error(timerErrorMessage(err));
+          return 'failed';
         }
         if (outcome === 'failed') {
           toast.error(timerErrorMessage(null));
@@ -158,14 +183,9 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
         toastTimerOutcome(toast, outcome, request.label, stoppedLabel);
         refreshTimerViews();
         return outcome;
-      } catch (err) {
-        toast.error(timerErrorMessage(err));
-        return 'failed';
-      } finally {
-        setBusyKey(null);
-      }
+      });
     },
-    [toast],
+    [toast, exclusive],
   );
 
   const start = useCallback(
@@ -181,21 +201,19 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
   );
 
   const stop = useCallback(
-    async ({ sessionId, ticketKey, label }: TicketStopRequest): Promise<TicketTimerOutcome> => {
-      setBusyKey(ticketKey);
-      try {
-        await timerApi.stopSession(sessionId, Date.now());
+    ({ sessionId, ticketKey, label }: TicketStopRequest): Promise<TicketTimerOutcome> =>
+      exclusive(ticketKey, async () => {
+        try {
+          await timerApi.stopSession(sessionId, Date.now());
+        } catch {
+          toast.error(STOP_TIMER_ERROR);
+          return 'failed';
+        }
         toastTimerOutcome(toast, 'stopped', label);
         refreshTimerViews();
         return 'stopped';
-      } catch {
-        toast.error(STOP_TIMER_ERROR);
-        return 'failed';
-      } finally {
-        setBusyKey(null);
-      }
-    },
-    [toast],
+      }),
+    [toast, exclusive],
   );
 
   const closePrompt = () => {
@@ -275,22 +293,24 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
           </div>
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={closePrompt}>
-            {text.cancel}
-          </Button>
-          {planFirst ? (
-            <Button variant="primary" onClick={goWritePlan}>
-              {text.writePlan}
+          <ButtonGroup>
+            <Button variant="outline" onClick={closePrompt}>
+              {text.cancel}
             </Button>
-          ) : (
-            <Button
-              variant="primary"
-              onClick={() => void clockInAndStart()}
-              isLoading={clockInLoading}
-            >
-              {text.clockInNow}
-            </Button>
-          )}
+            {planFirst ? (
+              <Button variant="primary" onClick={goWritePlan}>
+                {text.writePlan}
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                onClick={() => void clockInAndStart()}
+                isLoading={clockInLoading}
+              >
+                {text.clockInNow}
+              </Button>
+            )}
+          </ButtonGroup>
         </ModalFooter>
       </Modal>
     </TicketStartContext.Provider>

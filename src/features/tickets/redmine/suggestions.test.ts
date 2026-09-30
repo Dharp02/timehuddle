@@ -61,6 +61,7 @@ describe('isCompleteQuery', () => {
 });
 
 describe('filterSuggestions', () => {
+  const BASE = 'https://redmine.test';
   const issues = [
     issue(12, { subject: 'Login timeout', assignedTo: { id: 5, name: 'Alex Kim' } }),
     issue(120, { subject: 'Invoice export', project: { id: 2, name: 'Billing' } }),
@@ -69,28 +70,41 @@ describe('filterSuggestions', () => {
   const ids = (list: RedmineIssue[]) => list.map((row) => row.id);
 
   it('keeps everything, in order, for an empty query', () => {
-    expect(ids(filterSuggestions(issues, '  '))).toEqual([12, 120, 31]);
+    expect(ids(filterSuggestions(issues, '  ', BASE))).toEqual([12, 120, 31]);
   });
 
   it('matches issue numbers by prefix, with or without #', () => {
-    expect(ids(filterSuggestions(issues, '#12'))).toEqual([12, 120]);
-    expect(ids(filterSuggestions(issues, '3'))).toEqual([31]);
+    expect(ids(filterSuggestions(issues, '#12', BASE))).toEqual([12, 120]);
+    expect(ids(filterSuggestions(issues, '3', BASE))).toEqual([31]);
   });
 
   it('matches a pasted link to that one issue', () => {
-    expect(ids(filterSuggestions(issues, 'https://redmine.test/issues/120'))).toEqual([120]);
-    expect(ids(filterSuggestions(issues, 'https://redmine.test/projects/x'))).toEqual([]);
+    expect(ids(filterSuggestions(issues, 'https://redmine.test/issues/120', BASE))).toEqual([120]);
+    expect(ids(filterSuggestions(issues, 'https://redmine.test/projects/x', BASE))).toEqual([]);
+  });
+
+  it('leaves a link on another instance, or with no instance known, to the server', () => {
+    expect(ids(filterSuggestions(issues, 'https://other.test/issues/120', BASE))).toEqual([]);
+    expect(ids(filterSuggestions(issues, 'https://redmine.test/sub/issues/120', BASE))).toEqual([]);
+    expect(ids(filterSuggestions(issues, 'https://redmine.test/issues/120', null))).toEqual([]);
+  });
+
+  it('honours an instance on a sub-path', () => {
+    const base = 'https://example.test/redmine/';
+    expect(ids(filterSuggestions(issues, 'https://example.test/redmine/issues/31', base))).toEqual([
+      31,
+    ]);
   });
 
   it('matches @name against the assignee only', () => {
-    expect(ids(filterSuggestions(issues, '@pri'))).toEqual([31]);
-    expect(ids(filterSuggestions(issues, '@'))).toEqual([12, 31]);
+    expect(ids(filterSuggestions(issues, '@pri', BASE))).toEqual([31]);
+    expect(ids(filterSuggestions(issues, '@', BASE))).toEqual([12, 31]);
   });
 
   it('matches words against title, project and assignee, ignoring case', () => {
-    expect(ids(filterSuggestions(issues, 'LOGIN'))).toEqual([12]);
-    expect(ids(filterSuggestions(issues, 'billing'))).toEqual([120]);
-    expect(ids(filterSuggestions(issues, 'alex'))).toEqual([12]);
+    expect(ids(filterSuggestions(issues, 'LOGIN', BASE))).toEqual([12]);
+    expect(ids(filterSuggestions(issues, 'billing', BASE))).toEqual([120]);
+    expect(ids(filterSuggestions(issues, 'alex', BASE))).toEqual([12]);
   });
 });
 
