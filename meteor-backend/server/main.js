@@ -24,7 +24,7 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './redmine';
 import './redmine-issue-methods';
-import './redmine-suggestions';
+import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
 import './my-board';
@@ -1036,7 +1036,7 @@ Meteor.startup(async() => {
 
   Wormhole.expose('redmine.issues.relevant', {
     description:
-      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, timer running)",
+      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, on My Board, timer running)",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1077,6 +1077,23 @@ Meteor.startup(async() => {
         },
       },
       required: ['issueId', 'state'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.removeFromTable', {
+    description:
+      "Take Redmine issues out of the caller's Tickets table and My Board (bulk Delete). Never touches Redmine",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issueIds: {
+          type: 'array',
+          items: { type: 'integer' },
+          minItems: 1,
+          maxItems: MAX_REMOVE_PER_CALL,
+        },
+      },
+      required: ['issueIds'],
     },
   });
 

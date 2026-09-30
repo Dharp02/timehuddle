@@ -111,7 +111,10 @@ export interface RedmineIssueShape {
   description?: string;
   author?: RedmineNamedShape | null;
   allowedStatuses?: (RedmineNamedShape & { isClosed: boolean })[];
-  /** Why `issues.relevant` returned it, strongest first. The table shows only `assigned`. */
+  /**
+   * Why `issues.relevant` returned it, strongest first. The table shows
+   * `assigned`, `pinned` and `board` ones.
+   */
   reasons?: string[];
 }
 
@@ -170,9 +173,17 @@ const DISCONNECTED: Record<string, unknown> = {
   disconnect: { connected: false },
   'issues.relevant': { connected: false, baseUrl: null, issues: [], partial: false },
   'issues.search': { connected: false, baseUrl: null, kind: 'text', issues: [] },
+  'issues.removeFromTable': { removedCount: 0 },
   'prefs.set': { ok: true },
   'prefs.listDismissed': { connected: false, baseUrl: null, issues: [] },
-  'issues.get': { baseUrl: null, me: null, pinned: false, issue: null, journals: [] },
+  'issues.get': {
+    baseUrl: null,
+    me: null,
+    pinned: false,
+    removed: false,
+    issue: null,
+    journals: [],
+  },
   'issues.create': { baseUrl: null, issue: null, mismatches: [], issueId: 0, confirmed: false },
   'issues.update': { baseUrl: null, issue: null, mismatches: [] },
   'projects.list': { projects: [] },

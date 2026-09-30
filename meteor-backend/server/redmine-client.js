@@ -317,10 +317,18 @@ export async function getCurrentUser(account) {
  * the one query that is both cheap and bounded on a large instance: Redmine
  * filters by assignee before it checks visibility.
  */
+/** How many open assigned issues the "assigned" signal returns, newest first. */
+export const ASSIGNED_ISSUES_LIMIT = 100;
+
 export function listAssignedIssues(account, { timeoutMs } = {}) {
   return issueQuery(
     account,
-    { assigned_to_id: 'me', status_id: 'open', sort: 'updated_on:desc', limit: '100' },
+    {
+      assigned_to_id: 'me',
+      status_id: 'open',
+      sort: 'updated_on:desc',
+      limit: String(ASSIGNED_ISSUES_LIMIT),
+    },
     { timeoutMs },
   );
 }

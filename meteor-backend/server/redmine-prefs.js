@@ -11,8 +11,13 @@
  *     not from the Tickets table, not from anyone else's view, and never from
  *     Redmine. It expires by itself after 15 days.
  *
- * Hiding a **pinned** issue does not turn its row into a dismissal: the row stays
- * pinned and gains `dismissedAt`. The pin is what keeps an issue someone else
+ *   - **removed** — the user deleted the issue from their Tickets table (bulk
+ *     Delete). Replaces a pin, and stops "assigned to me" putting it back for as
+ *     long as it stays assigned. Starting a timer pins it again. Nothing in
+ *     Redmine changes.
+ *
+ * Hiding a **pinned** (or removed) issue does not turn its row into a dismissal:
+ * the row keeps its state and gains `dismissedAt`. The pin is what keeps an issue someone else
  * owns in the Tickets table, so losing it would make hiding a suggestion drop a
  * table row. See rule 7 in redmine-prefs-core.js.
  *
@@ -33,12 +38,13 @@ import {
   DISMISSED,
   MAX_PINS_PER_USER,
   PINNED,
+  REMOVED,
   partitionIssuePrefs,
   pinWouldExceedCap,
   surplusDismissalIds,
 } from './redmine-prefs-core';
 
-export { DISMISSED, PINNED } from './redmine-prefs-core';
+export { DISMISSED, PINNED, REMOVED } from './redmine-prefs-core';
 
 /**
  * Create the indexes the rules depend on.
@@ -64,17 +70,21 @@ export async function ensureRedmineIssuePrefIndexes() {
   );
 }
 
-/** The fields that make a pinned row also hidden (rule 7). */
+/** The fields that make a pinned or removed row also hidden (rules 7 and 11). */
 const HIDE_ON_PIN = { dismissedAt: '', assignedToMeAtDismissal: '' };
 
+/** The states whose row can carry a hide as well (rules 7 and 11). */
+const HIDE_CARRIERS = [PINNED, REMOVED];
+
 /**
- * Lift the hide on these issues: a dismissal row goes, a pinned row stays pinned.
- * Undo, Restore and the reassignment rule all mean "show it again", never "unpin".
+ * Lift the hide on these issues: a dismissal row goes, a pinned or removed row
+ * keeps its state. Undo, Restore and the reassignment rule all mean "show it
+ * again", never "unpin".
  */
 async function clearHides(userId, issueIds) {
   const issueId = { $in: issueIds };
   await RedmineIssuePrefs.updateAsync(
-    { userId, issueId, state: PINNED },
+    { userId, issueId, state: { $in: HIDE_CARRIERS } },
     { $unset: HIDE_ON_PIN },
     { multi: true },
   );
@@ -110,6 +120,10 @@ export async function setIssuePref(userId, issueId, state, { assignedToMe = true
     // Refused rather than evicting the user's oldest pin, which would take a
     // Tickets row and a My Board entry away without saying so.
     if (pinWouldExceedCap(await allPrefRows(userId), issueId)) {
+      // The pin was asked for to bring the issue back, so a removal must not
+      // outlive the refusal: one assigned to the user returns without a pin.
+      await forgetRemovals(userId, [issueId]);
+      bustUserCaches(userId);
       throw new TooManyPinsError();
     }
     // A pin replaces a dismissal, and clears a hide on an existing pin (rule 6).
@@ -120,8 +134,8 @@ export async function setIssuePref(userId, issueId, state, { assignedToMe = true
   } else {
     const held = await RedmineIssuePrefs.findOneAsync({ userId, issueId }, { fields: { state: 1 } });
     const hide = { assignedToMeAtDismissal: assignedToMe === true };
-    if (held?.state === PINNED) {
-      // Rule 7: hide it, keep the pin.
+    if (HIDE_CARRIERS.includes(held?.state)) {
+      // Rules 7 and 11: hide it, keep the pin or the removal.
       await RedmineIssuePrefs.updateAsync(
         { userId, issueId },
         { $set: { ...hide, dismissedAt: new Date() } },
@@ -161,12 +175,73 @@ export async function pinIssueIfUnset(userId, issueId) {
 }
 
 /**
- * Whether this user has pinned the issue. A hidden pin counts: it is still a
- * Tickets row (rule 7), and starting its timer lifts the hide (`pinIssueIfUnset`).
+ * This user's state for one issue — `pinned`, `dismissed`, `removed` or null.
+ * A hidden pin reads as `pinned`: it is still a Tickets row (rule 7), and
+ * starting its timer lifts the hide (`pinIssueIfUnset`).
  */
-export async function isIssuePinned(userId, issueId) {
+export async function issuePrefState(userId, issueId) {
   const held = await RedmineIssuePrefs.findOneAsync({ userId, issueId }, { fields: { state: 1 } });
-  return held?.state === PINNED;
+  return held?.state ?? null;
+}
+
+/**
+ * Take issues out of this user's Tickets table (bulk Delete). Nothing is sent
+ * to Redmine.
+ *
+ * Each row becomes a removal, whatever it was (rule 8): a pin goes, since a pin
+ * is what keeps an issue someone else owns in the table. A hide the row carried
+ * is kept on the removal (rule 11), so removing an issue does not quietly bring
+ * it back into the search suggestions. My Board entries are the caller's to drop.
+ */
+export async function removeIssuesFromTable(userId, issueIds) {
+  const held = new Map(
+    (
+      await RedmineIssuePrefs.find(
+        { userId, issueId: { $in: issueIds } },
+        { fields: { issueId: 1, state: 1, updatedAt: 1, dismissedAt: 1, assignedToMeAtDismissal: 1 } },
+      ).fetchAsync()
+    ).map((row) => [row.issueId, row]),
+  );
+  const now = new Date();
+  await Promise.all(
+    issueIds.map((issueId) => {
+      const hide = carriedHide(held.get(issueId));
+      return RedmineIssuePrefs.upsertAsync(
+        { userId, issueId },
+        hide
+          ? { $set: { userId, issueId, state: REMOVED, updatedAt: now, ...hide } }
+          : { $set: { userId, issueId, state: REMOVED, updatedAt: now }, $unset: HIDE_ON_PIN },
+      );
+    }),
+  );
+  bustUserCaches(userId);
+}
+
+/** The hide a row holds, in the fields a pinned or removed row carries it in. */
+function carriedHide(row) {
+  if (row?.state === DISMISSED) {
+    return { dismissedAt: row.updatedAt, assignedToMeAtDismissal: row.assignedToMeAtDismissal };
+  }
+  if (row?.dismissedAt != null) {
+    return { dismissedAt: row.dismissedAt, assignedToMeAtDismissal: row.assignedToMeAtDismissal };
+  }
+  return null;
+}
+
+/**
+ * Drop these removals (rule 10). A removal that carried a hide turns back into
+ * the plain dismissal it was, dated as before, so the hide still expires on time.
+ */
+async function forgetRemovals(userId, issueIds) {
+  const issueId = { $in: issueIds };
+  // The raw driver, because copying `dismissedAt` into `updatedAt` needs an
+  // update pipeline, which Meteor's `updateAsync` does not take. The delete
+  // after it only matches removals still left, so the two steps cannot clash.
+  await RedmineIssuePrefs.rawCollection().updateMany(
+    { userId, issueId, state: REMOVED, dismissedAt: { $ne: null } },
+    [{ $set: { state: DISMISSED, updatedAt: '$dismissedAt' } }, { $unset: 'dismissedAt' }],
+  );
+  await RedmineIssuePrefs.removeAsync({ userId, issueId, state: REMOVED });
 }
 
 /** Keep only the newest `MAX_DISMISSALS_PER_USER` dismissals for one user. */
@@ -186,18 +261,29 @@ function allPrefRows(userId) {
 }
 
 /**
- * This user's pins and live dismissals, with rule 5 applied.
+ * This user's pins, live dismissals and removals, with rules 5 and 10 applied.
  *
- * One query, one decision: dismissals of issues now assigned to the user are
- * deleted here and are already absent from `dismissedIds`, so the caller gets a
- * correct answer without a second read. `assignedIssueIds` comes from the
- * relevant list's own "assigned to me" signal, so the rule costs no extra
- * Redmine call.
+ * One query, one decision: dismissals of issues now assigned to the user, and
+ * removals of issues no longer assigned to them, are deleted here and are
+ * already absent from the answer, so the caller gets a correct one without a
+ * second read. `assignedIssueIds` comes from the relevant list's own "assigned
+ * to me" signal, so the rules cost no extra Redmine call; `assignedKnown` says
+ * that signal answered at all.
  */
-export async function readIssuePrefs(userId, { assignedIssueIds = [], now = Date.now() } = {}) {
-  const partitioned = partitionIssuePrefs(await allPrefRows(userId), { assignedIssueIds, now });
+export async function readIssuePrefs(
+  userId,
+  { assignedIssueIds = [], assignedKnown = false, now = Date.now() } = {},
+) {
+  const partitioned = partitionIssuePrefs(await allPrefRows(userId), {
+    assignedIssueIds,
+    assignedKnown,
+    now,
+  });
   if (partitioned.reviveIds.length) {
     await clearHides(userId, partitioned.reviveIds);
+  }
+  if (partitioned.forgetRemovalIds.length) {
+    await forgetRemovals(userId, partitioned.forgetRemovalIds);
   }
   return partitioned;
 }

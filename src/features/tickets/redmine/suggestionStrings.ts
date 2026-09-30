@@ -23,6 +23,7 @@ export const suggestionText = {
     activity: 'Recent activity',
     watching: 'Watching',
     pinned: 'Pinned',
+    board: 'On My Board',
   } satisfies Record<Exclude<RedmineRelevanceReason, 'logged'>, string>,
   /** `when` is already localized, e.g. "2 days ago" or "yesterday". */
   loggedReason: (when: string) => `Logged ${when}`,

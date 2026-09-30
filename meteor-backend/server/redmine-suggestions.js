@@ -11,7 +11,9 @@
  *     list shown on focus (Task A1),
  *   - `redmine.issues.search`   — one bounded query for what the user typed (A2),
  *   - `redmine.prefs.set` / `redmine.prefs.listDismissed` — TimeHuddle's own pins
- *     and dismissals, which Redmine has no field for (A3).
+ *     and dismissals, which Redmine has no field for (A3),
+ *   - `redmine.issues.removeFromTable` — take issues out of the user's Tickets
+ *     table and My Board (bulk Delete), leaving Redmine untouched.
  *
  * Every call runs under the caller's own personal API key, so Redmine's own
  * visibility rules decide what comes back and there is no admin key to leak.
@@ -42,11 +44,13 @@ import {
   dismissedIssueIds,
   ensureRedmineIssuePrefIndexes,
   readIssuePrefs,
+  removeIssuesFromTable,
   setIssuePref,
 } from './redmine-prefs';
+import { removeBoardEntries } from './my-board';
 import { buildRelevantIssues } from './redmine-relevance';
 import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine-query';
-import { Timers, WorkItems, isValidId } from './collections';
+import { MyBoard, Timers, WorkItems, isValidId } from './collections';
 import { enforceRedmineLimit as enforceLimit, toRedmineMeteorError } from './redmine';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 
@@ -192,6 +196,22 @@ async function runningRedmineIssueIds(userId) {
 }
 
 /**
+ * The Redmine issues on the caller's My Board — a reason to be in their Tickets
+ * table, whatever Redmine says about assignment (the board only shows rows the
+ * table has, so without this an entry outlives its row).
+ */
+async function boardRedmineIssueIds(userId) {
+  const entries = await MyBoard.find(
+    { userId, sourceId: REDMINE },
+    { fields: { ticketId: 1 } },
+  ).fetchAsync();
+  return entries.filter((e) => isRedmineIssueId(e.ticketId)).map((e) => Number(e.ticketId));
+}
+
+/** How many issues one bulk Delete may take out of the table (the client sends in chunks). */
+export const MAX_REMOVE_PER_CALL = 100;
+
+/**
  * `issueId` as a number, or a `bad-request`. Coerced rather than merely checked:
  * the id is stored and matched against numeric ids, so `"42"` arriving over REST
  * must not become a string row that `$in` will never find again.
@@ -262,24 +282,30 @@ Meteor.methods({
     return relevantCache.get(userId, `relevant:${withDismissed}`, async () => {
       enforceLimit(relevantLimiter, userId);
       const now = Date.now();
-      const [{ pinnedIds }, redmineUserId, runningIds] = await Promise.all([
+      const [{ pinnedIds }, redmineUserId, runningIds, boardIds] = await Promise.all([
         readIssuePrefs(userId, { now }),
         redmineUserIdFor(userId, account),
         runningRedmineIssueIds(userId),
+        boardRedmineIssueIds(userId),
       ]);
 
       try {
         const built = await buildRelevantIssues(account, {
           pinnedIds,
+          boardIds,
           runningIds,
           redmineUserId,
           now,
-          // Deferred, because rule 5 needs Redmine's answer about what is assigned
-          // to the caller before it can say which dismissals still stand.
-          hiddenIssueIds: withDismissed
-            ? undefined
-            : async (assignedIssueIds) =>
-                (await readIssuePrefs(userId, { assignedIssueIds, now })).dismissedIds,
+          // Deferred, because rules 5 and 10 need Redmine's answer about what is
+          // assigned to the caller before they can say which dismissals and
+          // removals still stand.
+          resolvePrefs: async (assignedIssueIds, assignedKnown) => {
+            const prefs = await readIssuePrefs(userId, { assignedIssueIds, assignedKnown, now });
+            return {
+              hiddenIds: withDismissed ? [] : prefs.dismissedIds,
+              removedIds: prefs.removedIds,
+            };
+          },
         });
         return { connected: true, baseUrl: account.baseUrl, ...built };
       } catch (err) {
@@ -358,6 +384,32 @@ Meteor.methods({
       throw err;
     }
     return { ok: true };
+  },
+
+  /**
+   * Take issues out of the caller's Tickets table and off their My Board — the
+   * bulk Delete on the Tickets page. Nothing is sent to Redmine: the issues, and
+   * everyone else's view of them, are untouched.
+   *
+   * An issue assigned to the caller stays out while it stays assigned to them;
+   * starting a timer on it brings it back (see redmine-prefs-core.js, rules 8–11).
+   */
+  async 'redmine.issues.removeFromTable'({ issueIds } = {}) {
+    const { userId } = await requireIdentity(this);
+    enforceLimit(prefsLimiter, userId);
+    if (!Array.isArray(issueIds) || issueIds.length === 0 || issueIds.length > MAX_REMOVE_PER_CALL) {
+      throw new Meteor.Error('bad-request', `Between 1 and ${MAX_REMOVE_PER_CALL} issue ids are required.`);
+    }
+    const ids = [...new Set(issueIds.map(requireIssueId))];
+
+    // Two writes, not one transaction; both are idempotent, so a retry after a
+    // failure between them finishes the job rather than doubling it.
+    await removeIssuesFromTable(userId, ids);
+    await removeBoardEntries(
+      userId,
+      ids.map((id) => ({ sourceId: REDMINE, ticketId: String(id) })),
+    );
+    return { removedCount: ids.length };
   },
 
   /**

@@ -125,9 +125,49 @@ describe('partitionIssuePrefs', () => {
     });
   });
 
+  describe('a removal from the Tickets table (rules 8–11)', () => {
+    const removal = (issueId: number, over: Record<string, unknown> = {}) => ({
+      issueId,
+      state: 'removed',
+      updatedAt: daysAgo(40),
+      ...over,
+    });
+    /** A read after Redmine has said what is assigned to the user. */
+    const readKnowing = (rows: unknown[], assignedIssueIds: number[]) =>
+      partitionIssuePrefs(rows as never, { assignedIssueIds, assignedKnown: true, now: NOW });
+
+    it('holds, however old, while the issue stays assigned (rule 8)', () => {
+      const { removedIds, forgetRemovalIds, pinnedIds } = readKnowing([removal(6)], [6]);
+      expect(removedIds).toEqual([6]);
+      expect(forgetRemovalIds).toEqual([]);
+      expect(pinnedIds).toEqual([]);
+    });
+
+    it('is forgotten once the issue is no longer assigned (rule 10)', () => {
+      const { removedIds, forgetRemovalIds } = readKnowing([removal(6)], [7]);
+      expect(removedIds).toEqual([]);
+      expect(forgetRemovalIds).toEqual([6]);
+    });
+
+    it('is never forgotten when what is assigned is not known', () => {
+      // The first read of a build, and any build whose "assigned" signal failed.
+      const { removedIds, forgetRemovalIds } = read([removal(6)]);
+      expect(removedIds).toEqual([6]);
+      expect(forgetRemovalIds).toEqual([]);
+    });
+
+    it('keeps a hide it carries, dated from dismissedAt (rule 11)', () => {
+      const hidden = removal(6, { dismissedAt: daysAgo(1), assignedToMeAtDismissal: true });
+      expect(readKnowing([hidden], [6]).dismissedIds).toEqual([6]);
+      const expired = removal(6, { dismissedAt: daysAgo(DISMISSAL_TTL_DAYS + 1) });
+      expect(readKnowing([expired], [6]).dismissedIds).toEqual([]);
+    });
+  });
+
   it('copes with no rows at all', () => {
-    expect(read([])).toEqual({ pinnedIds: [], dismissedIds: [], reviveIds: [] });
-    expect(partitionIssuePrefs(null as never)).toEqual({ pinnedIds: [], dismissedIds: [], reviveIds: [] });
+    const empty = { pinnedIds: [], dismissedIds: [], reviveIds: [], removedIds: [], forgetRemovalIds: [] };
+    expect(read([])).toEqual(empty);
+    expect(partitionIssuePrefs(null as never)).toEqual(empty);
   });
 });
 

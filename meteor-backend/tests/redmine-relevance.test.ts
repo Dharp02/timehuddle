@@ -300,6 +300,120 @@ describe('buildRelevantIssues', () => {
     expect(built.partial).toBe(false);
   });
 
+  it('tells the prefs whether Redmine answered what is assigned', async () => {
+    const told: boolean[] = [];
+    const resolvePrefs = async (_ids: number[], assignedKnown: boolean) => {
+      told.push(assignedKnown);
+      return {};
+    };
+    stubRedmine(allSignalsUp());
+    await buildRelevantIssues(account, { redmineUserId: 7, now: NOW, resolvePrefs });
+    const routes = allSignalsUp();
+    routes['assigned_to_id=me'] = undefined;
+    stubRedmine(routes);
+    await buildRelevantIssues(account, { redmineUserId: 7, now: NOW, resolvePrefs });
+    expect(told).toEqual([true, false]);
+  });
+
+  it('does not call what is assigned known when the list was cut off at its limit', async () => {
+    const told: boolean[] = [];
+    const routes = allSignalsUp();
+    routes['assigned_to_id=me'] = () =>
+      json({ issues: Array.from({ length: 100 }, (_, i) => rawIssue(500 + i)) });
+    stubRedmine(routes);
+    await buildRelevantIssues(account, {
+      redmineUserId: 7,
+      now: NOW,
+      resolvePrefs: async (_ids, assignedKnown) => {
+        told.push(assignedKnown);
+        return {};
+      },
+    });
+    expect(told).toEqual([false]);
+  });
+
+  it('stops counting the assignment of an issue taken out of the table', async () => {
+    stubRedmine(allSignalsUp());
+    const built = await buildRelevantIssues(account, {
+      redmineUserId: 7,
+      now: NOW,
+      resolvePrefs: async () => ({ removedIds: [1] }),
+    });
+    // Issue 1 was in the list only because it is assigned.
+    expect(built.issues.map((row) => row.id)).not.toContain(1);
+  });
+
+  describe('My Board issues', () => {
+    /** Answer `issue_id=` with exactly the ids asked for, less any in `gone`. */
+    const byIds = (gone: number[] = []) => {
+      const requests: number[][] = [];
+      return {
+        requests,
+        route: (url: string) => {
+          const ids = decodeURIComponent(url.match(/issue_id=([^&]+)/)![1]).split(',').map(Number);
+          requests.push(ids);
+          return json({ issues: ids.filter((id) => !gone.includes(id)).map((id) => rawIssue(id)) });
+        },
+      };
+    };
+
+    /** Route `issue_id=` through `byIds`, which needs the URL the stub does not pass on. */
+    const stubWithIds = (answer: ReturnType<typeof byIds>, routes = allSignalsUp()) => {
+      delete routes['issue_id='];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.includes('issue_id=')) return answer.route(url);
+          const responder = Object.keys(routes)
+            .filter((path) => url.includes(path))
+            .map((path) => routes[path])
+            .find(Boolean);
+          if (!responder) throw new TypeError('fetch failed');
+          return responder();
+        }),
+      );
+    };
+
+    it('keeps an issue on the board in the list, with the board as its reason', async () => {
+      stubWithIds(byIds());
+      const built = await buildRelevantIssues(account, { redmineUserId: 7, boardIds: [50], now: NOW });
+      expect(built.issues.find((row) => row.id === 50)?.reasons).toEqual(['board']);
+      expect(built.unavailableBoardIds).toEqual([]);
+    });
+
+    it('fetches pins and board issues together, once each', async () => {
+      const answer = byIds();
+      stubWithIds(answer);
+      await buildRelevantIssues(account, { redmineUserId: 7, pinnedIds: [60, 50], boardIds: [50], now: NOW });
+      expect(answer.requests[0]).toEqual([50, 60]);
+    });
+
+    it('names the board issues Redmine did not return as unavailable', async () => {
+      stubWithIds(byIds([51]));
+      const built = await buildRelevantIssues(account, { redmineUserId: 7, boardIds: [50, 51], now: NOW });
+      expect(built.unavailableBoardIds).toEqual([51]);
+    });
+
+    it('names none as unavailable when the fetch failed', async () => {
+      stubRedmine({ ...allSignalsUp(), 'issue_id=': undefined });
+      const built = await buildRelevantIssues(account, { redmineUserId: 7, boardIds: [50, 51], now: NOW });
+      expect(built.partial).toBe(true);
+      expect(built.unavailableBoardIds).toEqual([]);
+    });
+
+    it('fetches past 100 in chunks and never caps a table row away', async () => {
+      const answer = byIds();
+      stubWithIds(answer);
+      const pinnedIds = Array.from({ length: 150 }, (_, i) => 1000 + i);
+      const built = await buildRelevantIssues(account, { redmineUserId: 7, pinnedIds, now: NOW });
+
+      const keptRequests = answer.requests.filter((ids) => ids.includes(1000) || ids.includes(1149));
+      expect(keptRequests.map((ids) => ids.length)).toEqual([100, 50]);
+      const ids = built.issues.map((row) => row.id);
+      expect(pinnedIds.every((id) => ids.includes(id))).toBe(true);
+    });
+  });
+
   it('asks nothing about pins when the caller has none', async () => {
     const seen = stubRedmine(allSignalsUp());
     await buildRelevantIssues(account, { redmineUserId: 7, pinnedIds: [], now: NOW });
@@ -314,9 +428,9 @@ describe('buildRelevantIssues', () => {
     const built = await buildRelevantIssues(account, {
       redmineUserId: 7,
       now: NOW,
-      hiddenIssueIds: async (assignedIssueIds) => {
+      resolvePrefs: async (assignedIssueIds) => {
         asked.push(assignedIssueIds);
-        return [1, 3];
+        return { hiddenIds: [1, 3] };
       },
     });
 
@@ -329,7 +443,7 @@ describe('buildRelevantIssues', () => {
     await buildRelevantIssues(account, {
       redmineUserId: 7,
       now: NOW,
-      hiddenIssueIds: async () => [3, 4],
+      resolvePrefs: async () => ({ hiddenIds: [3, 4] }),
     });
     expect(seen.some((url) => url.includes('issue_id='))).toBe(false);
   });
