@@ -68,6 +68,8 @@ const FAILURE_TEXT: Record<string, string> = {
   unreachable: 'Could not reach Redmine',
   'hours-mismatch': 'Redmine stored different hours than we sent',
   'no-entry-id': 'Redmine did not return an entry id',
+  unconfirmed: 'Sent, but Redmine did not let us confirm it',
+  'push-interrupted': 'Not sent: another push took over. Try again',
   'already-synced-or-gone': 'Already sent, or no longer eligible',
   'invalid-activity': 'That activity no longer exists in Redmine',
 };

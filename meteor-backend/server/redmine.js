@@ -9,6 +9,8 @@
  * Any Redmine account can be linked to any TimeHuddle account: the key alone
  * identifies the Redmine user, so there is no email matching or admin step.
  */
+import { randomUUID } from 'node:crypto';
+
 import { Meteor } from 'meteor/meteor';
 
 import { ClockEvents, DUPLICATE_KEY_ERROR_CODE, RedmineLinks, Timers } from './collections';
@@ -30,6 +32,7 @@ import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
 import { toStatus } from './redmine-status';
 import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
+import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
 import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
 import { flagEntry, recordDiscard, recordEntry, sentSecondsFor } from './redmine-time-sync';
@@ -51,6 +54,13 @@ export function enforceRedmineLimit(limiter, userId) {
     );
   }
 }
+
+/**
+ * What one user may ask of the account, activity and push methods below. Each
+ * can reach Redmine, and none is called more than a few times a minute by a
+ * person using the app, so one shared, generous bound covers them.
+ */
+const accountLimiter = createRateLimiter({ limit: 60, windowMs: 60 * 1000 });
 
 /**
  * Map a failed Redmine request onto the Meteor error the client expects.
@@ -140,11 +150,16 @@ async function isIdleForPush(userId) {
   return !runningTimer;
 }
 
-/** A lock older than this is treated as abandoned (a crashed or timed-out push). */
+/**
+ * A lock not renewed for this long is treated as abandoned (a crashed push). A
+ * running push renews it before every entry, and one entry is two requests with
+ * an 8-second timeout each, so a live push never comes near it.
+ */
 const PUSH_LOCK_STALE_MS = 2 * 60 * 1000;
 
 /**
- * Claim the caller's push lock, or return false if a push is already running.
+ * Claim the caller's push lock, returning the owner token that renews and
+ * releases it, or null if a push is already running.
  *
  * A ticket-day may take several entries, so the storage layer does not reject
  * a second one. Without this, two tabs pressing Send together would both
@@ -154,6 +169,7 @@ const PUSH_LOCK_STALE_MS = 2 * 60 * 1000;
  */
 async function acquirePushLock(userId) {
   const now = new Date();
+  const owner = randomUUID();
   const claimed = await RedmineLinks.updateAsync(
     {
       userId,
@@ -163,27 +179,47 @@ async function acquirePushLock(userId) {
         { pushingSince: { $lt: new Date(now.getTime() - PUSH_LOCK_STALE_MS) } },
       ],
     },
-    { $set: { pushingSince: now } },
+    { $set: { pushingSince: now, pushLockOwner: owner } },
   );
-  return claimed === 1;
+  return claimed === 1 ? owner : null;
 }
 
-function releasePushLock(userId) {
-  return RedmineLinks.updateAsync({ userId }, { $set: { pushingSince: null } });
+/**
+ * Extend the lease, or return false when this push no longer holds the lock.
+ * Matched on the owner token, so a push that lost its lock cannot extend — or,
+ * in `releasePushLock`, clear — the one that took over.
+ */
+async function renewPushLock(userId, owner) {
+  const renewed = await RedmineLinks.updateAsync(
+    { userId, pushLockOwner: owner },
+    { $set: { pushingSince: new Date() } },
+  );
+  return renewed === 1;
 }
 
-/** Run `work` holding the caller's push lock, or refuse with `push-in-progress`. */
+function releasePushLock(userId, owner) {
+  return RedmineLinks.updateAsync(
+    { userId, pushLockOwner: owner },
+    { $set: { pushingSince: null, pushLockOwner: null } },
+  );
+}
+
+/**
+ * Run `work` holding the caller's push lock, or refuse with `push-in-progress`.
+ * `work` is handed a `stillHeld()` to call before each write to Redmine.
+ */
 async function withPushLock(userId, work) {
-  if (!(await acquirePushLock(userId))) {
+  const owner = await acquirePushLock(userId);
+  if (!owner) {
     throw new Meteor.Error(
       'push-in-progress',
       'A push to Redmine is already running. Wait for it to finish, then try again.',
     );
   }
   try {
-    return await work();
+    return await work(() => renewPushLock(userId, owner));
   } finally {
-    await releasePushLock(userId);
+    await releasePushLock(userId, owner);
   }
 }
 
@@ -308,8 +344,15 @@ async function pushOneEntry(userId, account, row, activityId) {
     hours: row.hours,
   });
 
-  const stored = await getTimeEntry(account, entryId);
-  if (stored && !hoursAgree(row.hours, Number(stored.hours))) {
+  // A read-back that fails, or that Redmine will not show this key, confirms
+  // nothing. The entry stays recorded as sent, and the user is told it went
+  // unconfirmed rather than that it was verified.
+  const stored = await getTimeEntry(account, entryId).catch(() => null);
+  if (!stored) {
+    await flagEntry(entryId, 'unconfirmed');
+    return { ...base, ok: false, reason: 'unconfirmed', entryId };
+  }
+  if (!hoursAgree(row.hours, Number(stored.hours))) {
     await flagEntry(entryId, 'hours-mismatch');
     return { ...base, ok: false, reason: 'hours-mismatch', storedHours: Number(stored.hours), entryId };
   }
@@ -324,6 +367,7 @@ Meteor.methods({
    */
   async 'redmine.connect'({ apiKey, baseUrl: rawBaseUrl } = {}) {
     const { userId } = await requireIdentity(this);
+    enforceRedmineLimit(accountLimiter, userId);
 
     if (typeof apiKey !== 'string' || !apiKey.trim()) {
       throw new Meteor.Error('bad-request', 'A Redmine API key is required.');
@@ -426,6 +470,7 @@ Meteor.methods({
 
     const account = await findRedmineAccount(userId);
     if (!account) return { connected: false, activities: [], selectedId: null, selectedReason: 'none' };
+    enforceRedmineLimit(accountLimiter, userId);
 
     const activities = await activitiesOrMeteorError(userId, account);
     const link = await RedmineLinks.findOneAsync({ userId }, { fields: { defaultActivityId: 1 } });
@@ -441,6 +486,7 @@ Meteor.methods({
    */
   async 'redmine.activities.setDefault'({ activityId } = {}) {
     const { userId } = await requireIdentity(this);
+    enforceRedmineLimit(accountLimiter, userId);
 
     if (!Number.isInteger(activityId)) {
       throw new Meteor.Error('bad-request', 'An activity id is required.');
@@ -469,6 +515,7 @@ Meteor.methods({
 
     const account = await findRedmineAccount(userId);
     if (!account) return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
+    enforceRedmineLimit(accountLimiter, userId);
 
     const idle = await isIdleForPush(userId);
     const rows = await buildPreviewRows(userId, account);
@@ -520,6 +567,7 @@ Meteor.methods({
    */
   async 'redmine.timeEntries.push'({ entries = [] } = {}) {
     const { userId } = await requireIdentity(this);
+    enforceRedmineLimit(accountLimiter, userId);
 
     if (!Array.isArray(entries) || entries.length === 0) {
       throw new Meteor.Error('bad-request', 'Nothing to send.');
@@ -540,8 +588,8 @@ Meteor.methods({
     // Held across both the unsent-time calculation and the writes: releasing it
     // between them would let a second push read the same unsent figure before
     // this one records its entry.
-    return withPushLock(userId, async () => {
-      const results = await pushRequestedEntries(userId, account, entries);
+    return withPushLock(userId, async (stillHeld) => {
+      const results = await pushRequestedEntries(userId, account, entries, stillHeld);
       // Logged time is one of the relevant list's signals, so the cached list is
       // now out of date about the issues this push covered.
       bustUserCaches(userId);
@@ -556,7 +604,7 @@ Meteor.methods({
  * Unsent time is recomputed here rather than taken from the client, then
  * matched against the requested rows.
  */
-async function pushRequestedEntries(userId, account, entries) {
+async function pushRequestedEntries(userId, account, entries, stillHeld) {
   const previewRows = await buildPreviewRows(userId, account);
   const byKey = new Map(previewRows.map((row) => [ticketDayKey(row.ticketId, row.date), row]));
 
@@ -605,6 +653,14 @@ async function pushRequestedEntries(userId, account, entries) {
         continue;
       }
       activityId = requested.activityId;
+    }
+
+    // Renewed before every write, so the lock cannot go stale under a long
+    // push. Losing it means another push took over: stop, rather than risk
+    // both sending the same time.
+    if (!(await stillHeld())) {
+      results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'push-interrupted' });
+      continue;
     }
 
     results.push(await pushOneEntry(userId, account, row, activityId));

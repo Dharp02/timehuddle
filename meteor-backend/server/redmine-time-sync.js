@@ -12,7 +12,7 @@
  *                       subtract to find the unsent remainder
  *   syncedHours         the rounded hours actually sent
  *   lastAttemptAt       when it was pushed
- *   failureReason       set if the read-back disagreed ('hours-mismatch'),
+ *   failureReason       set if the read-back disagreed ('hours-mismatch') or could not be made ('unconfirmed'),
  *                       otherwise null. The entry still exists either way.
  *   discardedAt         set instead of `redmineTimeEntryId` when the user chose
  *                       never to send this time ("Never send" in the push
