@@ -15,6 +15,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity, findUserById } from './auth-bridge';
+import { SESSION_POST_SORT } from './huddle';
 import { requireTeamMembership } from './permissions';
 import {
   toPublicClockEvent,
@@ -394,7 +395,7 @@ Meteor.methods({
       .collection('huddlePosts')
       .findOne(
         { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
-        { sort: { createdAt: -1 } }
+        { sort: SESSION_POST_SORT }
       );
 
     // Plan-first flow: when the team requires a plan, block clock-out until

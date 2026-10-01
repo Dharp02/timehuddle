@@ -11,8 +11,12 @@
  * and the draft is still there afterwards. The second half is the reason the
  * alert had to go — dismissing it cost you the caret, and on mobile the
  * keyboard along with it.
+ *
+ * Attachment failures are driven through the Clock tab's plan composer (the
+ * shared editor + attach bar); post failures through the Huddle page's "Share
+ * an update…" composer, the one place to post there (the inbox is read-only).
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
 import {
@@ -20,14 +24,18 @@ import {
   composerEditor,
   dropFiles,
   openComposer,
-  submitPost,
+  postFromHuddle as send,
+  setSharedTeamPlanGate,
 } from './helpers';
 
 /** The composer's inline `role="alert"` region. */
-const errorRegion = (page: import('@playwright/test').Page) => page.getByTestId('composer-error');
+const errorRegion = (page: Page) => page.getByTestId('composer-error');
 
-test.describe('Huddle composer — failures are visible', () => {
+test.describe('Huddle composer — attachment failures are visible', () => {
   test.setTimeout(120000);
+
+  test.beforeAll(() => setSharedTeamPlanGate(true));
+  test.afterAll(() => setSharedTeamPlanGate(false));
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
@@ -58,6 +66,16 @@ test.describe('Huddle composer — failures are visible', () => {
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
     await expect(errorRegion(page)).toHaveCount(0);
   });
+});
+
+test.describe('Huddle Share an update — post failures are visible', () => {
+  test.setTimeout(120000);
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    await selectSharedTestTeam(page);
+    await page.goto('/app/huddle');
+  });
 
   test('a post rejected as too large says so, and keeps the draft', async ({ page }) => {
     // Stubbed rather than built: the real trigger is a >1 MB body, and pasting
@@ -72,8 +90,7 @@ test.describe('Huddle composer — failures are visible', () => {
     );
 
     const draft = `Too large ${Date.now()}`;
-    await composerEditor(page).fill(draft);
-    await page.getByRole('button', { name: 'Post', exact: true }).click();
+    await send(page, draft);
 
     await expect(errorRegion(page)).toContainText(/too large/i, { timeout: 30000 });
     // The API's own byte arithmetic is not an instruction — the writer is told
@@ -86,8 +103,7 @@ test.describe('Huddle composer — failures are visible', () => {
     await page.route('**/huddle_createPost', (route) => route.abort('failed'));
 
     const draft = `Offline ${Date.now()}`;
-    await composerEditor(page).fill(draft);
-    await page.getByRole('button', { name: 'Post', exact: true }).click();
+    await send(page, draft);
 
     // Not "Failed to fetch", which is what the transport actually threw.
     await expect(errorRegion(page)).toContainText(/connection/i, { timeout: 30000 });
@@ -103,12 +119,12 @@ test.describe('Huddle composer — failures are visible', () => {
     });
 
     const draft = `Recovers ${Date.now()}`;
-    await composerEditor(page).fill(draft);
-    await page.getByRole('button', { name: 'Post', exact: true }).click();
+    await send(page, draft);
     await expect(errorRegion(page)).toBeVisible({ timeout: 30000 });
 
     // Retrying from the draft the failure left intact is the whole point.
-    await submitPost(page);
+    await expect(composerEditor(page)).toContainText(draft);
+    await page.getByRole('button', { name: 'Post', exact: true }).click();
     await expect(errorRegion(page)).toHaveCount(0, { timeout: 30000 });
   });
 });

@@ -108,14 +108,8 @@ export const ClockPage: React.FC = () => {
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   // Bumped to remount the (uncontrolled) editor — clears it after posting and
-  // re-seeds it when a draft loads.
+  // re-seeds it when the wrap-up's plan text loads.
   const [editorKey, setEditorKey] = useState(0);
-
-  // ── Drafts — save a plan without publishing/clocking in ──
-  type DraftRef = Pick<HuddlePost, 'id' | 'content'>;
-  const [draft, setDraft] = useState<DraftRef | null>(null);
-  const [savingDraft, setSavingDraft] = useState(false);
-  const [draftSaved, setDraftSaved] = useState(false);
 
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
@@ -223,30 +217,15 @@ export const ClockPage: React.FC = () => {
       ? 'wrapup'
       : null;
 
-  // Load the latest draft when the plan composer opens (prefill source below).
-  useEffect(() => {
-    if (composerMode !== 'plan' || !gateTeamId) {
-      setDraft(null);
-      return;
-    }
-    let cancelled = false;
-    huddleApi
-      .getMyLatestDraft(gateTeamId)
-      .then((post) => {
-        if (!cancelled && post) setDraft(post);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [composerMode, gateTeamId]);
-
   // The wrap-up seed normally comes from `sessionPost` (DDP-backed, realtime).
   // Its initial subscription sync is slow over a mobile/LAN connection, so the
   // wrap-up editor visibly loads its plan text late in Capacitor. Fetch the same
   // post directly (one-shot wormhole call) so it seeds immediately; the DDP copy
   // still takes over for realtime once it arrives.
-  const [sessionPostFetch, setSessionPostFetch] = useState<DraftRef | null>(null);
+  const [sessionPostFetch, setSessionPostFetch] = useState<Pick<
+    HuddlePost,
+    'id' | 'content'
+  > | null>(null);
   // Whether the wrap-up seed lookup has settled (resolved or failed). The
   // editor must not mount before this: RichEditor reads `value` on mount only,
   // and since 0.8.0 it no longer picks up a later value even when remounted via
@@ -282,27 +261,26 @@ export const ClockPage: React.FC = () => {
     };
   }, [composerMode, gateTeamId, activeClockEvent?.id]);
 
-  // Content pre-loaded into the (uncontrolled) editor for the current composer:
-  //   • plan   → the latest saved draft, so you keep editing it.
-  //   • wrapup → THIS session's plan post, so clocking out continues the same
-  //              content you wrote at clock-in instead of a blank box.
+  // Content pre-loaded into the (uncontrolled) wrap-up editor: THIS session's
+  // plan post, so clocking out continues the same content you wrote at
+  // clock-in instead of a blank box. The plan composer starts empty.
   const seedText =
-    composerMode === 'plan'
-      ? (draft?.content.text ?? '')
-      : composerMode === 'wrapup'
-        ? (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '')
-        : '';
+    composerMode === 'wrapup'
+      ? (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '')
+      : '';
 
   // Remember what the editor was actually mounted with, for the wrap-up guard.
+  // Snapshot `text` (what the editor is given) at each (re)mount — not
+  // `seedText`, which differs once the user has typed before the plan arrives.
   useEffect(() => {
-    if (editorMounted) shownSeedRef.current = seedText;
-  }, [editorMounted, seedText, composerMode, editorKey]);
+    if (editorMounted) shownSeedRef.current = text;
+  }, [editorMounted, composerMode, editorKey]);
 
   // Caches the plan post ID immediately after creation so postWrapUpAndClockOut
   // can update the right post even if the DDP subscription hasn't synced yet.
   const cachedPlanPostIdRef = useRef<string | null>(null);
 
-  // Apply the seed once it becomes available (draft / session post load async),
+  // Apply the seed once it becomes available (the session post loads async),
   // unless the user has already started typing. Remount the uncontrolled editor
   // via `editorKey` so it picks up the seeded value.
   const seededTokenRef = useRef<string | null>(null);
@@ -323,81 +301,21 @@ export const ClockPage: React.FC = () => {
     setMentions([]);
   }, [composerMode]);
 
-  async function saveDraft() {
-    const trimmed = composerText();
-    if (!gateTeamId || !trimmed || savingDraft || posting || uploadInFlight) return;
-    setSavingDraft(true);
-    setPostError(null);
-    try {
-      const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
-      const postAttachments = attachments.map(toPostAttachment);
-      if (draft) {
-        await huddleApi.updatePost(
-          draft.id,
-          { text: trimmed, mentions: mentionUserIds ?? draft.content.mentions },
-          {
-            attachments: postAttachments.length ? postAttachments : undefined,
-            ticketId: selectedTicketId,
-          },
-        );
-        setDraft({ ...draft, content: { ...draft.content, text: trimmed } });
-      } else {
-        const created = await huddleApi.createPost({
-          teamId: gateTeamId,
-          content: { text: trimmed, mentions: mentionUserIds ?? [] },
-          ticketId: selectedTicketId,
-          attachments: postAttachments,
-          draft: true,
-        });
-        setDraft({ id: created.id, content: { text: trimmed, mentions: mentionUserIds ?? [] } });
-      }
-      setDraftSaved(true);
-      setTimeout(() => setDraftSaved(false), 2500);
-    } catch (e) {
-      setPostError(e instanceof Error ? e.message : 'Failed to save draft. Please try again.');
-    } finally {
-      setSavingDraft(false);
-    }
-  }
-
   async function postPlanAndClockIn() {
     const trimmed = composerText();
     if (!gateTeamId || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
     try {
-      let planPostId: string;
       const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
-      const postAttachments = attachments.map(toPostAttachment);
-      if (draft) {
-        // Publishing the draft (with any edits) is this session's plan post.
-        const publishedMentions = mentionUserIds ?? draft.content.mentions;
-        await huddleApi.publishPost(draft.id, toDateString(new Date()), {
-          text: trimmed,
-          mentions: publishedMentions,
-        });
-        planPostId = draft.id;
-        if (postAttachments.length > 0 || selectedTicketId) {
-          await huddleApi.updatePost(
-            planPostId,
-            { text: trimmed, mentions: publishedMentions },
-            {
-              attachments: postAttachments.length ? postAttachments : undefined,
-              ticketId: selectedTicketId,
-            },
-          );
-        }
-        setDraft(null);
-      } else {
-        const created = await huddleApi.createPost({
-          teamId: gateTeamId,
-          content: { text: trimmed, mentions: mentionUserIds ?? [] },
-          ticketId: selectedTicketId,
-          attachments: postAttachments,
-          postDate: toDateString(new Date()),
-        });
-        planPostId = created.id;
-      }
+      const created = await huddleApi.createPost({
+        teamId: gateTeamId,
+        content: { text: trimmed, mentions: mentionUserIds ?? [] },
+        ticketId: selectedTicketId,
+        attachments: attachments.map(toPostAttachment),
+        postDate: toDateString(new Date()),
+      });
+      const planPostId = created.id;
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
@@ -671,7 +589,9 @@ export const ClockPage: React.FC = () => {
             ) : (
               <MarkdownEditor
                 key={`${composerMode}-${editorKey}`}
-                value={seedText}
+                // `text`, not `seedText`: RichEditor reloads when `value` differs
+                // from its own last output, which is how a pasted image shows inline.
+                value={text}
                 onChange={setText}
                 onSubmit={() =>
                   void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
@@ -719,31 +639,14 @@ export const ClockPage: React.FC = () => {
                 disabled={!text.trim() || uploadInFlight}
                 className="w-full sm:w-auto"
               >
-                {composerMode === 'plan'
-                  ? draft
-                    ? 'Publish plan and clock in'
-                    : 'Post plan and clock in'
-                  : 'Post wrap-up and clock out'}
+                {composerMode === 'plan' ? 'Post plan and clock in' : 'Post wrap-up and clock out'}
               </Button>
-              {composerMode === 'plan' && (
-                <Button
-                  variant="outline"
-                  onClick={() => void saveDraft()}
-                  isLoading={savingDraft}
-                  disabled={!text.trim() || uploadInFlight}
-                  className="w-full sm:w-auto"
-                >
-                  {draft ? 'Update draft' : 'Save draft'}
-                </Button>
-              )}
               <Text variant="muted" size="sm" className="font-mono">
-                {draftSaved
-                  ? 'Draft saved — publish to start your shift · '
-                  : !text.trim()
-                    ? composerMode === 'plan'
-                      ? 'Write a plan first · '
-                      : 'Write a wrap-up first · '
-                    : ''}
+                {!text.trim()
+                  ? composerMode === 'plan'
+                    ? 'Write a plan first · '
+                    : 'Write a wrap-up first · '
+                  : ''}
                 ⌘↵ to post and {composerMode === 'plan' ? 'clock in' : 'clock out'}
               </Text>
             </div>

@@ -63,13 +63,13 @@ import { initAgenda } from './agenda';
 import { bearerContextMiddleware } from './bearer-context';
 import { apiBodyLimitMiddleware } from './api-body-limit';
 
-// One-click role sign-in for local development. Imported dynamically so the
-// handler is never registered in a production server.
-if (Meteor.isDevelopment) {
-  Meteor.startup(async () => {
-    await import('./dev-quick-login');
-  });
-}
+// One-click role sign-in for local development and PR previews. Always
+// registered so a no-flag production request gets a real `forbidden` from the
+// handler's own isDevQuickLoginEnabled() gate, rather than Meteor's generic
+// "unrecognized options" — the module itself does nothing without the flag.
+Meteor.startup(async () => {
+  await import('./dev-quick-login');
+});
 
 /**
  * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
@@ -1514,24 +1514,6 @@ Meteor.startup(async() => {
     },
   });
 
-  Wormhole.expose('huddle.getMyLatestDraft', {
-    description: "The caller's newest unpublished draft post in a team, or null",
-    inputSchema: {
-      type: 'object',
-      properties: { teamId: { type: 'string' } },
-      required: ['teamId'],
-    },
-  });
-
-  Wormhole.expose('huddle.getMyDrafts', {
-    description: "All of the caller's unpublished drafts in a team, newest first",
-    inputSchema: {
-      type: 'object',
-      properties: { teamId: { type: 'string' } },
-      required: ['teamId'],
-    },
-  });
-
   Wormhole.expose('huddle.getMyPostForSession', {
     description: "The caller's post linked to a clock session, or null",
     inputSchema: {
@@ -1547,6 +1529,15 @@ Meteor.startup(async() => {
       type: 'object',
       properties: { teamId: { type: 'string' } },
       required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('huddle.getMyPosts', {
+    description:
+      "The caller's own published posts across every team they belong to (default: last 30 days)",
+    inputSchema: {
+      type: 'object',
+      properties: { since: { type: 'string', description: 'ISO date string' } },
     },
   });
 
@@ -1578,7 +1569,7 @@ Meteor.startup(async() => {
   };
 
   Wormhole.expose('huddle.createPost', {
-    description: 'Create a huddle post (or an author-only draft)',
+    description: 'Create a huddle post',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1587,9 +1578,11 @@ Meteor.startup(async() => {
         ticketId: { type: 'string' },
         attachments: huddlePostAttachmentSchema,
         postDate: { type: 'string' },
-        draft: { type: 'boolean' },
         clockEventId: { type: 'string' },
         wrapUp: { type: 'boolean' },
+        // Deprecated: kept so older clients' `draft: true` reaches the method
+        // and is rejected instead of being stripped and published.
+        draft: { type: 'boolean' },
       },
       required: ['teamId', 'content'],
     },
@@ -1611,24 +1604,6 @@ Meteor.startup(async() => {
         ticketId: { type: ['string', 'null'] },
       },
       required: ['postId', 'content'],
-    },
-    outputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string' } },
-    },
-  });
-
-  Wormhole.expose('huddle.publishPost', {
-    description: 'Publish one of the caller\'s own drafts into the feed',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        postId: { type: 'string' },
-        postDate: { type: 'string' },
-        content: huddlePostContentSchema,
-        clockEventId: { type: 'string' },
-      },
-      required: ['postId', 'postDate'],
     },
     outputSchema: {
       type: 'object',

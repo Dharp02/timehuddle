@@ -1,28 +1,21 @@
 /**
- * Huddle — "Edit post" opens a working editor.
+ * Huddle — editing a post works end to end.
  *
- * The edit composer used to be the only place that asked RichEditor for live
- * co-editing, and RichEditor builds that kit behind a dynamic `import()`. When
- * the chunk failed to load, RichEditor swallowed the error and rendered nothing
- * at all: the composer came up as an empty bordered box — no toolbar, no post
- * text, nothing to type into — and the post could not be edited. Writing new
- * posts was unaffected, since they never pass `collab` and never load it.
+ * The old card view's edit composer was the only place that asked RichEditor
+ * for live co-editing, and RichEditor builds that kit behind a dynamic
+ * `import()`. When the chunk failed to load, RichEditor swallowed the error and
+ * rendered nothing, so the post could not be edited.
  *
- * Live co-editing is switched off until the component survives that failure
- * (see `src/features/huddle/collab.ts` and mieweb/ui#480), so this asserts both
- * halves of the fix: the composer never reaches for that chunk, and editing a
- * post works end to end.
+ * Posts are now edited inline in the inbox thread (a plain text box), so this
+ * asserts that editing your own message saves what you type — and that editing
+ * never reaches for the collaborative chunk, which stays off until the
+ * component survives that failure (see `src/features/huddle/collab.ts` and
+ * mieweb/ui#480).
  */
 import { expect, test } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import {
-  composerEditor,
-  openComposer,
-  postContainer,
-  submitPost,
-  switchToCardView,
-} from './helpers';
+import { inboxMessage, openPostInInbox, seedPost } from './helpers';
 
 test.describe('Huddle — editing a post', () => {
   test.slow();
@@ -31,42 +24,29 @@ test.describe('Huddle — editing a post', () => {
     const seed = `edit-post-${Date.now()}`;
     const appended = ' — edited';
 
-    // Every request for the collaborative kit, so the test fails if the edit
-    // composer starts asking for it again while it is meant to be off.
+    // Every request for the collaborative kit, so the test fails if editing
+    // starts asking for it again while it is meant to be off.
     const collabChunkRequests: string[] = [];
     page.on('request', (request) => {
       if (/collabKit/.test(request.url())) collabChunkRequests.push(request.url());
     });
 
     await loginAs(page, TEST_USERS.owner1);
-    await selectSharedTestTeam(page);
-    await openComposer(page);
-    await composerEditor(page).fill(seed);
-    await submitPost(page);
-    await switchToCardView(page);
+    const teamId = await selectSharedTestTeam(page);
+    await seedPost(page, { teamId, text: seed });
 
-    const card = postContainer(page, seed).first();
-    await expect(card).toBeVisible({ timeout: 15000 });
+    const message = await openPostInInbox(page, seed);
+    await message.hover();
+    await message.getByRole('button', { name: 'Edit message' }).click();
 
-    // Both of these broke in dbaa9b09, which swapped the hand-rolled menu for
-    // @mieweb/ui's Dropdown: the kebab became a FontAwesome <path> (this used
-    // to filter for a <circle>) and the entries became menuitems rather than
-    // buttons. Select by accessible name and role, not by markup internals —
-    // HuddlePage.openPostMenu already locates the trigger this way.
-    await card.getByRole('button', { name: 'Post actions' }).click();
-    await page.getByRole('menuitem', { name: 'Edit post' }).click();
+    const editor = page.getByRole('textbox', { name: 'Edit message' });
+    await expect(editor).toHaveValue(seed);
 
-    // Pre-fix this never arrived — the composer rendered an empty box.
-    const editor = composerEditor(page);
-    await editor.waitFor({ state: 'visible', timeout: 20000 });
-    await expect(editor).toContainText(seed);
+    await editor.press('End');
+    await editor.pressSequentially(appended);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
 
-    await editor.click();
-    await page.keyboard.press('End');
-    await page.keyboard.type(appended);
-    await page.getByRole('button', { name: 'Update post' }).click();
-
-    await expect(postContainer(page, seed + appended).first()).toBeVisible({ timeout: 15000 });
+    await expect(inboxMessage(page, seed + appended)).toBeVisible({ timeout: 15000 });
     expect(collabChunkRequests).toEqual([]);
   });
 });

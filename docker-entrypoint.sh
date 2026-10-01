@@ -63,6 +63,7 @@ start_meteor() {
     APP_URL="${APP_URL:-http://localhost:3000}" \
     ROOT_URL="${ROOT_URL:-http://localhost:3100}" \
     CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:3000}" \
+    DEV_QUICK_LOGIN_ENABLED="${DEV_QUICK_LOGIN_ENABLED:-false}" \
     PORT=3100 \
     node main.js &
   METEOR_PID=$!
@@ -74,6 +75,7 @@ start_meteor() {
 echo "Starting Meteor backend on port 3100..."
 echo "  CORS_ORIGINS=${CORS_ORIGINS:-<not set>}"
 echo "  ROOT_URL=${ROOT_URL:-<not set>}"
+echo "  DEV_QUICK_LOGIN_ENABLED=${DEV_QUICK_LOGIN_ENABLED:-<not set>}"
 start_meteor
 
 # Wait for backend to be ready

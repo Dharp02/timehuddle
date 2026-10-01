@@ -3,6 +3,13 @@ import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { ObjectId } from 'mongodb';
 
+/**
+ * A session can hold several posts (the plan plus replies sent from the Huddle
+ * inbox). Its plan/wrap-up post is the one carrying the wrap-up, else the
+ * earliest — never simply the newest, which may be an inbox reply.
+ */
+export const SESSION_POST_SORT = { wrapUpAt: -1, createdAt: 1 };
+
 const METEOR_BASE_URL = process.env.ROOT_URL?.replace(/\/$/, '') ?? 'http://localhost:3100';
 
 // Safe ObjectId conversion — only converts 24-char hex strings
@@ -13,7 +20,9 @@ function toId(id) {
 // postDate is a plain calendar date string (client-local), e.g. "2026-07-22"
 const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Drafts carry status: 'draft'; absent status = published (legacy posts included).
+// Drafts (status: 'draft') can no longer be created, but rows saved before
+// they were removed still exist — keep them out of every feed. Absent status =
+// published (legacy posts included).
 const PUBLISHED = { status: { $ne: 'draft' } };
 
 // Permission helpers
@@ -43,24 +52,29 @@ async function canModifyPost(userId, post, team) {
 }
 
 // Enrichment helpers
-async function getUserInfo(userId) {
-  // Query Meteor users collection
-  const user = await rawDb().collection('users').findOne({ _id: String(userId) });
-  
+function toUserInfo(user) {
   const userName = user?.profile?.name ?? 'Unknown User';
   const words = userName.trim().split(/\s+/);
   const userInitials = words.length >= 2
     ? (words[0][0] + words[words.length - 1][0]).toUpperCase()
     : userName.substring(0, 2).toUpperCase();
-  
+
   return { userName, userInitials };
 }
 
+async function getUserInfo(userId) {
+  // Query Meteor users collection
+  const user = await rawDb().collection('users').findOne({ _id: String(userId) });
+  return toUserInfo(user);
+}
+
 async function enrichPost(post) {
-  const { userName, userInitials } = await getUserInfo(post.userId);
-  
-  let ticketTitle = undefined;
-  if (post.ticketId) {
+  // `authorInfo` / `ticketTitle` are pre-filled by attachEnrichment for list
+  // call sites; single-post call sites fall back to their own lookups.
+  const { userName, userInitials } = post.authorInfo ?? (await getUserInfo(post.userId));
+
+  let ticketTitle = post.ticketTitle ?? undefined;
+  if (post.ticketId && post.ticketTitle === undefined) {
     const ticket = await rawDb().collection('tickets').findOne({ _id: toId(post.ticketId) });
     ticketTitle = ticket?.title;
   }
@@ -160,6 +174,39 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/**
+ * Batch lookups for a list of posts — one `$in` query each for sessions,
+ * authors and ticket titles instead of one per post, since
+ * `huddlePosts.byTeam`, `huddle.getPosts` and `huddle.getMyPosts` enrich an
+ * unbounded feed. Mutates each post with `session`, `authorInfo` and
+ * `ticketTitle`, which `enrichPost` then just passes through.
+ */
+async function attachEnrichment(posts) {
+  if (!posts.length) return posts;
+  const userIds = [...new Set(posts.map((p) => String(p.userId)))];
+  const ticketIds = [...new Set(posts.filter((p) => p.ticketId).map((p) => String(p.ticketId)))];
+  const [users, tickets] = await Promise.all([
+    rawDb()
+      .collection('users')
+      .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
+      .toArray(),
+    ticketIds.length
+      ? rawDb()
+          .collection('tickets')
+          .find({ _id: { $in: ticketIds.map(toId) } }, { projection: { title: 1 } })
+          .toArray()
+      : [],
+    attachSessions(posts),
+  ]);
+  const usersById = new Map(users.map((u) => [String(u._id), u]));
+  const titlesById = new Map(tickets.map((t) => [String(t._id), t.title]));
+  for (const post of posts) {
+    post.authorInfo = toUserInfo(usersById.get(String(post.userId)));
+    if (post.ticketId) post.ticketTitle = titlesById.get(String(post.ticketId)) ?? null;
+  }
+  return posts;
+}
+
 async function enrichComment(comment) {
   const { userName, userInitials } = await getUserInfo(comment.userId);
   
@@ -221,7 +268,7 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
   // Track which ids this subscription has sent, so a draft being published
   // (an update) is delivered as `added` rather than a no-op `changed`.
   const sentIds = new Set();
-  await attachSessions(posts);
+  await attachEnrichment(posts);
   for (const post of posts) {
     const enriched = await enrichPost(post);
     this.added('huddlePosts', enriched.id, enriched);
@@ -315,17 +362,63 @@ Meteor.methods({
       .sort({ createdAt: -1 })
       .toArray();
     
-    await attachSessions(posts);
+    await attachEnrichment(posts);
     const enriched = await Promise.all(posts.map(post => enrichPost(post)));
     return { posts: enriched };
   },
-  
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, draft, clockEventId, wrapUp }) {
+
+  /**
+   * The caller's own published posts across every team they belong to — the
+   * Huddle inbox's "Me · all teams" scope. Defaults to the last 30 days so an
+   * account with years of history doesn't return an unbounded feed.
+   */
+  async 'huddle.getMyPosts'({ since } = {}) {
+    const identity = await requireIdentity(this);
+    if (since !== undefined && (typeof since !== 'string' || Number.isNaN(Date.parse(since)))) {
+      throw new Meteor.Error('bad-request', 'since must be an ISO date string');
+    }
+    const sinceDate = since ? new Date(since) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const myTeams = await rawDb()
+      .collection('teams')
+      .find(
+        { $or: [{ members: identity.userId }, { admins: identity.userId }] },
+        { projection: { _id: 1 } },
+      )
+      .toArray();
+    // Legacy posts store teamId as an ObjectId — match both forms.
+    const teamIds = myTeams.flatMap((t) => [String(t._id), toId(String(t._id))]);
+
+    const posts = await rawDb()
+      .collection('huddlePosts')
+      .find({
+        userId: identity.userId,
+        teamId: { $in: teamIds },
+        createdAt: { $gte: sinceDate },
+        ...PUBLISHED,
+      })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    await attachEnrichment(posts);
+    const enriched = await Promise.all(
+      posts.map((post) => enrichPost({ ...post, teamId: String(post.teamId) })),
+    );
+    return { posts: enriched };
+  },
+
+  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, draft }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the
     // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
     // silently strands the post until the socket reconnects.
     const identity = await requireIdentity(this);
+    // Drafts were removed, but an older client (e.g. an installed mobile build)
+    // may still send `draft: true`. Reject it rather than publishing text the
+    // author meant to keep private.
+    if (draft === true) {
+      throw new Meteor.Error('bad-request', 'Drafts are no longer supported; update the app to post');
+    }
     if (!teamId || typeof teamId !== 'string') {
       throw new Meteor.Error('bad-request', 'teamId is required');
     }
@@ -397,8 +490,7 @@ Meteor.methods({
       attachments: attachments ?? [],
       likes: [],
       commentCount: 0,
-      // Drafts are author-only and date-less — postDate is stamped at publish.
-      ...(draft === true ? { status: 'draft' } : postDate ? { postDate } : {}),
+      ...(postDate ? { postDate } : {}),
       // Optionally link to a clock session (per-session gate) and/or stamp a
       // wrap-up at creation — used by the clock-out recovery path when a
       // session somehow has no plan post.
@@ -508,54 +600,6 @@ Meteor.methods({
     return { post: post ? await enrichPost(post) : null };
   },
 
-  /** The caller's newest unpublished draft in a team, or null. */
-  async 'huddle.getMyLatestDraft'({ teamId }) {
-    const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    if (!teamId || typeof teamId !== 'string') {
-      throw new Meteor.Error('bad-request', 'teamId is required');
-    }
-
-    const team = await getTeam(teamId);
-    if (!team) {
-      throw new Meteor.Error('not-found', 'Team not found');
-    }
-    const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
-    if (!isMember) {
-      throw new Meteor.Error('forbidden', 'Not a team member');
-    }
-
-    const post = await rawDb().collection('huddlePosts').findOne(
-      { teamId, userId, status: 'draft' },
-      { sort: { createdAt: -1 } }
-    );
-    return { post: post ? await enrichPost(post) : null };
-  },
-
-  /** All of the caller's unpublished drafts in a team, newest first. */
-  async 'huddle.getMyDrafts'({ teamId }) {
-    const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    if (!teamId || typeof teamId !== 'string') {
-      throw new Meteor.Error('bad-request', 'teamId is required');
-    }
-
-    const team = await getTeam(teamId);
-    if (!team) {
-      throw new Meteor.Error('not-found', 'Team not found');
-    }
-    const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
-    if (!isMember) {
-      throw new Meteor.Error('forbidden', 'Not a team member');
-    }
-
-    const drafts = await rawDb().collection('huddlePosts')
-      .find({ teamId, userId, status: 'draft' })
-      .sort({ createdAt: -1 })
-      .toArray();
-    return { posts: await Promise.all(drafts.map(enrichPost)) };
-  },
-
   /** The caller's post linked to a clock session (by clockEventId), or null. */
   async 'huddle.getMyPostForSession'({ teamId, clockEventId }) {
     const identity = await requireIdentity(this);
@@ -569,76 +613,11 @@ Meteor.methods({
 
     const post = await rawDb().collection('huddlePosts').findOne(
       { teamId, userId, clockEventId, status: { $ne: 'draft' } },
-      { sort: { createdAt: -1 } }
+      { sort: SESSION_POST_SORT }
     );
     return { post: post ? await enrichPost(post) : null };
   },
 
-  /**
-   * Publish a draft: optionally update its content, stamp the client-local
-   * postDate, and clear the draft status so it enters the team feed (the
-   * publication's change stream delivers it as an `added`).
-   */
-  async 'huddle.publishPost'({ postId, content, postDate, clockEventId }) {
-    // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
-    const identity = await requireIdentity(this);
-    if (!postId || !isValidId(postId)) {
-      throw new Meteor.Error('bad-request', 'Invalid postId');
-    }
-    if (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate)) {
-      throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
-    }
-    if (content !== undefined && typeof content?.text !== 'string') {
-      throw new Meteor.Error('bad-request', 'content.text is required when content is provided');
-    }
-
-    const post = await rawDb().collection('huddlePosts').findOne({ _id: toId(postId) });
-    if (!post) {
-      throw new Meteor.Error('not-found', 'Post not found');
-    }
-    if (post.status !== 'draft') {
-      throw new Meteor.Error('bad-request', 'Post is not a draft');
-    }
-    // Drafts are strictly author-only — admins can't see or publish them.
-    if (post.userId !== identity.userId) {
-      throw new Meteor.Error('forbidden', 'Only the author can publish a draft');
-    }
-
-    // Same scoping as huddle.createPost — must be the caller's own session in
-    // the post's team.
-    if (clockEventId) {
-      if (typeof clockEventId !== 'string' || !isValidId(clockEventId)) {
-        throw new Meteor.Error('bad-request', 'Invalid clockEventId');
-      }
-      const event = await rawDb()
-        .collection('clockevents')
-        .findOne(
-          { _id: toId(clockEventId), userId: identity.userId, teamId: post.teamId },
-          { projection: { _id: 1 } },
-        );
-      if (!event) {
-        throw new Meteor.Error('forbidden', 'Clock event does not belong to you in this team');
-      }
-    }
-
-    await rawDb().collection('huddlePosts').updateOne(
-      { _id: toId(postId) },
-      {
-        $set: {
-          ...(content !== undefined
-            ? { content: { text: content.text, mentions: content.mentions ?? [] } }
-            : {}),
-          ...(clockEventId ? { clockEventId } : {}),
-          postDate,
-          updatedAt: new Date(),
-        },
-        $unset: { status: '' },
-      }
-    );
-
-    return { id: postId };
-  },
-  
   async 'huddle.deletePost'({ postId }) {
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Authentication required');

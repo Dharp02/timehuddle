@@ -1131,8 +1131,6 @@ export interface HuddlePost {
   attachments: HuddlePostAttachment[];
   likes: string[];
   commentCount: number;
-  /** 'draft' = author-only, not in the feed, doesn't satisfy clock gates. */
-  status?: 'draft';
   /** Client-local calendar date (YYYY-MM-DD) this post is the plan for. */
   postDate?: string;
   /** Clock session this post is the plan/wrap-up for (per-session gate). */
@@ -1174,6 +1172,13 @@ export const huddleApi = {
   getPosts: (teamId: string) =>
     wormholeCall<{ posts: HuddlePost[] }>('huddle.getPosts', { teamId }).then((r) => r.posts),
 
+  /** The caller's own published posts across every team they belong to (the
+   *  Huddle inbox's Personal view). Defaults to the last 30 days. */
+  getMyPosts: (since?: string) =>
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyPosts', since ? { since } : {}).then(
+      (r) => r.posts,
+    ),
+
   /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
   getMyPostForDate: (teamId: string, postDate: string) =>
     wormholeCall<{ post: HuddlePost | null }>('huddle.getMyPostForDate', {
@@ -1187,16 +1192,6 @@ export const huddleApi = {
       teamId,
       clockEventId,
     }).then((r) => r.post),
-
-  /** The caller's newest unpublished draft in a team, or null. */
-  getMyLatestDraft: (teamId: string) =>
-    wormholeCall<{ post: HuddlePost | null }>('huddle.getMyLatestDraft', { teamId }).then(
-      (r) => r.post,
-    ),
-
-  /** All of the caller's unpublished drafts in a team, newest first. */
-  getMyDrafts: (teamId: string) =>
-    wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyDrafts', { teamId }).then((r) => r.posts),
 
   /**
    * Create a huddle post.
@@ -1213,29 +1208,9 @@ export const huddleApi = {
     ticketId?: string;
     attachments?: HuddlePostAttachment[];
     postDate?: string;
-    draft?: boolean;
     clockEventId?: string;
     wrapUp?: boolean;
   }) => wormholeCall<{ id: string }>('huddle.createPost', { ...params }),
-
-  /** Save a plan as an author-only draft (not in the feed, no gate effect). */
-  saveDraft: (teamId: string, content: { text: string; mentions: string[] }) =>
-    wormholeCall<{ id: string }>('huddle.createPost', { teamId, content, draft: true }),
-
-  /** Publish a draft: optional content update + client-local postDate stamp;
-   * optionally link it to a clock session. */
-  publishPost: (
-    postId: string,
-    postDate: string,
-    content?: { text: string; mentions: string[] },
-    clockEventId?: string,
-  ) =>
-    wormholeCall<{ id: string }>('huddle.publishPost', {
-      postId,
-      postDate,
-      content,
-      clockEventId,
-    }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
    * Pass attachments/ticketId to edit them (omit to leave untouched). */
