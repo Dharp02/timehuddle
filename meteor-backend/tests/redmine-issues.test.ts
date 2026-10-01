@@ -21,7 +21,6 @@ import {
   toFormOptions,
   toIssue,
   toIssueDetail,
-  toIssueList,
   toJournals,
   toNameMap,
   toNamedList,
@@ -104,21 +103,6 @@ describe('redmine-issues toIssue', () => {
 
   it('tolerates an issue with nothing but an id', () => {
     expect(toIssue({ id: 5 })).toEqual(emptyIssue);
-  });
-});
-
-describe('redmine-issues toIssueList', () => {
-  it('shapes each issue in the array', () => {
-    const list = toIssueList([rawIssue, { id: 5 }]);
-    expect(list).toHaveLength(2);
-    expect(list[0]).toEqual(shapedIssue);
-    expect(list[1]).toEqual(emptyIssue);
-  });
-
-  it('returns an empty list for non-array input', () => {
-    expect(toIssueList(undefined)).toEqual([]);
-    expect(toIssueList(null)).toEqual([]);
-    expect(toIssueList({})).toEqual([]);
   });
 });
 
@@ -426,7 +410,7 @@ describe('data minimisation (MVP2 A4)', () => {
   });
 
   it('holds for every issue in a list, not just a shaped example', () => {
-    const list = toIssueList([rawIssue, { ...rawIssue, id: 102, description: 'more text' }]);
+    const list = [rawIssue, { ...rawIssue, id: 102, description: 'more text' }].map(toIssue);
     for (const issue of list) {
       expect(Object.keys(issue).sort()).toEqual(SLIM_KEYS);
     }

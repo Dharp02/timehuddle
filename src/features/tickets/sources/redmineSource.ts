@@ -46,7 +46,6 @@ const TABLE_REASONS: readonly RedmineRelevanceReason[] = ['assigned', 'pinned', 
 const CAPABILITIES: SourceCapabilities = {
   edit: true,
   delete: false,
-  assign: true,
   changeStatus: true,
   openExternal: true,
 };

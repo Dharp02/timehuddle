@@ -26,7 +26,6 @@ export type { TicketSourceId };
 export interface SourceCapabilities {
   edit: boolean;
   delete: boolean;
-  assign: boolean;
   changeStatus: boolean;
   /**
    * The ticket also has a page in its own system (`externalUrl`), offered as
@@ -98,7 +97,7 @@ export interface UnifiedTicket {
   externalUrl: string | null;
   /** A related link the ticket points at, e.g. a Huddle ticket's GitHub issue. */
   externalRef: { url: string; label: string } | null;
-  /** Huddle-only; always false for other sources. Toggled from the row menu. */
+  /** Huddle-only; always false for other sources. */
   sharedWithTimeharbor: boolean;
   capabilities: SourceCapabilities;
 }
@@ -118,12 +117,8 @@ export interface TicketSourceContext {
 }
 
 /**
- * A ticket source.
- *
- * Mutation methods are deliberately optional: no source implements them today
- * (Redmine issues are read-only, Huddle mutations still run through the page's
- * own handlers), but declaring them here means adding write support later is an
- * additive change rather than a redesign of this interface.
+ * A ticket source. Read-only by design: mutations run through the page's own
+ * handlers, which know each source's API.
  */
 export interface TicketSource<Raw = unknown> {
   id: TicketSourceId;
@@ -138,10 +133,6 @@ export interface TicketSource<Raw = unknown> {
   isAvailable: (ctx: TicketSourceContext) => boolean;
   fetch: (ctx: TicketSourceContext) => Promise<Raw[]>;
   toUnified: (raw: Raw, ctx: TicketSourceContext) => UnifiedTicket;
-
-  create?: (input: unknown, ctx: TicketSourceContext) => Promise<void>;
-  update?: (id: string, input: unknown, ctx: TicketSourceContext) => Promise<void>;
-  delete?: (id: string, ctx: TicketSourceContext) => Promise<void>;
 }
 
 /**

@@ -25,7 +25,7 @@ const DUPLICATE_KEY_ERROR_CODE = 11000;
  * Redmine entry is an issue the relevant list fetches, so the board cannot be
  * left to grow without limit; nobody works from a list of 500.
  */
-export const MAX_BOARD_ENTRIES_PER_USER = 500;
+const MAX_BOARD_ENTRIES_PER_USER = 500;
 
 // Enforces "one board row per (user, ticket)" at the storage layer, so
 // `addMany` can upsert idempotently instead of erroring on a re-add.

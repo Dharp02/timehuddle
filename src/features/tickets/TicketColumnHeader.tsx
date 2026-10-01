@@ -101,9 +101,6 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
 
         {filter && (
           <FilterDropdown
-            label=""
-            activeLabel={null}
-            placement="bottom-start"
             menuId={filter.id}
             activeMenuId={openMenuId}
             boundaryRef={boundaryRef}

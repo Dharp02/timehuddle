@@ -43,7 +43,6 @@ const make = (overrides: Partial<UnifiedTicket>): UnifiedTicket =>
     capabilities: {
       edit: false,
       delete: false,
-      assign: false,
       changeStatus: false,
       openExternal: false,
     },

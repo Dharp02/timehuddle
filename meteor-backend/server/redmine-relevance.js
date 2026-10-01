@@ -44,7 +44,7 @@ import { toIssue } from './redmine-issues';
  * is judged on, because the signals run in parallel and the point is that a slow
  * one is *dropped* rather than allowed to hold up the list.
  */
-export const SIGNAL_TIMEOUT_MS = 6000;
+const SIGNAL_TIMEOUT_MS = 6000;
 
 /**
  * How long the whole list may take, signals and the batched resolve together.
@@ -63,7 +63,7 @@ export const RELEVANT_BUDGET_MS = 7500;
 const MIN_RESOLVE_MS = 1000;
 
 /** How far back "recently logged" and "recent activity" look. */
-export const RECENT_DAYS = 14;
+const RECENT_DAYS = 14;
 
 /**
  * What each signal is worth. Not a ranking of importance in the abstract — it is
@@ -102,7 +102,7 @@ const DECAY_PER_DAY = 2;
 const CLOSED_PENALTY = -50;
 
 /** How many issues the relevant list may return, beyond the Tickets table's own rows. */
-export const MAX_RELEVANT_ISSUES = 100;
+const MAX_RELEVANT_ISSUES = 100;
 
 /**
  * The reasons that put an issue in the Tickets table. Those rows are never cut
@@ -110,7 +110,7 @@ export const MAX_RELEVANT_ISSUES = 100;
  * assigned to the user, pinned, or on My Board, and a cap that dropped one
  * would leave a My Board entry pointing at nothing.
  */
-export const TABLE_REASONS = ['assigned', 'pinned', 'board'];
+const TABLE_REASONS = ['assigned', 'pinned', 'board'];
 
 /** Redmine's `limit` ceiling, and so the most ids one `listIssuesByIds` call may ask for. */
 const IDS_PER_REQUEST = 100;
@@ -119,7 +119,7 @@ const IDS_PER_REQUEST = 100;
  * The most pinned and My Board issues fetched in one build — the pin cap (500)
  * with room for a board as long again. A bound on requests, not a feature.
  */
-export const MAX_KEPT_ISSUES = 1000;
+const MAX_KEPT_ISSUES = 1000;
 
 /**
  * A `SlimIssue` (as `toIssue` shapes one) plus why it is in the list — the
@@ -191,11 +191,9 @@ function isLater(at, held) {
   return new Date(at).getTime() > new Date(held).getTime();
 }
 
-/** The issue ids a signal names, whether it carries dates or not. */
+/** The issue ids an undated signal names. */
 function idsOf(signal) {
-  return (Array.isArray(signal) ? signal : []).map((entry) =>
-    typeof entry === 'object' && entry !== null ? Number(entry.issueId) : Number(entry),
-  );
+  return (Array.isArray(signal) ? signal : []).map(Number);
 }
 
 /**
@@ -206,13 +204,13 @@ function idsOf(signal) {
  * bare number, and the caller decides how many ids are worth resolving.
  *
  * @param {object} signals
- * @param {(number|{issueId: number})[]} [signals.running]  ids with a live timer
- * @param {(number|{issueId: number})[]} [signals.assigned] ids assigned to the user
+ * @param {number[]} [signals.running]  ids with a live timer
+ * @param {number[]} [signals.assigned] ids assigned to the user
  * @param {{issueId: number, lastAt: string|null}[]} [signals.logged]   from `latestByIssue`
  * @param {{issueId: number, lastAt: string|null}[]} [signals.activity] from `latestByIssue`
- * @param {(number|{issueId: number})[]} [signals.watching] ids the user watches
- * @param {(number|{issueId: number})[]} [signals.pinned]   ids the user pinned
- * @param {(number|{issueId: number})[]} [signals.board]    ids on the user's My Board
+ * @param {number[]} [signals.watching] ids the user watches
+ * @param {number[]} [signals.pinned]   ids the user pinned
+ * @param {number[]} [signals.board]    ids on the user's My Board
  * @param {Map<number, object>} issuesById  slim issue DTOs, keyed by id
  * @param {number} [now]  epoch ms the decay is measured from
  * @returns {RelevantIssue[]} best first
@@ -315,7 +313,7 @@ async function listIssuesByIdsChunked(account, issueIds, options) {
  * Board first because an entry left unresolved is a row the user put on their
  * board by hand, now missing from it.
  */
-export function keptIssueIds(pinnedIds = [], boardIds = []) {
+function keptIssueIds(pinnedIds = [], boardIds = []) {
   return [...new Set([...boardIds, ...pinnedIds].map(Number))].slice(0, MAX_KEPT_ISSUES);
 }
 
@@ -331,7 +329,7 @@ export function keptIssueIds(pinnedIds = [], boardIds = []) {
  * pinned and My Board issues, fetched together) when there are none — there is
  * nothing to ask in either case.
  */
-export async function gatherRemoteSignals(
+async function gatherRemoteSignals(
   account,
   { from, redmineUserId = null, pinnedIds = [], boardIds = [] } = {},
 ) {
@@ -411,7 +409,7 @@ export async function buildRelevantIssues(
   } = {},
 ) {
   const startedAt = clock();
-  const from = isoDay(now - RECENT_DAYS * 24 * 60 * 60 * 1000);
+  const from = isoDay(now - RECENT_DAYS * MS_PER_DAY);
 
   const { answered, failures, attempted } = await gatherRemoteSignals(account, {
     from,

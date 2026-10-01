@@ -13,7 +13,6 @@ import {
   hoursAgree,
   isPushable,
   buildPushRows,
-  pushableRows,
   unsentTotals,
 } from '../server/redmine-time-entries';
 
@@ -233,21 +232,5 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
       resolver,
     );
     expect(row).toMatchObject({ seconds: 3600, alreadySentSeconds: 3600, hours: 1 });
-  });
-});
-
-describe('pushableRows', () => {
-  it('keeps only the rows with no blocking reason', () => {
-    const rows = buildPushRows(
-      [
-        { ticketId: '19', date: '2026-09-19', seconds: 3600 }, // ok
-        { ticketId: '19', date: '2026-09-18', seconds: 5 }, // too short
-        { ticketId: '999', date: '2026-09-19', seconds: 3600 }, // unknown issue
-      ],
-      issues,
-      resolver,
-    );
-    expect(pushableRows(rows)).toHaveLength(1);
-    expect(pushableRows(rows)[0].date).toBe('2026-09-19');
   });
 });

@@ -7,37 +7,27 @@
  *
  * - when the tab becomes visible or the window regains focus — the common case,
  *   someone who just did something in another tab and came back;
- * - every `intervalMs` while the tab is visible and the user has done something
- *   (clicked, typed, scrolled) within `idleMs`, so a forgotten tab stops asking;
+ * - every `INTERVAL_MS` while the tab is visible and the user has done something
+ *   (clicked, typed, scrolled) within `IDLE_MS`, so a forgotten tab stops asking;
  *
  * never while `paused` (e.g. while an edit is open, so a refresh cannot move the
  * ground under it), never while one is already running, and at most once per
- * `minGapMs`. A failed refresh (`refresh` resolves false) doubles the polling
- * interval, up to `maxIntervalMs`; a success resets it.
+ * `MIN_GAP_MS`. A failed refresh (`refresh` resolves false) doubles the polling
+ * interval, up to `MAX_INTERVAL_MS`; a success resets it.
  */
 import { useEffect, useRef } from 'react';
 
-export interface BackgroundRefreshOptions {
-  intervalMs?: number;
-  idleMs?: number;
-  minGapMs?: number;
-  maxIntervalMs?: number;
-  paused?: boolean;
-}
-
+const INTERVAL_MS = 5 * 60_000;
+const IDLE_MS = 15 * 60_000;
+const MIN_GAP_MS = 30_000;
+const MAX_INTERVAL_MS = 30 * 60_000;
 /** How often the hook checks whether a poll is due. */
 const TICK_MS = 15_000;
 const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
 
 export function useBackgroundRefresh(
   refresh: () => Promise<boolean>,
-  {
-    intervalMs = 5 * 60_000,
-    idleMs = 15 * 60_000,
-    minGapMs = 30_000,
-    maxIntervalMs = 30 * 60_000,
-    paused = false,
-  }: BackgroundRefreshOptions = {},
+  { paused = false }: { paused?: boolean } = {},
 ): void {
   // Read by the listeners below without re-subscribing them on every change.
   const refreshRef = useRef(refresh);
@@ -53,7 +43,7 @@ export function useBackgroundRefresh(
 
     const run = async () => {
       if (pausedRef.current || running || document.visibilityState !== 'visible') return;
-      if (Date.now() - lastRun < minGapMs) return;
+      if (Date.now() - lastRun < MIN_GAP_MS) return;
       running = true;
       lastRun = Date.now();
       try {
@@ -77,8 +67,8 @@ export function useBackgroundRefresh(
     };
     const tick = () => {
       const now = Date.now();
-      if (now - lastActivity > idleMs) return;
-      const due = Math.min(intervalMs * 2 ** failures, maxIntervalMs);
+      if (now - lastActivity > IDLE_MS) return;
+      const due = Math.min(INTERVAL_MS * 2 ** failures, MAX_INTERVAL_MS);
       if (now - lastRun >= due) void run();
     };
 
@@ -94,5 +84,5 @@ export function useBackgroundRefresh(
       document.removeEventListener('visibilitychange', onVisibility);
       window.clearInterval(timer);
     };
-  }, [intervalMs, idleMs, minGapMs, maxIntervalMs]);
+  }, []);
 }

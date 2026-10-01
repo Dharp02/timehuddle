@@ -186,7 +186,6 @@ describe('redmineSource.toUnified', () => {
     expect(redmineSource.capabilities).toMatchObject({
       edit: true,
       delete: false,
-      assign: true,
       changeStatus: true,
       openExternal: true,
     });

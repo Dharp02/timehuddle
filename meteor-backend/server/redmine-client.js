@@ -32,25 +32,15 @@
  */
 import { activityIssueRefs } from './redmine-atom';
 
-/** Server-wide Redmine base URL, trailing slash trimmed. Throws if unset. */
-export function redmineBaseUrl() {
-  const url = process.env.REDMINE_BASE_URL;
-  if (typeof url !== 'string' || url.trim().length === 0) {
-    throw new Error('REDMINE_BASE_URL is not configured');
-  }
-  return url.trim().replace(/\/+$/, '');
-}
-
 /**
- * The configured base URL, or null when Redmine is unconfigured. Read paths use
- * this — a missing URL just means "no link to render", not a failure.
+ * The server-wide Redmine base URL, trailing slash trimmed, or null when Redmine
+ * is unconfigured. Read paths use this — a missing URL just means "no link to
+ * render", not a failure.
  */
 export function optionalRedmineBaseUrl() {
-  try {
-    return redmineBaseUrl();
-  } catch {
-    return null;
-  }
+  const url = process.env.REDMINE_BASE_URL;
+  if (typeof url !== 'string' || url.trim().length === 0) return null;
+  return url.trim().replace(/\/+$/, '');
 }
 
 /**

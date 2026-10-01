@@ -31,7 +31,6 @@ export function huddleTicketRef(id: string): string {
 const CAPABILITIES: SourceCapabilities = {
   edit: true,
   delete: true,
-  assign: true,
   changeStatus: true,
   openExternal: false,
 };

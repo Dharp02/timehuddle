@@ -143,7 +143,7 @@ async function loadJournals(userId, account, raw) {
 const issueReadLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
 
 /** How many Redmine time entries the issue page shows. */
-export const ISSUE_TIME_ENTRY_LIMIT = 10;
+const ISSUE_TIME_ENTRY_LIMIT = 10;
 
 /**
  * The issue's newest Redmine time entries, for its page's Activity: everyone's,

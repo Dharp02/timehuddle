@@ -42,7 +42,6 @@ function fakeSource(
     capabilities: {
       edit: false,
       delete: false,
-      assign: false,
       changeStatus: false,
       openExternal: false,
     },

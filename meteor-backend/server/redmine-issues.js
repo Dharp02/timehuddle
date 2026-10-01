@@ -70,16 +70,6 @@ export function toIssue(issue) {
 }
 
 /**
- * Shape a raw Redmine issues array into our minimal DTO list.
- * Non-array input yields an empty list.
- * @param {unknown} raw  the `issues` array from `GET /issues.json`
- */
-export function toIssueList(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw.map(toIssue);
-}
-
-/**
  * Shape a list of Redmine `{ id, name }` objects, dropping malformed entries.
  * Used for projects and trackers.
  */

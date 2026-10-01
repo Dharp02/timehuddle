@@ -23,7 +23,6 @@ export interface SourcePartition {
 
 export interface UnifiedTicketsResult {
   tickets: UnifiedTicket[];
-  partitions: Record<TicketSourceId, SourcePartition>;
   /** True until every source has settled at least once. */
   loading: boolean;
   /** Sources that failed, for a per-source error indicator. */
@@ -154,5 +153,5 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     [partitions],
   );
 
-  return { tickets, partitions, loading, errors, refetch, setSourceItems };
+  return { tickets, loading, errors, refetch, setSourceItems };
 }

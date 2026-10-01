@@ -149,8 +149,3 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
     })
     .sort((a, b) => b.date.localeCompare(a.date) || Number(a.ticketId) - Number(b.ticketId));
 }
-
-/** The rows a push may actually send — everything else is shown but withheld. */
-export function pushableRows(rows) {
-  return rows.filter((row) => row.blockedReason === null);
-}
