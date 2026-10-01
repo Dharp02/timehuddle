@@ -8,9 +8,6 @@
  * pinned first, then put on the board. Both steps are best-effort: the timer is
  * running either way, and the outcome says how far they got so the caller can
  * tell the user.
- *
- * No React here: the outcome says what happened, and the provider decides what
- * to show.
  */
 import type { useToast } from '@mieweb/ui';
 

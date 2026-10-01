@@ -1,13 +1,13 @@
 /**
- * A Redmine issue, viewed and edited inside TimeHuddle (M6).
+ * A Redmine issue, viewed and edited inside TimeHuddle.
  *
  * Laid out like the Huddle ticket page, minus delete (only a Redmine project
  * admin can delete an issue). Its attachments are TimeHuddle's own, the same
  * card as a Huddle ticket's; they are not uploaded to Redmine. Status,
  * priority, assignee and description save straight to Redmine under the user's
- * own key; the status list only offers the transitions
- * Redmine allows them. A save made after someone else changed the issue in
- * Redmine is refused as stale, with a Reload.
+ * own key; the status list only offers the transitions Redmine allows them. A
+ * save made after someone else changed the issue in Redmine is refused as
+ * stale, with a Reload.
  *
  * The header's timer does what a start from the search suggestions does: the
  * issue is pinned into the Tickets table and put on My Board, then timed. It
@@ -270,10 +270,9 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
       return;
     }
     // Pinned, or assigned to me and not removed, means the table already has it:
-    // nothing to pin.
-    // Anything else is pinned, which is harmless when it is in the table anyway
-    // (assigned to one of my groups): at the pin cap the server accepts an
-    // issue assigned to me through a group, as the table does.
+    // nothing to pin. Anything else is pinned, which is harmless when it is in
+    // the table anyway (assigned to one of my groups): at the pin cap the server
+    // accepts an issue assigned to me through a group, as the table does.
     const inTable =
       !!loaded?.pinned ||
       (!loaded?.removed && loaded?.me != null && issue?.assignedTo?.id === loaded.me);
@@ -339,7 +338,6 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
     <AppPage>
       {backButton}
 
-      {/* Title section */}
       <div className="redmine-issue-title-section mb-6">
         <div className="redmine-issue-title-row flex flex-wrap items-start justify-between gap-3">
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
@@ -417,7 +415,6 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
       {/* Main layout: body + sidebar, like the Huddle ticket page */}
       <div className="redmine-issue-layout flex flex-col gap-3 lg:flex-row lg:items-start">
         <div className="redmine-issue-body min-w-0 flex-1 space-y-3">
-          {/* Description */}
           <Card>
             <CardContent className="redmine-issue-description">
               <div className="mb-2 flex items-center justify-between">

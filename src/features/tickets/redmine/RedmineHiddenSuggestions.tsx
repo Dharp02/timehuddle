@@ -1,5 +1,5 @@
 /**
- * "Hidden suggestions" in the Redmine settings card (MVP2 Part B, task B3).
+ * "Hidden suggestions" in the Redmine settings card.
  *
  * Lists the issues the user hid from their search suggestions, each with
  * Restore. Hiding only ever affected the suggestion dropdown, so restoring

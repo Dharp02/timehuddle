@@ -1,15 +1,12 @@
 /**
  * useRedmineStatus — whether the signed-in user has a Redmine account linked.
  *
- * `TicketsPage` stays mounted behind every route to preserve its state
- * (AppLayout.tsx), so it never remounts when the user links an account in
- * Settings and navigates back. Without a signal it would keep rendering as if
- * no account existed until the window was reloaded — issue #562.
- *
- * Settings therefore broadcasts `redmine:changed` after connecting and after
- * disconnecting, carrying the fresh status it already has in hand. Listeners
- * apply that payload directly, so the signal costs no extra round trip; a
- * dispatch without a usable payload falls back to fetching the status.
+ * `TicketsPage` stays mounted behind every route (AppLayout.tsx), so it never
+ * remounts when the user links an account in Settings and navigates back
+ * (#562). Settings therefore broadcasts `redmine:changed` after connecting and
+ * after disconnecting, carrying the fresh status. Listeners apply that payload
+ * directly, so the signal costs no extra round trip; a dispatch without a
+ * usable payload falls back to fetching the status.
  *
  * Two contracts worth knowing:
  *

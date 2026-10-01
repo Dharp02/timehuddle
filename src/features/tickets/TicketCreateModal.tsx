@@ -3,8 +3,8 @@
  * both "New Ticket" choices look and behave the same.
  *
  * Pasting a GitHub issue/PR URL into the title (or typing one into the GitHub
- * field) fills the title from GitHub, as the old inline form did. The assignee
- * defaults to the creator; the team defaults to the one currently selected.
+ * field) fills the title from GitHub. The assignee defaults to the creator; the
+ * team defaults to the one currently selected.
  */
 import {
   Alert,

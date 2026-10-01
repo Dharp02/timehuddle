@@ -5,9 +5,8 @@
  * connected Redmine instance) in one table. Source is a column and a filter,
  * not a mode: there is no view switcher. See `sources/README.md`.
  *
- * This page still owns TimeHuddle-specific mutations (create, edit, delete,
- * status, assignment) and the ticket timer; rows gate those controls on each
- * source's capabilities.
+ * This page owns TimeHuddle-specific mutations (create, edit, delete, status,
+ * assignment); rows gate those controls on each source's capabilities.
  */
 import { faPlus, faSearch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -174,8 +173,7 @@ export const TicketsPage: React.FC = () => {
   } = useUnifiedTickets(sourceCtx);
 
   // The Redmine list is cached per session, so a refetch after a Redmine write
-  // must drop that cache or it would re-serve the pre-write rows. Declared
-  // before the `useRefresh` below, which registers it — `const` is not hoisted.
+  // must drop that cache or it would re-serve the pre-write rows.
   const refetchAfterRedmineWrite = useCallback(() => {
     invalidateRedmineCache();
     void refetch();
@@ -185,12 +183,11 @@ export const TicketsPage: React.FC = () => {
   // stays mounted (hidden) behind other routes, so registering unconditionally
   // would hijack the visible page's refresh handler.
   //
-  // Registers the cache-dropping variant: a pull that re-served the cached
-  // Redmine rows would refresh everything except the source most likely to have
-  // changed behind the user's back.
+  // Registers the cache-dropping variant: Redmine is the source most likely to
+  // have changed behind the user's back.
   useRefresh(refetchAfterRedmineWrite, pathname === '/app/tickets');
 
-  // M6: Redmine issues are edited and created in their own dialogs, under the
+  // Redmine issues are edited and created in their own dialogs, under the
   // user's personal Redmine key.
   const [redmineEditIssueId, setRedmineEditIssueId] = useState<number | null>(null);
   const [showRedmineCreate, setShowRedmineCreate] = useState(false);
@@ -273,8 +270,7 @@ export const TicketsPage: React.FC = () => {
   // Controlled so picking an item closes the menu before its dialog opens.
   const [newTicketMenuOpen, setNewTicketMenuOpen] = useState(false);
 
-  // Tickets tab vs My Board tab — same URL, local state only (M2.1 retired the
-  // heading-dropdown pattern; this is real tabs instead).
+  // Tickets tab vs My Board tab — same URL, local state only.
   const [activeView, setActiveView] = useState<'tickets' | 'my-board'>('tickets');
 
   // My Board membership — identity only (`${sourceId}:${id}` keys, matching
@@ -358,8 +354,7 @@ export const TicketsPage: React.FC = () => {
   ]);
   const unresolvedBoardNotice = unresolvedBoard?.message ?? null;
 
-  // Search/filter/sort/paginate/select — one independent pipeline per tab, so
-  // switching tabs never resets or leaks the other tab's state.
+  // Search/filter/sort/paginate/select — one independent pipeline per tab.
   // Resolves the assignee filter's "Me" option across both id namespaces.
   const meKeys = useMeAssigneeKeys(redmineStatus);
   const ticketsView = useTicketTableView(allTickets, meKeys);
@@ -398,7 +393,7 @@ export const TicketsPage: React.FC = () => {
 
   // ── Handlers ──
 
-  // ── Ticket timers (started from My Board — M3 D1 — and Redmine suggestions) ──
+  // ── Ticket timers (started from My Board and Redmine suggestions) ──
 
   const handleToggleTimer = useCallback(
     (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {

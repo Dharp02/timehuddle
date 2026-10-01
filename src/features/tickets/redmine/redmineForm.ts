@@ -1,5 +1,5 @@
 /**
- * Pure helpers shared by the Redmine create and edit modals (M6): turning
+ * Pure helpers shared by the Redmine create and edit modals: turning
  * Redmine's `{ id, name }` lists into `Select` options, and turning a failed
  * write into something the user can act on.
  */

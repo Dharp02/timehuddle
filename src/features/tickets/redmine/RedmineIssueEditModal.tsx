@@ -1,5 +1,5 @@
 /**
- * Edit a Redmine issue's status, priority, assignee and description (M6).
+ * Edit a Redmine issue's status, priority, assignee and description.
  *
  * The save goes out under the user's own Redmine key, so Redmine decides what
  * they may change; the status list is limited to the transitions Redmine

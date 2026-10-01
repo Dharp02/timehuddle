@@ -18,7 +18,6 @@ export interface TimerToggleButtonProps {
   title?: string;
   /** Visible text beside the icon, for a roomier spot like a page header. */
   label?: string;
-  /** Extra classes, e.g. a smaller size inside a dense row. */
   className?: string;
   /**
    * For a button inside a combobox option, which cannot hold focusable

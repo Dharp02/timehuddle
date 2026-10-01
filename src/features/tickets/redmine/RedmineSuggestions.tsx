@@ -1,5 +1,5 @@
 /**
- * The Tickets page search bar, with Redmine suggestions under it (MVP2 Part B).
+ * The Tickets page search bar, with Redmine suggestions under it.
  *
  * One input, two jobs: every keystroke still filters the Tickets table (the
  * parent owns `query`), and a dropdown offers Redmine issues — "Suggested for

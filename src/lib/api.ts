@@ -1716,14 +1716,12 @@ export interface MyBoardEntry extends MyBoardRef {
 }
 
 export const myBoardApi = {
-  /** List the signed-in user's My Board entries (identity only). */
   list: () => wormholeCall<{ entries: MyBoardEntry[] }>('myBoard.list', {}).then((r) => r.entries),
 
   /** Add tickets to the signed-in user's My Board. Idempotent — re-adding is a no-op. */
   addMany: (refs: MyBoardRef[]) =>
     wormholeCall<{ addedCount: number }>('myBoard.addMany', { refs }),
 
-  /** Remove tickets from the signed-in user's My Board. */
   removeMany: (refs: MyBoardRef[]) =>
     wormholeCall<{ removedCount: number }>('myBoard.removeMany', { refs }),
 };
@@ -1788,7 +1786,7 @@ export interface Timer {
   id: string;
   workItemId: string;
   userId: string;
-  /** The shift this session ran inside. Null for sessions written before M3. */
+  /** The shift this session ran inside. Null for sessions that predate that link. */
   clockEventId: string | null;
   date: string;
   startTime: number; // epoch ms
@@ -2169,7 +2167,7 @@ export interface RedmineTimeEntryRow {
   date: string;
   /** Seconds not yet sent to Redmine — what this push would cover. */
   seconds: number;
-  /** Seconds already sent for this ticket-day by earlier pushes (D5). */
+  /** Seconds already sent for this ticket-day by earlier pushes. */
   alreadySentSeconds: number;
   /** Decimal hours for `seconds`, rounded once to 2dp — what Redmine will store. */
   hours: number;
@@ -2263,10 +2261,9 @@ export interface RedmineRelevantIssue extends RedmineIssue {
 }
 
 /**
- * Response for `redmine.issues.relevant`.
- *
- * `partial: true` means one of the server's signals timed out or failed, so the
- * list is short rather than wrong. Show it, and say so quietly.
+ * Response for `redmine.issues.relevant`. `partial: true` means one of the
+ * server's signals timed out or failed, so the list is short rather than wrong:
+ * show it, and say so quietly.
  */
 export interface RedmineRelevantIssueList extends RedmineIssueList {
   issues: RedmineRelevantIssue[];
@@ -2285,7 +2282,7 @@ export interface RedmineSearchResult extends RedmineIssueList {
 }
 
 /**
- * One Redmine issue as the M6 edit form sees it: the list shape plus its
+ * One Redmine issue as the edit form sees it: the list shape plus its
  * description, author, and the statuses the caller may move it to (the current
  * status first — Redmine's workflow for this user decides the rest).
  */
@@ -2382,7 +2379,7 @@ export interface RedmineActivity {
 
 /**
  * Which rule chose the active activity — lets the UI say so rather than pick
- * silently. `tracker` means it was derived from the issue's Redmine tracker (D4).
+ * silently. `tracker` means it was derived from the issue's Redmine tracker.
  */
 export type RedmineActivityReason =
   'chosen' | 'tracker' | 'is_default' | 'named' | 'first' | 'none';
@@ -2399,7 +2396,6 @@ export interface RedmineActivityList {
 }
 
 export const redmineApi = {
-  /** Current Redmine connection status for the signed-in user. */
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
 
   /**
@@ -2409,7 +2405,6 @@ export const redmineApi = {
   connect: (apiKey: string, baseUrl?: string): Promise<RedmineStatus> =>
     wormholeCall<RedmineStatus>('redmine.connect', { apiKey, ...(baseUrl ? { baseUrl } : {}) }),
 
-  /** Remove the Redmine link. */
   disconnect: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.disconnect', {}),
 
   issues: {
@@ -2534,7 +2529,7 @@ export const redmineApi = {
     /**
      * Send the confirmed ticket-days to Redmine.
      *
-     * **Irreversible** — entries cannot be edited or deleted afterwards (D1).
+     * **Irreversible** — entries cannot be edited or deleted afterwards.
      * Hours are recomputed server-side; only the selection and any activity
      * override travel from here.
      */

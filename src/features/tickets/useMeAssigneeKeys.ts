@@ -9,9 +9,7 @@
  * The Redmine half comes from the caller's `useRedmineStatus()`, rather than a
  * second `redmine.status()` fetch of its own: one fetch, and one place that
  * reacts when the account is linked or unlinked. Until that status resolves —
- * or for a user with no link at all — "Me" is simply Huddle-only, which is the
- * right answer rather than a half-loaded error state for something this
- * incidental.
+ * or for a user with no link at all — "Me" is Huddle-only.
  */
 import { useMemo } from 'react';
 

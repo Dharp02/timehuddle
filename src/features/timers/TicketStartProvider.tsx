@@ -55,9 +55,7 @@ export type TicketStartRequest =
       kind: 'ticket';
       ticket: TimerTicket;
       label: string;
-      /** The Tickets table already shows it, so a Redmine issue needs no pin. */
       inTable: boolean;
-      /** My Board already has it. */
       onBoard: boolean;
     }
   /** An existing work entry on the Work page (`timers.startSession`). */

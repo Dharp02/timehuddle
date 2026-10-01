@@ -1,17 +1,17 @@
 /**
- * The manual push of ticket time into Redmine (M5, Phase 4 — decisions D1/D2).
+ * The manual push of ticket time into Redmine.
  *
  * Lives on the Clock page because that is where a day ends: clocking out is
  * already the "I'm done" action, so the push belongs beside it rather than on a
  * settings screen the user would have to remember to visit.
  *
  * Two rules shape every decision here:
- *   D1 — what is sent is **permanent**. Huddle never edits or deletes a Redmine
- *        entry, so the dialog is the last moment anything can be corrected.
- *        That is why the activity is shown and overridable, and why the
- *        confirmation states the consequence in words.
- *   D2 — the push is **manual**. Huddle holds the time until the user says so,
- *        which is what makes "is the day finished?" answerable at all.
+ *   - What is sent is **permanent**. Huddle never edits or deletes a Redmine
+ *     entry, so the dialog is the last moment anything can be corrected.
+ *     That is why the activity is shown and overridable, and why the
+ *     confirmation states the consequence in words.
+ *   - The push is **manual**. Huddle holds the time until the user says so,
+ *     which is what makes "is the day finished?" answerable at all.
  *
  * A row can also be marked **Never send** (e.g. one Redmine keeps rejecting):
  * nothing goes to Redmine, the time stays in TimeHuddle, and the row stops
@@ -347,7 +347,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                       </TableCell>
                     )}
                     <TableCell>
-                      {/* Anything not sent can be discarded; a sent row is permanent (D1). */}
+                      {/* Anything not sent can be discarded; a sent row is permanent. */}
                       {!outcome?.ok && (
                         <Button
                           variant="ghost"

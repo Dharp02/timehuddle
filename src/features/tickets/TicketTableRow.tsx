@@ -5,9 +5,8 @@
  * action is gated on `ticket.capabilities`, so a source cannot render a control
  * it is unable to perform (Redmine issues, for instance, are never deleted).
  *
- * Timers are the exception to "actions live in the ⋮ menu": they are started
- * only from My Board's ▶/⏸ column (M3 D1), never from the menu, so there is
- * exactly one place in the app that starts a ticket timer.
+ * Timers are the exception to "actions live in the ⋮ menu": a row starts one
+ * only from My Board's ▶/⏸ column, never from the menu.
  */
 import {
   faEllipsisVertical,
@@ -57,8 +56,8 @@ export interface TicketTableRowProps {
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /**
    * My Board only. Renders the ▶/⏸ column between the checkbox and Title
-   * cells. My Board is the only *table* that starts a ticket timer (M3 D1), so
-   * no other table passes this. (Redmine search suggestions start one too.)
+   * cells. My Board is the only *table* that starts a ticket timer, so no other
+   * table passes this. (Redmine search suggestions start one too.)
    */
   showTimerColumn?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;

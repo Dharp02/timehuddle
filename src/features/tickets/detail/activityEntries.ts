@@ -46,7 +46,6 @@ function huddleEventLabel(event: ActivityLogItem): string {
   }
 }
 
-/** Huddle's activity-log events for a ticket. */
 export function fromHuddleEvents(events: ActivityLogItem[]): ActivityEntry[] {
   return events.map((event) => ({
     id: `event:${event.id}`,

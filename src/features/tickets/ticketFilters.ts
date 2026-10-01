@@ -147,10 +147,9 @@ export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
 }
 
 /**
- * @param meKeys source-namespaced assignee keys that identify the signed-in
- *   user — `huddle:<userId>`, plus `redmine:<accountId>` when a Redmine account
- *   is linked. Only used to resolve the `ME` sentinel; an empty list makes "Me"
- *   match nothing rather than matching everyone.
+ * @param meKeys the signed-in user's source-namespaced assignee keys (see
+ *   `useMeAssigneeKeys`). Only used to resolve the `ME` sentinel; an empty list
+ *   makes "Me" match nothing rather than matching everyone.
  */
 export function applyFilters(
   tickets: UnifiedTicket[],
@@ -174,8 +173,7 @@ export function applyFilters(
     if (filters.assignee === UNASSIGNED) {
       if (ticket.assignees.length > 0) return false;
     } else if (filters.assignee === ME) {
-      // "Me" spans every source at once, so it matches against the whole key
-      // set rather than a single value.
+      // "Me" matches against the whole key set, not a single value (see `ME`).
       const match = ticket.assignees.some((a) => meKeySet.has(`${ticket.sourceId}:${a.id}`));
       if (!match) return false;
     } else if (filters.assignee) {

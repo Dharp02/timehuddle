@@ -1,5 +1,5 @@
 /**
- * Create a Redmine issue from TimeHuddle (M6).
+ * Create a Redmine issue from TimeHuddle.
  *
  * The issue is created under the user's own Redmine key, so they are its
  * author and Redmine enforces whether they may add issues to the project.

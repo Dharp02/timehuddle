@@ -6,10 +6,9 @@
  * and "---" for clock-out (on all but the last day), making it clear the
  * session carried over from / into an adjacent day.
  *
- * A shift that had ticket timers running inside it (M3.1) also gets an
- * expandable sub-list of those sessions. Because a ticket timer can only run
- * while a shift is running, every such session is contained by the shift it is
- * nested under. A shift with none renders exactly as it did before.
+ * A shift that had ticket timers running inside it also gets an expandable
+ * sub-list of those sessions. Because a ticket timer can only run while a shift
+ * is running, every such session is contained by the shift it is nested under.
  */
 import {
   faChevronDown,

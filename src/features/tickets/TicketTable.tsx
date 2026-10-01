@@ -100,10 +100,7 @@ export interface TicketTableProps {
   showClosed: boolean;
   emptyState: React.ReactNode;
   onToggleTimer: (ticket: UnifiedTicket) => void;
-  /**
-   * My Board only. Adds the ▶/⏸ column between the checkbox and Title columns.
-   * My Board is the only place a ticket timer starts — see `TicketTableRow`.
-   */
+  /** My Board only — see `TicketTableRow`. */
   showTimerColumn?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;

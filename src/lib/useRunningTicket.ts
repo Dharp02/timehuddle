@@ -2,8 +2,8 @@
  * useRunningTicket — which ticket (if any) has an open timer for the current user.
  *
  * Shared by ClockPage and TicketsPage so there is one fetch path, one DDP
- * subscription, and one clear-on-error/token-missing behavior. Source-aware
- * since M3: the running ticket may be a Redmine issue.
+ * subscription, and one clear-on-error/token-missing behavior. Source-aware:
+ * the running ticket may be a Redmine issue.
  *
  * Uses timers.getRunning + getDay(session.date) rather than getToday(): an open
  * timer keeps its original work-item date and can still be running after

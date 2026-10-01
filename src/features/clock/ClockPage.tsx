@@ -703,7 +703,7 @@ export const ClockPage: React.FC = () => {
           </Text>
         )}
 
-        {/* ── Redmine push (M5) — renders itself away when there is nothing to send ── */}
+        {/* ── Redmine push — renders itself away when there is nothing to send ── */}
         <RedminePushPanel isClockedIn={isClockedIn} />
 
         {/* ── Recent sessions ── */}

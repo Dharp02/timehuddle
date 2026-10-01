@@ -1,25 +1,21 @@
 /**
  * A connected Redmine instance as a unified source.
  *
- * Since M6 a Redmine issue can be edited (status, priority, assignee,
- * description) and created from TimeHuddle, always under the user's own
- * personal key — so Redmine, not TimeHuddle, decides whether a given user may
- * make a given change, and a refusal is shown rather than pre-empted here.
- * Deleting stays out of scope. Timing an issue is not a Redmine write; it is
- * started from My Board like any other ticket (M3).
+ * Issues are edited and created under the user's own personal key, so Redmine,
+ * not TimeHuddle, decides whether a given user may make a given change, and a
+ * refusal is shown rather than pre-empted here.
  *
- * Since MVP2 the rows come from `redmine.issues.relevant` rather than "every
- * issue the key can see": on a large instance that response was enormous and
- * every subject in it may carry PHI. The table shows the issues **assigned to
- * the user** (their groups included, as Redmine's `assigned_to_id=me` counts
- * them) and the issues they **pinned**. Starting a timer from a search
- * suggestion pins the issue, which is how an issue someone else owns joins the
- * table — and so My Board, which only shows rows the table has. An issue on My
- * Board is a table row too (`board`), so a board entry never outlives its row
- * because the issue was closed or reassigned. The rest of the
- * relevant list (recently logged, recent activity, watched) belongs to the
- * search bar's suggestions. `includeDismissed` is on, because hiding a search
- * suggestion must not quietly remove a row from a table.
+ * The rows come from `redmine.issues.relevant` rather than "every issue the
+ * key can see": on a large instance that response is enormous and every
+ * subject in it may carry PHI. The table shows the issues **assigned to the
+ * user** (their groups included, as Redmine's `assigned_to_id=me` counts them)
+ * and the issues they **pinned**. Starting a timer from a search suggestion
+ * pins the issue, which is how an issue someone else owns joins the table —
+ * and so My Board, which only shows rows the table has. An issue on My Board
+ * is a table row too (`board`), so a board entry never outlives its row
+ * because the issue was closed or reassigned. The rest of the relevant list
+ * (recently logged, recent activity, watched) belongs to the search bar's
+ * suggestions.
  */
 import { useSyncExternalStore } from 'react';
 

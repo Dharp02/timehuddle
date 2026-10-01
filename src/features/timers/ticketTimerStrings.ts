@@ -2,9 +2,8 @@
  * Every user-facing string about starting and stopping a ticket timer, for any
  * ticket (Huddle or Redmine) and every place a timer starts.
  *
- * The app has no translation library yet, so this module is the seam one will
- * plug into: components read this text only from here. Anything built from
- * values is a function, so a translation can reorder the words around it.
+ * The translation seam, like `tickets/redmine/suggestionStrings.ts`: components
+ * read this text only from here, and anything built from values is a function.
  * A `label` is how a ticket is named in a sentence; see `timerLabel`.
  */
 import type { TicketSourceId } from '../../lib/api';

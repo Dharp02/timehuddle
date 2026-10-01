@@ -1,5 +1,5 @@
 /**
- * Data behind the Redmine search suggestions (MVP2 Part B, tasks B1, B3, B4).
+ * Data behind the Redmine search suggestions.
  *
  * Two lists, fetched differently on purpose:
  *

@@ -1,10 +1,9 @@
 /**
  * Search + filter + sort + paginate + select pipeline for a `TicketTable`.
  *
- * Extracted out of `TicketsPage` so a second table view (My Board) can run the
- * exact same pipeline over a different ticket list with fully independent
- * state — switching tabs must never reset or leak the other tab's search,
- * filters, sort, page, or selection.
+ * A hook so each tab (Tickets, My Board) runs the same pipeline over its own
+ * ticket list with fully independent state — switching tabs must never reset
+ * or leak the other tab's search, filters, sort, page, or selection.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 

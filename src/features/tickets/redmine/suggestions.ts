@@ -1,5 +1,5 @@
 /**
- * Pure rules behind the Redmine search suggestions (MVP2 Part B).
+ * Pure rules behind the Redmine search suggestions.
  *
  * Kept free of React so the decisions that shape what a user sees — which
  * suggestions match what they typed, when to ask the server, what an empty
@@ -30,8 +30,7 @@ const isLink = (query: string) => /^https?:\/\//i.test(query);
 
 /**
  * Whether the query goes to the server at all. Issue numbers and links always
- * do; words and `@name` only from three characters, which is where the server
- * starts answering.
+ * do; words and `@name` only from `MIN_SERVER_QUERY` characters.
  */
 export function shouldSearchServer(raw: string): boolean {
   const query = raw.trim();

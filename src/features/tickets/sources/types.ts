@@ -1,13 +1,8 @@
 /**
- * The contract every ticket source implements.
- *
- * A "source" is anywhere tickets come from — TimeHuddle's own `Ticket`
- * collection, a connected Redmine instance, and (later) whatever else. The
- * unified list, filter bar, and row component only ever see `UnifiedTicket`,
- * so adding a source is one new adapter file plus one entry in `index.ts`.
- *
- * Normalization happens here, at the read layer, and is never persisted: no
- * source information is written to the core `Ticket` model.
+ * The contract every ticket source implements. The unified list, filter bar,
+ * and row component only ever see `UnifiedTicket`. Normalization happens here,
+ * at the read layer, and is never persisted: no source information is written
+ * to the core `Ticket` model. See README.md for how to add a source.
  */
 import type { TicketSourceId } from '../../../lib/api';
 
@@ -18,19 +13,15 @@ import type { TicketSourceId } from '../../../lib/api';
 export type { TicketSourceId };
 
 /**
- * What a source lets the user do from the unified list.
- *
- * Every mutating control in the UI is gated on one of these, so a read-only
- * source cannot render an action it is unable to perform.
+ * What a source lets the user do from the unified list. Every mutating control
+ * in the UI is gated on one of these, so a read-only source cannot render an
+ * action it is unable to perform.
  */
 export interface SourceCapabilities {
   edit: boolean;
   delete: boolean;
   changeStatus: boolean;
-  /**
-   * The ticket also has a page in its own system (`externalUrl`), offered as
-   * "Open in …" beside the in-app detail page.
-   */
+  /** The ticket also has a page in its own system (`externalUrl`), offered as "Open in …". */
   openExternal: boolean;
 }
 
@@ -49,8 +40,6 @@ export interface UnifiedAssignee {
 }
 
 /**
- * A ticket's status.
- *
  * `native` is what the source calls it and is what the row renders. `isClosed`
  * is the only cross-source fact we derive, and it drives the Open/Closed tabs.
  */
@@ -60,8 +49,6 @@ export interface UnifiedStatus {
 }
 
 /**
- * A ticket's priority.
- *
  * `rank` normalizes otherwise-incomparable scales so one sort works across
  * sources — higher means more urgent, 0 means "no priority set".
  */
@@ -148,7 +135,6 @@ export interface AnyTicketSource {
   load: (ctx: TicketSourceContext) => Promise<UnifiedTicket[]>;
 }
 
-/** Erase a source's raw type so it can be registered. */
 export function defineSource<Raw>(source: TicketSource<Raw>): AnyTicketSource {
   return {
     id: source.id,
@@ -162,7 +148,6 @@ export function defineSource<Raw>(source: TicketSource<Raw>): AnyTicketSource {
   };
 }
 
-/** Build the composite row key for a ticket. */
 export const ticketKey = (sourceId: TicketSourceId, id: string | number): string =>
   `${sourceId}:${id}`;
 
