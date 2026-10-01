@@ -151,8 +151,13 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
       // Page is not at the top — allow normal scrolling
       if (getScrollTop() > 2) return;
       // Same for a scroll area inside the page (a chat thread): pulling down
-      // there scrolls it back up instead of refreshing.
-      if (scrolledAncestorBetween(e.target as Element | null, el)) return;
+      // there scrolls it back up instead of refreshing. Block the whole
+      // gesture, not just this move — otherwise reaching that area's top
+      // mid-drag hands the already-accumulated `dy` straight to the pull.
+      if (scrolledAncestorBetween(e.target as Element | null, el)) {
+        blockedRef.current = true;
+        return;
+      }
 
       // ─── Key fix: don't take over until the user has CLEARLY pulled ──────────
       // Taps involve < ACTIVATION_PX of movement and pass through unmodified,
