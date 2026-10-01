@@ -686,8 +686,13 @@ Meteor.methods({
     }
 
     // Ticket timers that ran inside these shifts (M3.1). A shift with none gets
-    // an empty array, which the row renders exactly as it did before.
-    const ticketSessionsByEvent = await ticketSessionsForClockEvents(targetUserId, eventIds);
+    // an empty array, which the row renders exactly as it did before. An admin
+    // reading someone else's sheet gets titles only for tickets they could open.
+    const ticketSessionsByEvent = await ticketSessionsForClockEvents(
+      targetUserId,
+      eventIds,
+      requesterId,
+    );
 
     const now = Date.now();
     const sessions = events

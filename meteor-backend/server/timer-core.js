@@ -199,8 +199,11 @@ export async function restartTimerForWorkItem(userId, workItemId, now, clockEven
  *
  * Only sessions written since M3 carry a `clockEventId`; older ones are simply
  * absent from the result, which renders as a shift with no ticket rows.
+ *
+ * `viewerId` is who will read the result. Titles are resolved under that
+ * viewer's access, not `userId`'s (see `resolveTicketRefs`).
  */
-export async function ticketSessionsForClockEvents(userId, clockEventIds) {
+export async function ticketSessionsForClockEvents(userId, clockEventIds, viewerId = userId) {
   const byEvent = new Map();
   if (!clockEventIds.length) return byEvent;
 
@@ -215,7 +218,7 @@ export async function ticketSessionsForClockEvents(userId, clockEventIds) {
     .find({ _id: { $in: workItemIds.map((id) => new ObjectId(id)) } })
     .toArray();
   const itemById = new Map(items.map((item) => [item._id.toHexString(), item]));
-  const display = await resolveTicketRefs(userId, items);
+  const display = await resolveTicketRefs(userId, items, viewerId);
 
   for (const session of sessions) {
     const item = itemById.get(session.workItemId);

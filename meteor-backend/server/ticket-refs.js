@@ -19,9 +19,14 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 
-import { Tickets, Teams, isValidId } from './collections';
+import { RedmineLinks, Tickets, Teams, isValidId } from './collections';
 import { findRedmineAccount } from './redmine-account';
-import { getIssue, listIssuesByIds, optionalRedmineBaseUrl } from './redmine-client';
+import {
+  getIssue,
+  linkedRedmineBaseUrl,
+  listIssuesByIds,
+  optionalRedmineBaseUrl,
+} from './redmine-client';
 
 export const HUDDLE = 'huddle';
 export const REDMINE = 'redmine';
@@ -114,26 +119,63 @@ export async function resolveTicketRef(userId, source, ticketId) {
   return huddleDisplay(ticket.title, ticketId);
 }
 
-/** Resolve Huddle titles for a batch of ids, skipping ones that are not ObjectIds. */
-async function resolveHuddleDisplays(ticketIds, into) {
+/** The ids of the teams in `teamIds` that `userId` is a member or an admin of. */
+async function teamsOpenTo(userId, teamIds) {
+  const ids = [...new Set(teamIds)].filter(isValidId);
+  if (!ids.length) return new Set();
+  const teams = await Teams.find(
+    {
+      _id: { $in: ids.map((id) => new Mongo.ObjectID(id)) },
+      $or: [{ members: userId }, { admins: userId }],
+    },
+    { fields: { _id: 1 } },
+  ).fetchAsync();
+  return new Set(teams.map((team) => team._id.toHexString()));
+}
+
+/**
+ * Resolve Huddle titles for a batch of ids, skipping ones that are not ObjectIds.
+ * With `viewerId`, a ticket in a team that viewer does not belong to is left
+ * out — the same team gate `resolveTicketRef` applies.
+ */
+async function resolveHuddleDisplays(ticketIds, into, viewerId = null) {
   const ids = ticketIds.filter(isValidId);
   if (!ids.length) return;
   const tickets = await Tickets.find(
     { _id: { $in: ids.map((id) => new Mongo.ObjectID(id)) } },
-    { fields: { title: 1 } },
+    { fields: { title: 1, teamId: 1 } },
   ).fetchAsync();
+  const openTeams = viewerId
+    ? await teamsOpenTo(
+        viewerId,
+        tickets.map((ticket) => ticket.teamId),
+      )
+    : null;
   for (const ticket of tickets) {
+    if (openTeams && isValidId(ticket.teamId) && !openTeams.has(ticket.teamId)) continue;
     const id = ticket._id.toHexString();
     into.set(refKey(HUDDLE, id), huddleDisplay(ticket.title, id));
   }
 }
 
-/** Resolve Redmine subjects for a batch of issue ids. Best-effort — see below. */
-async function resolveRedmineDisplays(userId, issueIds, into) {
+/**
+ * Resolve Redmine subjects for a batch of issue ids. Best-effort — see below.
+ *
+ * The ids are `ownerId`'s; the subjects are fetched with `viewerId`'s own key,
+ * so Redmine decides what that viewer may read. An issue id means nothing on
+ * another instance, so a viewer linked elsewhere gets no subjects at all.
+ */
+async function resolveRedmineDisplays(ownerId, viewerId, issueIds, into) {
   const ids = issueIds.filter(isRedmineIssueId);
   if (!ids.length) return;
-  const account = await findRedmineAccount(userId);
-  const baseUrl = account?.baseUrl ?? optionalRedmineBaseUrl();
+  let account = await findRedmineAccount(viewerId);
+  let baseUrl = account?.baseUrl ?? optionalRedmineBaseUrl();
+  if (viewerId !== ownerId) {
+    const ownerLink = await RedmineLinks.findOneAsync({ userId: ownerId }, { fields: { baseUrl: 1 } });
+    const ownerBaseUrl = linkedRedmineBaseUrl(ownerLink?.baseUrl);
+    if (account?.baseUrl !== ownerBaseUrl) account = null;
+    baseUrl = ownerBaseUrl;
+  }
   // Link out even when the subject cannot be fetched: an issue number plus a
   // working link is still useful, and a read path must not fail because a
   // third-party instance is down or the user unlinked their account.
@@ -158,9 +200,13 @@ async function resolveRedmineDisplays(userId, issueIds, into) {
  * paths (day view, timesheet) render whatever they can and fall back to the
  * bare id, rather than blanking the page because one ticket went away.
  *
+ * `viewerId` is who the result is for, when that is not the refs' owner (an
+ * admin reading a member's timesheet). Titles are then resolved under the
+ * viewer's own access, so a ticket the viewer could not open stays a bare id.
+ *
  * @param {{source?: string, ticketId: string}[]} refs
  */
-export async function resolveTicketRefs(userId, refs) {
+export async function resolveTicketRefs(userId, refs, viewerId = userId) {
   const display = new Map();
   const bySource = new Map([
     [HUDDLE, new Set()],
@@ -171,8 +217,8 @@ export async function resolveTicketRefs(userId, refs) {
     if (ref.ticketId) bySource.get(source).add(String(ref.ticketId));
   }
   await Promise.all([
-    resolveHuddleDisplays([...bySource.get(HUDDLE)], display),
-    resolveRedmineDisplays(userId, [...bySource.get(REDMINE)], display),
+    resolveHuddleDisplays([...bySource.get(HUDDLE)], display, viewerId === userId ? null : viewerId),
+    resolveRedmineDisplays(userId, viewerId, [...bySource.get(REDMINE)], display),
   ]);
   return display;
 }
