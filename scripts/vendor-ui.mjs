@@ -40,14 +40,30 @@ function ensureCheckout() {
   sh('git submodule update --init vendor/ui');
 }
 
+/**
+ * Put vendor/ui on the branch `.gitmodules` tracks.
+ *
+ * `git submodule update` checks out the recorded commit on a detached HEAD —
+ * the `branch` setting does not attach it. A merge made there has no branch to
+ * push, so the documented `git -C vendor/ui push` would fail.
+ */
+function ensureBranch() {
+  const branch = sh('git config -f .gitmodules submodule.vendor/ui.branch', ROOT, true);
+  if (!branch) throw new Error('.gitmodules has no branch for vendor/ui.');
+  if (sh('git rev-parse --abbrev-ref HEAD', UI_DIR, true) === branch) return;
+  log(`vendor/ui is detached — checking out ${branch}`);
+  sh(`git checkout ${branch}`, UI_DIR);
+}
+
 /** Merge upstream main into the PR branch (a merge, so no force-push is needed). */
 function sync() {
   ensureCheckout();
-  const remotes = sh('git remote', UI_DIR, true).split('\n');
-  if (!remotes.includes('upstream')) sh(`git remote add upstream ${UPSTREAM_URL}`, UI_DIR);
   if (sh('git status --porcelain', UI_DIR, true)) {
     throw new Error('vendor/ui has uncommitted changes — commit or stash them first.');
   }
+  ensureBranch();
+  const remotes = sh('git remote', UI_DIR, true).split('\n');
+  if (!remotes.includes('upstream')) sh(`git remote add upstream ${UPSTREAM_URL}`, UI_DIR);
   sh('git fetch upstream main', UI_DIR);
   sh('git merge --no-edit upstream/main', UI_DIR);
   log('merged upstream/main. Push the branch to the fork when ready: git -C vendor/ui push');
@@ -72,11 +88,13 @@ function build({ force }) {
   // --ignore-scripts: `prepare` already ran above; packing must not rebuild.
   const packed = sh('npm pack --ignore-scripts', UI_DIR, true).split('\n').pop().trim();
   renameSync(join(UI_DIR, packed), TARBALL);
-  writeFileSync(MARKER, `${commit}\n`);
 
   // package-lock.json pins the tarball's checksum, so refresh it — otherwise
   // `npm ci` (CI, Docker) fails with EINTEGRITY on the next run.
   sh('npm install --no-audit --no-fund @mieweb/ui@file:vendor/mieweb-ui.tgz');
+  // Last: the marker is what makes the next run skip the rebuild, so writing
+  // it before the install above would strand a stale lockfile behind it.
+  writeFileSync(MARKER, `${commit}\n`);
   log(`vendor/mieweb-ui.tgz rebuilt from ${commit.slice(0, 8)}. Commit it with package-lock.json.`);
 }
 
