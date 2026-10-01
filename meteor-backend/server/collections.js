@@ -33,16 +33,16 @@ export const RedmineLinks = new Mongo.Collection('redmine_links', { idGeneration
 // snapshot. Display fields are resolved client-side against already-fetched
 // unified tickets (Core Model Data Discipline).
 export const MyBoard = new Mongo.Collection('my_board', { idGeneration: 'MONGO' });
-// One row per (user, Redmine issue, day) — the exact grain of a Redmine "Spent
-// time" entry, holding the remote entry id so a re-sync updates rather than
-// duplicates.
+// One row per time entry TimeHuddle has created in Redmine, or per stretch of
+// time the user chose never to send. A (user, Redmine issue, day) may carry
+// several: entries are create-only, and each push sends only the seconds not
+// already covered by earlier rows (see redmine-time-sync.js for the row shape
+// and why the grain is not the ticket-day).
 //
 // Deliberately NOT a field on WorkItems: `timers.copyPrevious` dedupes on a
 // signature that includes `note` and `sortOrder`, so sibling WorkItem rows for
-// the same user + source + ticket + date legitimately exist. Two siblings would
-// each carry their own entry id and produce two Redmine entries for one day,
-// which is the single invariant the sync is judged on. A unique index here
-// enforces the grain that WorkItems cannot (see redmine-time-sync.js).
+// the same user + source + ticket + date legitimately exist, and what has been
+// sent has to be totalled per ticket-day across them.
 export const RedmineTimeSyncs = new Mongo.Collection('redmine_time_syncs', { idGeneration: 'MONGO' });
 // One row per (user, Redmine issue) the user has pinned or dismissed — TimeHuddle's
 // own opinion about a Redmine issue, which Redmine has no field for.

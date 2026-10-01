@@ -3,8 +3,7 @@
  *
  * Shared by ClockPage and TicketsPage so there is one fetch path, one DDP
  * subscription, and one clear-on-error/token-missing behavior. Source-aware
- * since M3: the running ticket may be a Redmine issue, which links out rather
- * than to an in-app route.
+ * since M3: the running ticket may be a Redmine issue.
  *
  * Uses timers.getRunning + getDay(session.date) rather than getToday(): an open
  * timer keeps its original work-item date and can still be running after

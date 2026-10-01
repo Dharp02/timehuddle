@@ -114,8 +114,9 @@ services:
       # Redmine integration (Milestone 1: personal-key account linking).
       # REDMINE_BASE_URL: the external Redmine instance URL (no trailing slash).
       #   The instance must have Administration -> Settings -> API -> Enable REST API on.
-      #   Required — set it in a root .env (e.g. REDMINE_BASE_URL=https://redmine.example.com).
-      #   No default: Redmine is external, so there is no in-stack `redmine` host to
+      #   Optional — set it in a root .env (e.g. REDMINE_BASE_URL=https://redmine.example.com).
+      #   Left empty, the stack still starts and Redmine simply cannot be connected.
+      #   No default host: Redmine is external, so there is no in-stack `redmine` to
       #   fall back to, and a bogus default would only fail later with a DNS error.
       # REDMINE_ENCRYPTION_KEY: secret used to encrypt personal API keys at rest.
       #   Set a strong value in meteor-backend/.env.local; do not commit real keys.
@@ -132,7 +133,7 @@ services:
       #   Keys that still decrypt under the old secret are re-encrypted under the new one
       #   on next use, so a rotation does not send every user back to Settings. Remove it
       #   once no key decrypts with it any more.
-      - REDMINE_BASE_URL=${REDMINE_BASE_URL:?set REDMINE_BASE_URL to your external Redmine URL (no trailing slash)}
+      - REDMINE_BASE_URL=${REDMINE_BASE_URL:-}
       - REDMINE_ALLOW_CUSTOM_URL=${REDMINE_ALLOW_CUSTOM_URL:-false}
       - REDMINE_ALLOWED_HOSTS=${REDMINE_ALLOWED_HOSTS:-}
     env_file:

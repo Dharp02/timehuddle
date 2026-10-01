@@ -165,8 +165,9 @@ export const TicketsPage: React.FC = () => {
       userId,
       teams: teams.map((t: Team) => ({ id: t.id, name: t.name })),
       resolveMemberName: getAssigneeName,
+      membersKey: allMembers.map((m) => `${m.id}:${m.name || m.email}`).join('|'),
     }),
-    [userId, teams, getAssigneeName],
+    [userId, teams, getAssigneeName, allMembers],
   );
 
   const {

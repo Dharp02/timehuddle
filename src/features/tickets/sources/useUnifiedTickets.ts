@@ -52,7 +52,7 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
   // sign-in as someone else) overwriting a newer one.
   const requestSeq = useRef(0);
 
-  const { userId, teams } = ctx;
+  const { userId, teams, membersKey } = ctx;
 
   // `teams` and `resolveMemberName` get new identities on every render of the
   // owning component, so the load effect keys off the team ids instead.
@@ -68,7 +68,8 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
-  const load = useCallback(() => {
+  // `quiet` reloads behind the rows already shown, without a loading state.
+  const load = useCallback((quiet = false) => {
     const seq = ++requestSeq.current;
     const current = ctxRef.current;
 
@@ -81,10 +82,12 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
         continue;
       }
 
-      setPartitions((prev) => ({
-        ...prev,
-        [source.id]: { ...prev[source.id], loading: true, error: null },
-      }));
+      if (!quiet) {
+        setPartitions((prev) => ({
+          ...prev,
+          [source.id]: { ...prev[source.id], loading: true, error: null },
+        }));
+      }
 
       void source
         .load(current)
@@ -111,9 +114,19 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     }
   }, []);
 
+  const loaded = useRef<{ userId: string | null; teamsKey: string } | null>(null);
+
   useEffect(() => {
-    load();
-  }, [load, userId, teamsKey]);
+    const previous = loaded.current;
+    loaded.current = { userId, teamsKey };
+    // This hook outlives a sign-in as someone else, and a load keeps the rows it
+    // had: the next user must not see the previous one's while theirs arrive.
+    if (previous && previous.userId !== userId) setPartitions(initialPartitions());
+    // Member data arriving only renames people on rows already shown.
+    load(previous?.userId === userId && previous.teamsKey === teamsKey);
+  }, [load, userId, teamsKey, membersKey]);
+
+  const refetch = useCallback(() => load(), [load]);
 
   const setSourceItems = useCallback((sourceId: TicketSourceId, items: UnifiedTicket[]) => {
     setPartitions((prev) => ({
@@ -141,5 +154,5 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     [partitions],
   );
 
-  return { tickets, partitions, loading, errors, refetch: load, setSourceItems };
+  return { tickets, partitions, loading, errors, refetch, setSourceItems };
 }

@@ -110,6 +110,11 @@ export interface TicketSourceContext {
   teams: { id: string; name: string }[];
   /** Resolves a Huddle user id to a display name. */
   resolveMemberName: (userId: string) => string | null;
+  /**
+   * Changes whenever the member data behind `resolveMemberName` does, so rows
+   * normalized before the members arrived are loaded again with their names.
+   */
+  membersKey?: string;
 }
 
 /**

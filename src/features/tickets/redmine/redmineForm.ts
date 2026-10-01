@@ -37,7 +37,8 @@ export function assigneeOptions(
   return [
     { value: UNASSIGNED, label: 'Unassigned' },
     ...(self ? [{ value: String(self.id), label: `Me (${self.name})` }] : []),
-    ...toOptions(others, current && current.id !== me ? current : null),
+    // `current` is skipped only when the "Me" option above already stands for it.
+    ...toOptions(others, current && current.id !== self?.id ? current : null),
   ];
 }
 

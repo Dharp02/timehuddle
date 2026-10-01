@@ -24,6 +24,9 @@ const registry = new Set();
  */
 export function createUserTtlCache(ttlMs) {
   const entries = new Map();
+  // Bumped by `bust`, so a fetch that was already in flight for the previous
+  // account cannot store its answer after the user re-linked.
+  const generations = new Map();
 
   const cache = {
     async get(userId, subKey, fetchFn) {
@@ -31,11 +34,15 @@ export function createUserTtlCache(ttlMs) {
       const hit = entries.get(key);
       if (hit && hit.expiresAt > Date.now()) return hit.value;
 
+      const generation = generations.get(userId) ?? 0;
       const value = await fetchFn();
-      entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+      if ((generations.get(userId) ?? 0) === generation) {
+        entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+      }
       return value;
     },
     bust(userId) {
+      generations.set(userId, (generations.get(userId) ?? 0) + 1);
       const prefix = `${userId}|`;
       for (const key of entries.keys()) {
         if (key.startsWith(prefix)) entries.delete(key);

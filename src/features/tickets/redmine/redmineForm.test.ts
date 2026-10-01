@@ -48,6 +48,11 @@ describe('assigneeOptions', () => {
   it('works when the caller is not a project member', () => {
     expect(assigneeOptions(members, 99).map((o) => o.value)).toEqual([UNASSIGNED, '8', '9']);
   });
+
+  it('keeps the caller as the current assignee when they are not a project member', () => {
+    const options = assigneeOptions(members, 99, { id: 99, name: 'Sam Lee' });
+    expect(options.map((o) => o.value)).toEqual([UNASSIGNED, '99', '8', '9']);
+  });
 });
 
 describe('toId', () => {

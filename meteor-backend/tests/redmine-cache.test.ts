@@ -36,6 +36,18 @@ describe('createUserTtlCache', () => {
     expect(await cache.get('u1', 'k', async () => 'recovered')).toBe('recovered');
   });
 
+  it('does not cache a fetch that was in flight when the user was busted', async () => {
+    const cache = createUserTtlCache(60_000);
+    let finish: (value: string) => void = () => {};
+    const pending = cache.get('u1', 'k', () => new Promise<string>((resolve) => (finish = resolve)));
+
+    bustUserCaches('u1');
+    finish('previous-account');
+
+    expect(await pending).toBe('previous-account');
+    expect(await cache.get('u1', 'k', async () => 'fresh')).toBe('fresh');
+  });
+
   it('busts one user across every cache and leaves others alone', async () => {
     const first = createUserTtlCache(60_000);
     const second = createUserTtlCache(60_000);

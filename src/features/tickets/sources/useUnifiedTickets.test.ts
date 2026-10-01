@@ -84,6 +84,45 @@ describe('useUnifiedTickets', () => {
     expect(result.current.tickets.map((t) => t.key)).toEqual(['huddle:2', 'redmine:9']);
   });
 
+  it('drops the previous user\u2019s rows as soon as the user changes', async () => {
+    let finish: (items: UnifiedTicket[]) => void = () => {};
+    const load = vi
+      .fn<() => Promise<UnifiedTicket[]>>()
+      .mockResolvedValueOnce([ticket('huddle:1')])
+      .mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    mockSources.value = [fakeSource('huddle', load)];
+
+    const { result, rerender } = renderHook(
+      (props: TicketSourceContext) => useUnifiedTickets(props),
+      {
+        initialProps: ctx,
+      },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    rerender({ ...ctx, userId: 'u2' });
+    expect(result.current.tickets).toEqual([]);
+
+    await act(async () => finish([ticket('huddle:2')]));
+    expect(result.current.tickets.map((t) => t.key)).toEqual(['huddle:2']);
+  });
+
+  it('loads again when the member data changes', async () => {
+    const load = vi.fn(async () => [ticket('huddle:1')]);
+    mockSources.value = [fakeSource('huddle', load)];
+
+    const { result, rerender } = renderHook(
+      (props: TicketSourceContext) => useUnifiedTickets(props),
+      {
+        initialProps: { ...ctx, membersKey: '' },
+      },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    rerender({ ...ctx, membersKey: 'u1:Riley' });
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+  });
+
   it('renders the healthy source when another fails', async () => {
     mockSources.value = [
       fakeSource('huddle', async () => [ticket('huddle:1')]),

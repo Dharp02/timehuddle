@@ -28,11 +28,14 @@ export async function findRedmineAccount(userId) {
   // A key that only opened under the previous encryption key is rewritten under
   // the current one, once, here — decrypting it successfully *is* the "next
   // successful use". Fire-and-forget: a read path must not fail because a
-  // re-encrypt did, and the next read would simply try again.
+  // re-encrypt did, and the next read would simply try again. Matched on the
+  // ciphertext that was read, so a key connected meanwhile is never overwritten
+  // with this older one.
   if (rotated) {
-    RedmineLinks.updateAsync({ userId }, { $set: { apiKey: encryptSecret(secret, envKey()) } }).catch(
-      (error) => console.error('[redmine] failed to re-encrypt a rotated API key:', error),
-    );
+    RedmineLinks.updateAsync(
+      { userId, apiKey: link.apiKey },
+      { $set: { apiKey: encryptSecret(secret, envKey()) } },
+    ).catch((error) => console.error('[redmine] failed to re-encrypt a rotated API key:', error));
   }
 
   return { apiKey: secret, baseUrl: linkedRedmineBaseUrl(link.baseUrl) };
