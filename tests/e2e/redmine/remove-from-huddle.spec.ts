@@ -15,52 +15,21 @@ import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { TicketsPage } from '../pages/TicketsPage';
 import {
-  BASE_URL,
   connectedStatus,
   redmineIssue,
+  relevantList,
   stubRedmine,
   type StubValue,
 } from '../fixtures/redmine';
+import { stubMyBoard } from '../fixtures/timers';
 
 const ALPHA = redmineIssue({ id: 15, subject: 'Alpha intake validation', reasons: ['assigned'] });
 
-const relevant = (issues = [ALPHA], extra: Record<string, unknown> = {}) => ({
-  connected: true,
-  baseUrl: BASE_URL,
-  partial: false,
-  issues,
-  ...extra,
-});
-
-const json = (result: unknown) => ({
-  status: 200,
-  contentType: 'application/json',
-  body: JSON.stringify({ result }),
-});
-
-/** A My Board that keeps what is removed from it, like the server. */
-async function stubBoard(page: Page, entries: { sourceId: string; ticketId: string }[]) {
-  const board = [...entries];
-  const removals: unknown[] = [];
-  await page.route('**/api/myBoard_list', (route) =>
-    route.fulfill(
-      json({ entries: board.map((e) => ({ ...e, addedAt: '2026-09-01T00:00:00.000Z' })) }),
-    ),
-  );
-  await page.route('**/api/myBoard_removeMany', async (route) => {
-    const body = route.request().postDataJSON();
-    removals.push(body);
-    for (const ref of body.refs ?? []) {
-      const at = board.findIndex((e) => e.sourceId === ref.sourceId && e.ticketId === ref.ticketId);
-      if (at >= 0) board.splice(at, 1);
-    }
-    await route.fulfill(json({ removedCount: 1 }));
-  });
-  return { board, removals };
-}
+const relevant = (issues = [ALPHA], extra: Record<string, unknown> = {}) =>
+  relevantList(issues, extra);
 
 /** Redmine with issue 15 in the table until `issues.removeFromTable` takes it out. */
-async function openWithRemovableAlpha(page: Page, board: ReturnType<typeof stubBoard>) {
+async function openWithRemovableAlpha(page: Page, board: ReturnType<typeof stubMyBoard>) {
   let removed = false;
   const held = await board;
   const rm = await stubRedmine(page, {
@@ -92,7 +61,7 @@ test.describe('Deleting Redmine issues from TimeHuddle', () => {
   });
 
   test('takes a Redmine issue out of the table, not out of Redmine', async ({ page }) => {
-    const { rm, tickets } = await openWithRemovableAlpha(page, stubBoard(page, []));
+    const { rm, tickets } = await openWithRemovableAlpha(page, stubMyBoard(page, []));
 
     await tickets.selectTicket('Alpha intake validation');
     await expect(tickets.bulkDeleteButton).toBeEnabled();
@@ -111,7 +80,7 @@ test.describe('Deleting Redmine issues from TimeHuddle', () => {
   test('works from My Board too, taking the issue off the board', async ({ page }) => {
     const { rm, tickets } = await openWithRemovableAlpha(
       page,
-      stubBoard(page, [{ sourceId: 'redmine', ticketId: '15' }]),
+      stubMyBoard(page, [{ sourceId: 'redmine', ticketId: '15' }]),
     );
 
     await tickets.switchToTab('my-board');
@@ -131,7 +100,7 @@ test.describe('Deleting Redmine issues from TimeHuddle', () => {
     const title = `E2E Mixed Delete ${Date.now()}`;
     await new TicketsPage(page).goto();
     await new TicketsPage(page).createTicket(title);
-    const { rm, tickets } = await openWithRemovableAlpha(page, stubBoard(page, []));
+    const { rm, tickets } = await openWithRemovableAlpha(page, stubMyBoard(page, []));
 
     await tickets.selectTicket(title);
     await tickets.selectTicket('Alpha intake validation');
@@ -155,7 +124,7 @@ test.describe('My Board entries that point at nothing', () => {
   });
 
   test('offers to remove the ones Redmine says are gone', async ({ page }) => {
-    const { removals } = await stubBoard(page, [
+    const { removals } = await stubMyBoard(page, [
       { sourceId: 'redmine', ticketId: '15' },
       { sourceId: 'redmine', ticketId: '99' },
     ]);
@@ -179,7 +148,7 @@ test.describe('My Board entries that point at nothing', () => {
   });
 
   test('never offers to remove an issue that only failed to load', async ({ page }) => {
-    await stubBoard(page, [{ sourceId: 'redmine', ticketId: '99' }]);
+    await stubMyBoard(page, [{ sourceId: 'redmine', ticketId: '99' }]);
     await stubRedmine(page, {
       status: connectedStatus(),
       'issues.relevant': relevant([], { partial: true, unavailableBoardIds: [] }),

@@ -21,21 +21,9 @@ import {
   listAssignedIssues,
   normalizeRedmineUrl,
 } from '../server/redmine-client';
+import { withEnv } from './env';
 
 const account = { apiKey: 'key', baseUrl: 'https://redmine.test' };
-
-/** Set (or, for undefined, delete) env vars for one test; returns a restore fn. */
-function withEnv(vars: Record<string, string | undefined>) {
-  const saved = Object.fromEntries(Object.keys(vars).map((name) => [name, process.env[name]]));
-  const apply = (values: Record<string, string | undefined>) => {
-    for (const [name, value] of Object.entries(values)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  };
-  apply(vars);
-  return () => apply(saved);
-}
 
 describe('isRedmineTimeout', () => {
   it('recognises the error AbortSignal.timeout throws', () => {

@@ -14,7 +14,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { TicketsPage } from '../pages/TicketsPage';
-import { BASE_URL, connectedStatus, redmineIssue, stubRedmine } from '../fixtures/redmine';
+import { connectedStatus, redmineIssue, relevantList, stubRedmine } from '../fixtures/redmine';
 
 const REDMINE_USER_ID = 8;
 
@@ -49,7 +49,7 @@ async function stubLinkableRedmine(page: Page) {
     },
     'issues.relevant': () =>
       linked
-        ? { connected: true, baseUrl: BASE_URL, issues: [MINE, THEIRS], partial: false }
+        ? relevantList([MINE, THEIRS])
         : { connected: false, baseUrl: null, issues: [], partial: false },
   });
   return rm;

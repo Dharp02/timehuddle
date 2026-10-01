@@ -21,6 +21,7 @@ import {
   type RedmineStub,
   type StubValue,
 } from '../fixtures/redmine';
+import { jsonResult, stubMyBoard, stubRunningTimer, stubTimerCreate } from '../fixtures/timers';
 
 const ISSUE_ID = 15;
 
@@ -357,89 +358,28 @@ test.describe('Redmine issue page timer', () => {
     page: Page,
     { onBoard = false, startError }: { onBoard?: boolean; startError?: string } = {},
   ) {
-    const starts: Record<string, unknown>[] = [];
     const stops: Record<string, unknown>[] = [];
-    const boardAdds: Record<string, unknown>[] = [];
     let running = false;
-    const json = (result: unknown) => ({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ result }),
-    });
-
-    await page.route('**/api/timers_createEntry', async (route) => {
-      starts.push(route.request().postDataJSON());
-      if (startError) {
-        await route.fulfill({
-          status: 400,
-          contentType: 'application/json',
-          body: JSON.stringify({ error: startError, reason: startError }),
-        });
-        return;
-      }
-      running = true;
-      await route.fulfill(json({ entry: { id: 'w1' }, session: { id: 's1' } }));
+    const starts = await stubTimerCreate(page, {
+      startError,
+      onStart: () => {
+        running = true;
+      },
     });
     await page.route('**/api/timers_stopSession', async (route) => {
       stops.push(route.request().postDataJSON());
       running = false;
-      await route.fulfill(json({ session: { id: 's1' } }));
+      await route.fulfill(jsonResult({ session: { id: 's1' } }));
     });
-    await page.route('**/api/timers_getRunning', (route) =>
-      route.fulfill(
-        json({
-          session: running
-            ? {
-                id: 's1',
-                workItemId: 'w1',
-                userId: 'u',
-                clockEventId: null,
-                date: '2026-09-28',
-                startTime: Date.now(),
-                endTime: null,
-                createdAt: '',
-              }
-            : null,
-        }),
-      ),
-    );
-    await page.route('**/api/timers_getDay', (route) =>
-      route.fulfill(
-        json({
-          entries: [
-            {
-              entry: {
-                id: 'w1',
-                source: 'redmine',
-                ticketId: String(ISSUE_ID),
-                displayTitle: 'Fix the intake form validation',
-                displayUrl: null,
-              },
-              sessions: [],
-            },
-          ],
-        }),
-      ),
-    );
-    await page.route('**/api/myBoard_list', (route) =>
-      route.fulfill(
-        json({
-          entries: onBoard
-            ? [
-                {
-                  sourceId: 'redmine',
-                  ticketId: String(ISSUE_ID),
-                  addedAt: '2026-09-01T00:00:00.000Z',
-                },
-              ]
-            : [],
-        }),
-      ),
-    );
-    await page.route('**/api/myBoard_addMany', async (route) => {
-      boardAdds.push(route.request().postDataJSON());
-      await route.fulfill(json({ addedCount: 1 }));
+    await stubRunningTimer(page, {
+      ticketId: String(ISSUE_ID),
+      title: 'Fix the intake form validation',
+      isRunning: () => running,
     });
+    const { adds: boardAdds } = await stubMyBoard(
+      page,
+      onBoard ? [{ sourceId: 'redmine', ticketId: String(ISSUE_ID) }] : [],
+    );
     return { starts, stops, boardAdds };
   }
 

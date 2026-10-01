@@ -25,21 +25,17 @@ import {
   redmineUrlRefusal,
   searchIssues,
 } from '../server/redmine-client';
+import { withEnv } from './env';
 
 const account = { apiKey: 'personal-key', baseUrl: 'https://redmine.test' };
 
-/** Set (or, for undefined, delete) env vars for one test; returns a restore fn. */
-function withEnv(vars: Record<string, string | undefined>) {
-  const saved = Object.fromEntries(Object.keys(vars).map((name) => [name, process.env[name]]));
-  const apply = (values: Record<string, string | undefined>) => {
-    for (const [name, value] of Object.entries(values)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  };
-  apply(vars);
-  return () => apply(saved);
-}
+/** A production deployment whose own Redmine is redmine.test, optionally allowing more hosts. */
+const inProduction = (allowedHosts?: string) =>
+  withEnv({
+    NODE_ENV: 'production',
+    REDMINE_BASE_URL: 'https://redmine.test',
+    REDMINE_ALLOWED_HOSTS: allowedHosts,
+  });
 
 describe('redirects are never followed', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -75,21 +71,13 @@ describe('redmineUrlRefusal', () => {
   });
 
   it('allows the deployment\'s own Redmine without it being listed', () => {
-    restore = withEnv({
-      NODE_ENV: 'production',
-      REDMINE_BASE_URL: 'https://redmine.test',
-      REDMINE_ALLOWED_HOSTS: undefined,
-    });
+    restore = inProduction();
     expect(redmineUrlRefusal('https://redmine.test')).toBeNull();
     expect(redmineAllowedHosts()).toContain('redmine.test');
   });
 
   it('refuses a host the deployment did not name', () => {
-    restore = withEnv({
-      NODE_ENV: 'production',
-      REDMINE_BASE_URL: 'https://redmine.test',
-      REDMINE_ALLOWED_HOSTS: 'other.test',
-    });
+    restore = inProduction('other.test');
     expect(redmineUrlRefusal('https://other.test')).toBeNull();
     // The addresses this rule exists for: internal services and cloud metadata.
     expect(redmineUrlRefusal('https://169.254.169.254')).toMatch(/not allowed/);
@@ -98,30 +86,18 @@ describe('redmineUrlRefusal', () => {
   });
 
   it('requires https in production, even for an allowed host', () => {
-    restore = withEnv({
-      NODE_ENV: 'production',
-      REDMINE_BASE_URL: 'https://redmine.test',
-      REDMINE_ALLOWED_HOSTS: 'other.test',
-    });
+    restore = inProduction('other.test');
     expect(redmineUrlRefusal('http://other.test')).toMatch(/https/);
   });
 
   it('refuses a missing or unusable URL in production', () => {
-    restore = withEnv({
-      NODE_ENV: 'production',
-      REDMINE_BASE_URL: 'https://redmine.test',
-      REDMINE_ALLOWED_HOSTS: undefined,
-    });
+    restore = inProduction();
     expect(redmineUrlRefusal(null as never)).toMatch(/configured/);
     expect(redmineUrlRefusal('redmine.test')).toMatch(/usable/);
   });
 
   it('refuses to send a request to a host it would refuse', async () => {
-    restore = withEnv({
-      NODE_ENV: 'production',
-      REDMINE_BASE_URL: 'https://redmine.test',
-      REDMINE_ALLOWED_HOSTS: undefined,
-    });
+    restore = inProduction();
     vi.stubGlobal('fetch', vi.fn());
     await expect(
       getCurrentUser({ apiKey: 'k', baseUrl: 'https://169.254.169.254' }),

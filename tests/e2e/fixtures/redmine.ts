@@ -146,10 +146,6 @@ export interface RedmineStub {
   /** Recorded request bodies for one method, oldest first. */
   calls(method: string): RedmineCall[];
   callCount(method: string): number;
-  /** Re-stub a method mid-test. */
-  set(method: string, value: StubValue): void;
-  /** Every method that was called, in order — useful when a spec asserts a flow. */
-  methodsCalled(): string[];
 }
 
 // ─── Route mapping ───────────────────────────────────────────────────────────
@@ -232,7 +228,6 @@ export async function stubRedmine(
 ): Promise<RedmineStub> {
   const stubs = new Map<string, StubValue>(Object.entries(overrides));
   const recorded = new Map<string, RedmineCall[]>();
-  const order: string[] = [];
 
   async function handle(route: Route): Promise<void> {
     const request = route.request();
@@ -249,7 +244,6 @@ export async function stubRedmine(
     const previous = recorded.get(method) ?? [];
     const callIndex = previous.length;
     recorded.set(method, [...previous, params]);
-    order.push(method);
 
     let value = stubs.has(method) ? stubs.get(method) : DISCONNECTED[method];
 
@@ -301,10 +295,6 @@ export async function stubRedmine(
   return {
     calls: (method) => recorded.get(method) ?? [],
     callCount: (method) => (recorded.get(method) ?? []).length,
-    set: (method, value) => {
-      stubs.set(method, value);
-    },
-    methodsCalled: () => [...order],
   };
 }
 
@@ -401,6 +391,11 @@ export function redmineIssue(overrides: Partial<RedmineIssueShape> = {}): Redmin
     reasons: ['assigned'],
     ...overrides,
   };
+}
+
+/** The envelope `issues.relevant` answers for a linked account. */
+export function relevantList(issues: RedmineIssueShape[], extra: Record<string, unknown> = {}) {
+  return { connected: true, baseUrl: BASE_URL, partial: false, issues, ...extra };
 }
 
 /** The detail shape `issues.get` returns: an issue plus description and workflow. */

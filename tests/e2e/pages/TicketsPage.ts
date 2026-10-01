@@ -16,7 +16,6 @@ export class TicketsPage extends BasePage {
   readonly closedSwitch: Locator;
   readonly clearFiltersButton: Locator;
   readonly selectAllCheckbox: Locator;
-  readonly pagination: Locator;
   readonly ticketsTab: Locator;
   readonly myBoardTab: Locator;
   readonly moveToBoardButton: Locator;
@@ -38,7 +37,6 @@ export class TicketsPage extends BasePage {
     this.closedSwitch = this.page.getByRole('switch', { name: /Closed/i });
     this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
     this.selectAllCheckbox = this.page.getByRole('checkbox', { name: /Select all tickets/i });
-    this.pagination = this.page.getByRole('navigation', { name: 'Ticket pages' });
     this.ticketsTab = this.page.getByRole('tab', { name: 'Tickets' });
     this.myBoardTab = this.page.getByRole('tab', { name: 'My Board' });
     this.moveToBoardButton = this.page.getByRole('button', { name: 'Move to My Board' });

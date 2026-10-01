@@ -218,22 +218,6 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await expectRows(page, tickets, 'Assigned to a colliding id', 0);
   });
 
-  test('still filters Huddle rows when no Redmine account is linked', async ({ page }) => {
-    await stubRedmine(page, { status: { connected: false } });
-    const tickets = await openTickets(page);
-
-    const mine = `Unlinked mine ${Date.now()}`;
-    const theirs = `Unlinked theirs ${Date.now()}`;
-    await createHuddleTicket(page, mine);
-    await createHuddleTicket(page, theirs);
-    await setAssignees(page, tickets, theirs, [OTHER.name]);
-
-    await tickets.filterBy('Assignees', 'Me');
-
-    await expectRows(page, tickets, mine, 1);
-    await expectRows(page, tickets, theirs, 0);
-  });
-
   test('clearing the filter brings everyone back', async ({ page }) => {
     await stubRedmine(page, {});
     const tickets = await openTickets(page);

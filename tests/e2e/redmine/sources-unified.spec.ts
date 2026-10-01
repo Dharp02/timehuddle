@@ -13,7 +13,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { TicketsPage } from '../pages/TicketsPage';
-import { BASE_URL, redmineIssue, stubRedmine, type StubValue } from '../fixtures/redmine';
+import { redmineIssue, relevantList, stubRedmine, type StubValue } from '../fixtures/redmine';
 
 const ISSUES = [
   redmineIssue({ id: 15, subject: 'Alpha intake validation', priority: { id: 4, name: 'Normal' } }),
@@ -26,12 +26,7 @@ const ISSUES = [
   }),
 ];
 
-const connectedList = (issues = ISSUES) => ({
-  connected: true,
-  baseUrl: BASE_URL,
-  issues,
-  partial: false,
-});
+const connectedList = (issues = ISSUES) => relevantList(issues);
 
 async function openTable(page: Page, overrides: Record<string, StubValue>) {
   const rm = await stubRedmine(page, overrides);

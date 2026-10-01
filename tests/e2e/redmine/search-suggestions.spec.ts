@@ -15,10 +15,12 @@ import {
   BASE_URL,
   connectedStatus,
   redmineIssue,
+  relevantList,
   stubRedmine,
   type RedmineIssueShape,
   type StubValue,
 } from '../fixtures/redmine';
+import { stubMyBoard, stubRunningTimer, stubTimerCreate } from '../fixtures/timers';
 
 type Reason = 'running' | 'assigned' | 'logged' | 'activity' | 'watching' | 'pinned';
 
@@ -34,12 +36,7 @@ const SUGGESTED = [
   suggestion(31, 'Kilo billing report', ['activity']),
 ];
 
-const relevant = (issues = SUGGESTED) => ({
-  connected: true,
-  baseUrl: BASE_URL,
-  partial: false,
-  issues,
-});
+const relevant = (issues = SUGGESTED) => relevantList(issues);
 
 const searchResult = (kind: string, issues: RedmineIssueShape[]) => ({
   connected: true,
@@ -268,37 +265,12 @@ test.describe('Redmine suggestion timers', () => {
 
   /** The test backend has no Redmine, so the timer start itself is stubbed. */
   async function stubTimerStart(page: Page, { onBoard = [] as string[] } = {}) {
-    const bodies: Record<string, unknown>[] = [];
-    const boardAdds: Record<string, unknown>[] = [];
-    const json = (result: unknown) => ({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ result }),
-    });
-    await page.route('**/api/timers_createEntry', async (route) => {
-      bodies.push(route.request().postDataJSON());
-      await route.fulfill(json({ entry: { id: 'e2e-entry' }, session: { id: 'e2e-session' } }));
-    });
-    // My Board, so "added" versus "already there" is deterministic. It keeps what
-    // is added, like the server: the page reloads the board after a start.
-    const board = [...onBoard];
-    await page.route('**/api/myBoard_list', (route) =>
-      route.fulfill(
-        json({
-          entries: board.map((ticketId) => ({
-            sourceId: 'redmine',
-            ticketId,
-            addedAt: '2026-09-01T00:00:00.000Z',
-          })),
-        }),
-      ),
+    const bodies = await stubTimerCreate(page);
+    // My Board, so "added" versus "already there" is deterministic.
+    const { adds: boardAdds } = await stubMyBoard(
+      page,
+      onBoard.map((ticketId) => ({ sourceId: 'redmine', ticketId })),
     );
-    await page.route('**/api/myBoard_addMany', async (route) => {
-      const body = route.request().postDataJSON();
-      boardAdds.push(body);
-      for (const ref of body.refs ?? []) board.push(String(ref.ticketId));
-      await route.fulfill(json({ addedCount: 1 }));
-    });
     return { bodies, boardAdds };
   }
 
@@ -446,47 +418,11 @@ test.describe('The running timer in suggestions', () => {
     // The server's list says nothing about a timer; the page's own running-timer
     // tracking is what must drive the chip.
     let running = true;
-    const json = (result: unknown) => ({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ result }),
+    await stubRunningTimer(page, {
+      ticketId: '23',
+      title: 'Zulu export timeout',
+      isRunning: () => running,
     });
-    await page.route('**/api/timers_getRunning', (route) =>
-      route.fulfill(
-        json({
-          session: running
-            ? {
-                id: 's1',
-                workItemId: 'w1',
-                userId: 'u',
-                clockEventId: null,
-                date: '2026-09-26',
-                startTime: Date.now(),
-                endTime: null,
-                createdAt: '',
-              }
-            : null,
-        }),
-      ),
-    );
-    await page.route('**/api/timers_getDay', (route) =>
-      route.fulfill(
-        json({
-          entries: [
-            {
-              entry: {
-                id: 'w1',
-                source: 'redmine',
-                ticketId: '23',
-                displayTitle: 'Zulu export timeout',
-                displayUrl: null,
-              },
-              sessions: [],
-            },
-          ],
-        }),
-      ),
-    );
     const { input, option } = await openTickets(page);
 
     await input.click();
