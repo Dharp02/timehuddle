@@ -1,6 +1,6 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
-import { rawDb, isValidId } from './collections';
+import { DUPLICATE_KEY_ERROR_CODE, rawDb, isValidId } from './collections';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
