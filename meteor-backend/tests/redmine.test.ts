@@ -8,8 +8,8 @@
  * `redmine.issues.list` really is gone rather than merely unused.
  *
  * The valid-key happy path (validate → encrypted upsert → reconnect) requires a
- * reachable Redmine instance and is covered by the manual end-to-end test in
- * huddle_redmine_clock.md; the encryption and status-shaping logic it relies on
+ * reachable Redmine instance and is covered by a manual end-to-end pass; the
+ * encryption and status-shaping logic it relies on
  * are unit-covered in redmine-crypto.test.ts and redmine-status.test.ts.
  *
  * Prerequisite: the dedicated test Meteor backend (see tests/setup.ts).

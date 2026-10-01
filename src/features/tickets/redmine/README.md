@@ -28,8 +28,8 @@ write (`invalidateRedmineCache` in `../sources/redmineSource.ts`).
 
 The Tickets search bar filters the table and, as the same input, opens a
 dropdown of Redmine issues: **Suggested for you** on focus, narrowed as the
-user types, then **More from Redmine** from a server search. The full plan is
-[`docs/Redmine MVP2 — Part B Search Dropdown & UX.md`](../../../../docs/Redmine%20MVP2%20—%20Part%20B%20Search%20Dropdown%20&%20UX.md).
+user types, then **More from Redmine** from a server search. The rules behind
+it are in [`docs/redmine-design.md`](../../../../docs/redmine-design.md).
 
 | File                           | Role                                                                                                       |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
