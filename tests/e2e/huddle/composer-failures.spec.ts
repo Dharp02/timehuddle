@@ -23,8 +23,10 @@ import {
   attachmentChipCount,
   composerEditor,
   dropFiles,
+  inboxComposer,
   openComposer,
   postFromHuddle as send,
+  sendFromInbox,
   setSharedTeamPlanGate,
 } from './helpers';
 
@@ -68,7 +70,7 @@ test.describe('Huddle composer — attachment failures are visible', () => {
   });
 });
 
-test.describe('Huddle Share an update — post failures are visible', () => {
+test.describe('Huddle message box — post failures are visible', () => {
   test.setTimeout(120000);
 
   test.beforeEach(async ({ page }) => {
@@ -96,7 +98,7 @@ test.describe('Huddle Share an update — post failures are visible', () => {
     // The API's own byte arithmetic is not an instruction — the writer is told
     // what to do about it.
     await expect(errorRegion(page)).not.toContainText('4.2 MB');
-    await expect(composerEditor(page)).toContainText(draft);
+    await expect(inboxComposer(page)).toHaveValue(draft);
   });
 
   test('a post that cannot reach the server says so, and keeps the draft', async ({ page }) => {
@@ -107,7 +109,7 @@ test.describe('Huddle Share an update — post failures are visible', () => {
 
     // Not "Failed to fetch", which is what the transport actually threw.
     await expect(errorRegion(page)).toContainText(/connection/i, { timeout: 30000 });
-    await expect(composerEditor(page)).toContainText(draft);
+    await expect(inboxComposer(page)).toHaveValue(draft);
   });
 
   test('the notice clears once the post goes through', async ({ page }) => {
@@ -123,8 +125,8 @@ test.describe('Huddle Share an update — post failures are visible', () => {
     await expect(errorRegion(page)).toBeVisible({ timeout: 30000 });
 
     // Retrying from the draft the failure left intact is the whole point.
-    await expect(composerEditor(page)).toContainText(draft);
-    await page.getByRole('button', { name: 'Post', exact: true }).click();
+    await expect(inboxComposer(page)).toHaveValue(draft);
+    await sendFromInbox(page);
     await expect(errorRegion(page)).toHaveCount(0, { timeout: 30000 });
   });
 });

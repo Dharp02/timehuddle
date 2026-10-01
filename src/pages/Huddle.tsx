@@ -6,12 +6,11 @@ import {
   Card,
   Dropdown,
   DropdownItem,
-  EmptyState,
   Input,
   Spinner,
   Text,
 } from '@mieweb/ui';
-import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
+import { SuperChatInbox, type ComposerAttachment } from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
   createImagePlugin,
@@ -19,18 +18,25 @@ import {
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { HuddleComposer } from '../features/huddle/HuddleComposer';
-import { toPostAttachment } from '../features/huddle/api';
+import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../features/huddle/api';
+import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
-import { getUserColor, getUserInitials } from '../features/huddle/avatar';
+import { PulseAttachButton } from '../features/huddle/PulseAttachButton';
+import { clearComposerPulseUpload } from '../features/huddle/pulseComposerUpload';
 import {
   postsToConversations,
   searchConversations,
+  starterConversation,
   stripInboxDecorations,
+  SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
 } from '../features/huddle/superChatFeed';
-import type { ComposerContent } from '../features/huddle/types';
+import type { MediaItem } from '../features/huddle/types';
+import { TicketPicker } from '../features/huddle/TicketPicker';
+import { MAX_ATTACHMENT_BYTES } from '../features/huddle/useAttachmentUpload';
+import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
+import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
@@ -94,7 +100,7 @@ export default function Huddle() {
   const [error, setError] = useState<string | null>(null);
   // A failed inbox send or inline edit. Separate from `error` above, which is
   // a feed-load failure and takes the feed's place on screen.
-  const [editError, setEditError] = useState<string | null>(null);
+  const [inboxError, setInboxError] = useState<string | null>(null);
   const [threadByMenuOpen, setThreadByMenuOpen] = useState(false);
   const [teamMenuOpen, setTeamMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -134,9 +140,29 @@ export default function Huddle() {
   const personalTeamId = allTeams.find((t) => t.isPersonal)?.id ?? null;
   const scope: 'team' | 'me' =
     showMe || (selectedTeamId !== null && selectedTeamId === personalTeamId) ? 'me' : 'team';
-  // Where the first-post composer writes: the Personal team in the
-  // Personal view, the selected team otherwise.
+  // Where the inbox's chat input posts: the Personal team in the Personal
+  // view, the selected team otherwise.
   const postingTeamId = scope === 'me' ? personalTeamId : selectedTeamId;
+
+  // What the chat input's own buttons (Pulse video, Ticket) add to the next
+  // post. A Pulse video is already on the backend (a video id, not a File), so
+  // it rides alongside SuperChat's own attachments and joins the post on send.
+  // Scoped by team so a recording or ticket picked for one team can't land in
+  // another team's post.
+  const pulseScope = `huddle-inbox-${postingTeamId ?? 'none'}`;
+  const [pulseVideos, setPulseVideos] = useState<MediaItem[]>([]);
+  const [pulsePending, setPulsePending] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
+  // The picked ticket's own videos come along with it.
+  const ticketVideos = useTicketVideos(selectedTicketId);
+  useEffect(() => {
+    setPulseVideos([]);
+    setSelectedTicketId(undefined);
+  }, [pulseScope]);
+  function removePulseVideo(mediaId: string) {
+    setPulseVideos((prev) => prev.filter((m) => m.id !== mediaId));
+    clearComposerPulseUpload(pulseScope);
+  }
 
   // A team outside the selected org is filtered out of `teams` and would be
   // reset straight back by TeamContext, so switch the org along with it.
@@ -255,8 +281,8 @@ export default function Huddle() {
   const restPostsRef = useRef<Map<string, HuddlePost>>(new Map());
 
   // Build the feed from the DDP cache plus any pending overlay posts. Lifted to
-  // component scope so addPost and pull-to-refresh can trigger
-  // an immediate re-sync.
+  // component scope so posting and pull-to-refresh can trigger an immediate
+  // re-sync.
   const syncPosts = useCallback(() => {
     if (!selectedTeamId) return;
     const ddp = getDdpClient();
@@ -373,55 +399,6 @@ export default function Huddle() {
     };
   }, [selectedTeamId, syncPosts, refreshFeed]);
 
-  // Posting from the composer above the feed (team scope only — see its JSX
-  // below). A post lands in `posts` via the same DDP/REST sync as any other
-  // write, so it shows up in the SuperChatInbox the moment it's grouped.
-  async function addPost(content: ComposerContent) {
-    // Thrown, not alerted: HuddleComposer catches it and shows the reason in
-    // its own `role="alert"` region, keeping the draft and the caret intact.
-    if (!user || !postingTeamId) {
-      throw new Error('Select a team before posting.');
-    }
-
-    const mentionUserIds = (content.mentions || []).map((m) => m.userId);
-    const attachments = content.attachments.map(toPostAttachment);
-
-    const { id } = await huddleApi.createPost({
-      teamId: postingTeamId,
-      content: { text: content.text, mentions: mentionUserIds },
-      ticketId: content.ticketId,
-      attachments,
-      postDate: toDateString(new Date()),
-    });
-
-    // The Personal view reads its own cross-team list, not the team feed —
-    // the post went to the Personal team, so it can never appear in `posts`.
-    if (scope === 'me') {
-      await refreshMyPosts();
-      return;
-    }
-
-    // Show the new post without waiting on the live DDP socket, which may be
-    // down (dropped while the app was backgrounded for a Pulse recording):
-    // refreshFeed refetches over REST and overlays the result, and syncPosts
-    // drops the overlay once the subscription catches up.
-    //
-    // The retry condition is "not in the feed by *either* route". Waiting on
-    // the DDP cache specifically would stall the full backoff on every post
-    // whenever the socket is down — which is the exact case the REST overlay
-    // exists to cover, and where the post is already on screen after the first
-    // refresh.
-    const ddp = getDdpClient();
-    const inFeed = () =>
-      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
-
-    for (let attempt = 0; attempt < 4; attempt++) {
-      if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
-      await refreshFeed();
-      if (inFeed()) break;
-    }
-  }
-
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
   const activePosts = scope === 'me' ? myPosts : posts;
@@ -455,28 +432,21 @@ export default function Huddle() {
   );
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact.
-  const conversations = useMemo(
-    () => searchConversations(allConversations, activePosts, searchQuery, getTeamName),
-    [allConversations, activePosts, searchQuery, getTeamName],
-  );
+  // With no posts at all, the inbox shows a starter conversation instead:
+  // SuperChat's chat input only exists inside an open conversation, and it is
+  // where the first update gets posted.
+  const conversations = useMemo(() => {
+    if (activePosts.length === 0 && user) {
+      return [starterConversation({ userId: user.id, name: user.name }, scope)];
+    }
+    return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
+  }, [allConversations, activePosts, searchQuery, getTeamName, user, scope]);
   const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
 
   // SuperChatInbox has no slot for its list header, so the page's filters are
-  // portaled into it; re-found whenever the inbox mounts or re-renders.
+  // portaled into it.
   const feedRef = useRef<HTMLDivElement>(null);
-  const [listHeaderEl, setListHeaderEl] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    const feed = feedRef.current;
-    if (!feed) return;
-    const findHeader = () =>
-      setListHeaderEl(
-        feed.querySelector<HTMLElement>('[data-slot="superchat-conversations"] > div:first-child'),
-      );
-    findHeader();
-    const observer = new MutationObserver(findHeader);
-    observer.observe(feed, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
+  const listHeaderEl = useInboxSlot(feedRef, findListHeader);
 
   // Both filter dropdowns share one look: equal-width bordered fields with a
   // small legend notched into the top border.
@@ -590,7 +560,6 @@ export default function Huddle() {
       )}
     </div>
   );
-  const showComposer = !!postingTeamId && !(scope === 'me' ? myPostsLoading : loading);
 
   // The conversation the inbox has open (controlled — see onConversationOpened
   // below). Resetting it when the grouping/scope changes avoids pointing at an
@@ -616,6 +585,64 @@ export default function Huddle() {
     replace('/app/huddle');
   }, [targetPostId, targetPostLoaded, threadBy, conversations, replace]);
 
+  // Posting from the inbox's chat input → huddle.createPost. Rejecting tells
+  // SuperChat to put the typed text back, so only a failed upload or create
+  // rejects; a slow refresh afterwards doesn't.
+  async function handleMessageSent(
+    text: string,
+    mentions: string[],
+    composerAttachments: ComposerAttachment[],
+  ) {
+    setInboxError(null);
+    let id: string;
+    try {
+      if (!postingTeamId) throw new Error('Select a team before posting.');
+      if (pulsePending) {
+        throw new Error('Your Pulse video is still uploading. Send again once it is attached.');
+      }
+      const files = await Promise.all(composerAttachments.map(composerAttachmentToFile));
+      const media = await Promise.all(files.map((file) => uploadMedia(file)));
+      ({ id } = await huddleApi.createPost({
+        teamId: postingTeamId,
+        content: {
+          text,
+          mentions: mentions.filter((participantId) => participantId !== SYSTEM_PARTICIPANT_ID),
+        },
+        ticketId: selectedTicketId,
+        attachments: [...media, ...pulseVideos, ...ticketVideos].map(toPostAttachment),
+        postDate: toDateString(new Date()),
+      }));
+    } catch (err) {
+      console.error('[Huddle] Failed to post:', err);
+      setInboxError(composerErrorMessage(err, 'Failed to post. Please try again.'));
+      throw err;
+    }
+    setPulseVideos([]);
+    setSelectedTicketId(undefined);
+    clearComposerPulseUpload(pulseScope);
+
+    // The Personal view reads its own cross-team list, not the team feed —
+    // the post went to the Personal team, so it can never appear in `posts`.
+    if (scope === 'me') {
+      await refreshMyPosts();
+      return;
+    }
+
+    // Show the new post without waiting on the live DDP socket, which may be
+    // down (dropped while the app was backgrounded for a Pulse recording):
+    // refreshFeed refetches over REST and overlays the result, and syncPosts
+    // drops the overlay once the subscription catches up. Retry until the post
+    // is in the feed by *either* route.
+    const ddp = getDdpClient();
+    const inFeed = () =>
+      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
+      await refreshFeed();
+      if (inFeed()) break;
+    }
+  }
+
   // Inline edit from the feed (self-authored messages only) → huddle.updatePost
   async function handleMessageEdited(messageId: string, text: string) {
     const post = activePosts.find((p) => p.id === messageId);
@@ -629,43 +656,23 @@ export default function Huddle() {
       await refreshActiveScope();
     } catch (err) {
       console.error('[Huddle] Failed to save edit:', err);
-      setEditError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
+      setInboxError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
     }
   }
 
   return (
-    <AppPage fill width="wide" hideTitle>
-      {/* AppPage's own px-4 md:px-6 covers small screens; these extra
-          breakpoints widen the side margins further as the viewport grows,
-          instead of leaving them flat past md. */}
+    // Flush: the inbox fills the whole area beside the sidebar, no margins.
+    <AppPage fill flush hideTitle>
       {/* Phones only: clip (not hide) sideways overflow so the page can't be
           dragged horizontally; clip creates no scroll container, so vertical
           scrolling is unchanged. */}
-      <div className="huddle flex h-full min-h-0 flex-col gap-4 max-md:overflow-x-clip lg:px-6 xl:px-10 2xl:px-16">
-        {/* Composer — the one place to post, since the inbox below is
-            read-only. The filters live in the inbox's list header; until the
-            inbox is on screen (loading, no posts) they sit here instead.
-            Ghost card: no border or fill of its own, it sits on the page. */}
-        {(!listHeaderEl || showComposer) && (
+      <div className="huddle flex h-full min-h-0 flex-col gap-4 max-md:overflow-x-clip">
+        {/* The filters live in the inbox's list header; until the inbox is on
+            screen (loading, no posts) they sit here instead. Ghost card: no
+            border or fill of its own, it sits on the page. */}
+        {!listHeaderEl && (
           <Card variant="ghost" padding="none" className="huddle-header shrink-0">
-            {!listHeaderEl && <div className="huddle-toolbar p-3">{inboxControls}</div>}
-
-            {/* Scrolls its own overflow so an expanded draft can't push the
-                inbox off a short viewport. */}
-            {showComposer && (
-              <div
-                className={`huddle-composer max-h-[60vh] overflow-y-auto overscroll-contain ${
-                  listHeaderEl ? '' : 'border-t border-neutral-200 dark:border-neutral-800'
-                }`}
-              >
-                <HuddleComposer
-                  key={postingTeamId}
-                  onPost={addPost}
-                  userInitials={user ? getUserInitials(user.name) : 'U'}
-                  userColor={user ? getUserColor(user.id) : 'indigo'}
-                />
-              </div>
-            )}
+            <div className="huddle-toolbar p-3">{inboxControls}</div>
           </Card>
         )}
 
@@ -695,29 +702,16 @@ export default function Huddle() {
                 </div>
               )}
 
-              <ComposerError message={editError} onDismiss={() => setEditError(null)} />
-
-              {!(scope === 'me' ? myPostsLoading : loading) &&
-                !(scope === 'me' ? myPostsError : error) &&
-                activePosts.length === 0 && (
-                  <EmptyState
-                    title={scope === 'me' ? 'No posts in the last 30 days' : 'No posts yet'}
-                    description={
-                      scope === 'me'
-                        ? 'Personal shows what you posted in any team over the last 30 days.'
-                        : 'Be the first to share an update.'
-                    }
-                  />
-                )}
+              <ComposerError message={inboxError} onDismiss={() => setInboxError(null)} />
 
               {/* SuperChatInbox, grouped by the selected Thread by option.
-                  Posting happens in the composer above; the inbox only edits.
+                  Its chat input posts to the team; own messages edit inline.
                   Stays mounted through an empty search so the filters in its
-                  list header don't vanish mid-typing. */}
+                  list header don't vanish mid-typing, and with no posts at all
+                  it opens the starter conversation (see `conversations`). */}
               {!(scope === 'me' ? myPostsLoading : loading) &&
                 !(scope === 'me' ? myPostsError : error) &&
-                user &&
-                activePosts.length > 0 && (
+                user && (
                   <SuperChatInbox
                     conversations={conversations}
                     activeConversationId={activeConversation?.id}
@@ -727,10 +721,52 @@ export default function Huddle() {
                     currentParticipantId={user.id}
                     virtualized
                     renderPlugins={renderPlugins}
+                    acceptedFileTypes={['image', 'video', 'pdf']}
+                    onMessageSent={(text, { mentions, attachments }) =>
+                      handleMessageSent(text, mentions, attachments)
+                    }
                     onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
-                    // Not `readOnly`: in @mieweb/ui that also disables inline edit. With no
-                    // onMessageSent the composer can't post; it's hidden until the library can omit it.
-                    className={`h-full [&_[data-slot=chat-composer]]:hidden ${styles.inbox}`}
+                    composerProps={{
+                      // Input on its own row, labelled buttons underneath.
+                      layout: 'stacked',
+                      placeholder: 'Share an update…',
+                      maxFileSize: MAX_ATTACHMENT_BYTES,
+                      // A Pulse video or ticket is a post on its own.
+                      canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
+                      leadingSlot: (
+                        <>
+                          {/* Keyed by scope: it reads its pending reservation only on mount. */}
+                          <PulseAttachButton
+                            key={pulseScope}
+                            scope={pulseScope}
+                            onAttach={(media) =>
+                              setPulseVideos((prev) =>
+                                prev.some((m) => m.id === media.id) ? prev : [...prev, media],
+                              )
+                            }
+                            onPendingChange={setPulsePending}
+                          />
+                          {postingTeamId && (
+                            <TicketPicker
+                              teamId={postingTeamId}
+                              onSelect={setSelectedTicketId}
+                              selectedId={selectedTicketId}
+                            />
+                          )}
+                          <TicketVideoChips videos={ticketVideos} />
+                          <ComposerChips
+                            selectedTicketId={selectedTicketId}
+                            onTicketRemove={() => setSelectedTicketId(undefined)}
+                            mentions={[]}
+                            onMentionRemove={() => {}}
+                            attachments={pulseVideos}
+                            onAttachmentRemove={removePulseVideo}
+                          />
+                        </>
+                      ),
+                    }}
+                    // No outer border or rounding: the inbox sits on the page as the page.
+                    className={`h-full rounded-none border-0 ${styles.inbox}`}
                   />
                 )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}
