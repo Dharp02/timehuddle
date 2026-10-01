@@ -15,7 +15,6 @@ import {
   Button,
   Alert,
   AlertDescription,
-  Card,
   Dropdown,
   DropdownItem,
   Input,
@@ -25,9 +24,7 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
-  Pagination,
   Select,
-  Switch,
   Tabs,
   TabsContent,
   TabsList,
@@ -55,13 +52,10 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
-import { EmptyState } from '../../ui/EmptyState';
 import { fetchGithubIssueTitle, isGithubIssueUrl } from './githubIssue';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
-import { TicketBulkActionBar } from './TicketBulkActionBar';
 import { TicketCreateModal } from './TicketCreateModal';
-import { TicketTable } from './TicketTable';
-import { hasActiveFilters } from './ticketFilters';
+import { TicketTablePanel } from './TicketTablePanel';
 import { RedmineIssueCreateModal } from './redmine/RedmineIssueCreateModal';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
 import { RedmineSuggestions } from './redmine/RedmineSuggestions';
@@ -69,6 +63,7 @@ import {
   huddleSource,
   invalidateRedmineCache,
   redmineSource,
+  ticketRefOf,
   useUnavailableRedmineBoardIds,
   useUnifiedTickets,
   type UnifiedTicket,
@@ -369,31 +364,6 @@ export const TicketsPage: React.FC = () => {
   const meKeys = useMeAssigneeKeys(redmineStatus);
   const ticketsView = useTicketTableView(allTickets, meKeys);
   const boardView = useTicketTableView(boardTickets, meKeys);
-  const {
-    searchQuery,
-    setSearchQuery,
-    filters,
-    setFilters,
-    clearFilters,
-    sort,
-    onSortChange: handleSortChange,
-    showClosed,
-    setShowClosed,
-    openFilterMenu,
-    onOpenFilterMenuChange: setOpenFilterMenu,
-    page,
-    setPage,
-    containerRef: tableAreaRef,
-    searchFilteredTickets,
-    openCount,
-    closedCount,
-    sortedTickets,
-    pageTickets,
-    totalPages,
-    selectedKeys,
-    onSelectedChange: handleSelectedChange,
-    onSelectAllChange: handleSelectAllChange,
-  } = ticketsView;
 
   // Delete state — a list so the same confirm modal covers single-row (⋮ menu)
   // and bulk (action bar) delete without two code paths.
@@ -425,9 +395,6 @@ export const TicketsPage: React.FC = () => {
     const members = teamId ? (membersByTeam.get(teamId) ?? []) : [];
     return members.map((m) => ({ value: m.id, label: m.name || m.email }));
   }, [membersByTeam, selectedTeamId, teams]);
-
-  const ticketCardRef = React.useRef<HTMLDivElement>(null);
-  const boardCardRef = React.useRef<HTMLDivElement>(null);
 
   // ── Handlers ──
 
@@ -604,10 +571,7 @@ export const TicketsPage: React.FC = () => {
 
   /** Drop the board entries the server confirmed point at nothing. */
   const handleRemoveUnavailable = useCallback(() => {
-    const refs = (unresolvedBoard?.removableKeys ?? []).map((key) => {
-      const [sourceId, ticketId] = key.split(/:(.*)/s);
-      return { sourceId, ticketId };
-    });
+    const refs = (unresolvedBoard?.removableKeys ?? []).map(ticketRefOf);
     if (!refs.length) return;
     setRemoveUnavailableFailed(false);
     void myBoardApi
@@ -648,10 +612,7 @@ export const TicketsPage: React.FC = () => {
 
   const handleMoveToBoard = useCallback(() => {
     const keys = [...ticketsView.selectedKeys];
-    const refs = keys.map((key) => {
-      const [sourceId, ticketId] = key.split(/:(.*)/s);
-      return { sourceId, ticketId };
-    });
+    const refs = keys.map(ticketRefOf);
     void myBoardApi.addMany(refs).then(() => {
       setBoardKeys((prev) => new Set([...prev, ...keys]));
       ticketsView.clearSelection();
@@ -660,10 +621,7 @@ export const TicketsPage: React.FC = () => {
 
   const handleRemoveFromBoard = useCallback(() => {
     const keys = [...boardView.selectedKeys];
-    const refs = keys.map((key) => {
-      const [sourceId, ticketId] = key.split(/:(.*)/s);
-      return { sourceId, ticketId };
-    });
+    const refs = keys.map(ticketRefOf);
     void myBoardApi.removeMany(refs).then(() => {
       setBoardKeys((prev) => {
         const next = new Set(prev);
@@ -699,6 +657,18 @@ export const TicketsPage: React.FC = () => {
     </Button>
   );
 
+  // What both tabs' tables share; each tab adds its own view and labels.
+  const sharedTableProps = {
+    errors: sourceErrors,
+    isCreator: (t: UnifiedTicket) => t.createdBy?.id === userId,
+    runningTicketKey: runningTicket?.key ?? null,
+    timerLoadingKey,
+    onToggleTimer: handleToggleTimer,
+    onEditRequest: (t: UnifiedTicket) => void openEditModal(t),
+    onDeleteRequest: (t: UnifiedTicket) => requestDelete([t]),
+    onChangeStatusRequest: handleChangeStatusRequest,
+  };
+
   return (
     <AppPage fill width="full">
       <h1 className="sr-only">Tickets</h1>
@@ -720,169 +690,83 @@ export const TicketsPage: React.FC = () => {
             forceMount
             className="mt-0 flex min-h-0 flex-1 flex-col gap-3"
           >
-            {/* ── Header: New Ticket + Search ── */}
-            <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
-              <div className="flex items-center gap-2">
-                {redmineConnected ? (
-                  // With Redmine linked, "New Ticket" asks which system the new
-                  // item belongs to. Dropdown replaces the trigger's onClick.
-                  <Dropdown
-                    trigger={newTicketButton}
-                    placement="bottom-start"
-                    open={newTicketMenuOpen}
-                    onOpenChange={setNewTicketMenuOpen}
-                  >
-                    <DropdownItem onClick={startHuddleCreate}>TimeHuddle ticket</DropdownItem>
-                    <DropdownItem
-                      onClick={() => {
-                        setNewTicketMenuOpen(false);
-                        setRedmineNotice(null);
-                        setShowRedmineCreate(true);
-                      }}
+            <TicketTablePanel
+              {...sharedTableProps}
+              view={ticketsView}
+              loading={ticketsLoading}
+              search={
+                <>
+                  {redmineConnected ? (
+                    // With Redmine linked, "New Ticket" asks which system the new
+                    // item belongs to. Dropdown replaces the trigger's onClick.
+                    <Dropdown
+                      trigger={newTicketButton}
+                      placement="bottom-start"
+                      open={newTicketMenuOpen}
+                      onOpenChange={setNewTicketMenuOpen}
                     >
-                      Redmine issue
-                    </DropdownItem>
-                  </Dropdown>
-                ) : (
-                  newTicketButton
-                )}
+                      <DropdownItem onClick={startHuddleCreate}>TimeHuddle ticket</DropdownItem>
+                      <DropdownItem
+                        onClick={() => {
+                          setNewTicketMenuOpen(false);
+                          setRedmineNotice(null);
+                          setShowRedmineCreate(true);
+                        }}
+                      >
+                        Redmine issue
+                      </DropdownItem>
+                    </Dropdown>
+                  ) : (
+                    newTicketButton
+                  )}
 
-                <RedmineSuggestions
-                  userId={userId}
-                  query={searchQuery}
-                  onQueryChange={setSearchQuery}
-                  baseUrl={redmineBaseUrl}
-                  tableIssueIds={tableRedmineIssueIds}
-                  runningIssueId={runningRedmineIssueId}
-                  onToggleTimer={handleSuggestionTimer}
-                  inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
-                />
-
-                <div className="flex shrink-0 items-center gap-3">
-                  <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
-                    {ticketsLoading ? '…' : `${openCount} open · ${closedCount} closed`}
-                  </Text>
-                  <Switch
-                    size="sm"
-                    label="Closed"
-                    labelPosition="left"
-                    checked={showClosed}
-                    onCheckedChange={setShowClosed}
+                  <RedmineSuggestions
+                    userId={userId}
+                    query={ticketsView.searchQuery}
+                    onQueryChange={ticketsView.setSearchQuery}
+                    baseUrl={redmineBaseUrl}
+                    tableIssueIds={tableRedmineIssueIds}
+                    runningIssueId={runningRedmineIssueId}
+                    onToggleTimer={handleSuggestionTimer}
+                    inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
                   />
-                  {hasActiveFilters(filters) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="whitespace-nowrap px-2 text-xs"
-                      onClick={clearFilters}
+                </>
+              }
+              beforeBulkBar={
+                <div className="redmine-create-notice" aria-live="polite">
+                  {redmineNotice && (
+                    <Alert
+                      variant={redmineNotice.isWarning ? 'warning' : 'success'}
+                      dismissible
+                      onDismiss={() => setRedmineNotice(null)}
                     >
-                      Clear filters
-                    </Button>
+                      <AlertDescription>
+                        {redmineNotice.message}{' '}
+                        {redmineBaseUrl && (
+                          <a
+                            href={`${redmineBaseUrl}/issues/${redmineNotice.issueId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium underline"
+                          >
+                            Open in Redmine
+                          </a>
+                        )}
+                      </AlertDescription>
+                    </Alert>
                   )}
                 </div>
-              </div>
-            </div>
-
-            {/* Create ticket form */}
-            <div className="redmine-create-notice" aria-live="polite">
-              {redmineNotice && (
-                <Alert
-                  variant={redmineNotice.isWarning ? 'warning' : 'success'}
-                  dismissible
-                  onDismiss={() => setRedmineNotice(null)}
-                >
-                  <AlertDescription>
-                    {redmineNotice.message}{' '}
-                    {redmineBaseUrl && (
-                      <a
-                        href={`${redmineBaseUrl}/issues/${redmineNotice.issueId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium underline"
-                      >
-                        Open in Redmine
-                      </a>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
-
-            {selectedKeys.size > 0 && (
-              <TicketBulkActionBar
-                selectedCount={selectedKeys.size}
-                onDeselectAll={ticketsView.clearSelection}
-                canDeleteSelected={canDeleteSelection(selectedKeys)}
-                onDelete={() => handleBulkDeleteRequest(selectedKeys)}
-                primaryLabel="Move to My Board"
-                onPrimaryAction={handleMoveToBoard}
-              />
-            )}
-
-            {/* ── Unified ticket table ── */}
-            <Card ref={ticketCardRef} padding="none" className="flex min-h-0 flex-1 flex-col">
-              {/* Fills the remaining height; only the columns scroll, horizontally. */}
-              <div ref={tableAreaRef} className="min-h-0 flex-1 overflow-hidden">
-                <TicketTable
-                  tickets={pageTickets}
-                  optionSource={searchFilteredTickets}
-                  loading={ticketsLoading}
-                  errors={sourceErrors}
-                  isCreator={(t) => t.createdBy?.id === userId}
-                  sort={sort}
-                  onSortChange={handleSortChange}
-                  filters={filters}
-                  onFiltersChange={setFilters}
-                  openMenuId={openFilterMenu}
-                  onOpenMenuChange={setOpenFilterMenu}
-                  boundaryRef={ticketCardRef}
-                  selectedKeys={selectedKeys}
-                  onSelectedChange={handleSelectedChange}
-                  onSelectAllChange={handleSelectAllChange}
-                  runningTicketKey={runningTicket?.key ?? null}
-                  timerLoadingKey={timerLoadingKey}
-                  totalCount={sortedTickets.length}
-                  showClosed={showClosed}
-                  onToggleTimer={handleToggleTimer}
-                  onEditRequest={(t) => void openEditModal(t)}
-                  onDeleteRequest={(t) => requestDelete([t])}
-                  onChangeStatusRequest={handleChangeStatusRequest}
-                  emptyState={
-                    <EmptyState
-                      title={
-                        searchQuery || hasActiveFilters(filters)
-                          ? 'No tickets match your filters'
-                          : showClosed
-                            ? 'No closed tickets'
-                            : 'No open tickets'
-                      }
-                      description={
-                        !searchQuery && !hasActiveFilters(filters) && !showClosed
-                          ? 'Create one to get started.'
-                          : undefined
-                      }
-                    />
-                  }
-                />
-              </div>
-
-              {totalPages > 1 && (
-                <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-700">
-                  <Text size="xs" variant="muted">
-                    {selectedKeys.size > 0
-                      ? `${selectedKeys.size} selected`
-                      : `${sortedTickets.length} ticket${sortedTickets.length === 1 ? '' : 's'}`}
-                  </Text>
-                  <Pagination
-                    page={page}
-                    totalPages={totalPages}
-                    onPageChange={setPage}
-                    size="sm"
-                    label="Ticket pages"
-                  />
-                </div>
-              )}
-            </Card>
+              }
+              canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
+              onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
+              primaryLabel="Move to My Board"
+              onPrimaryAction={handleMoveToBoard}
+              emptyText={{
+                open: 'No open tickets',
+                closed: 'No closed tickets',
+                hint: 'Create one to get started.',
+              }}
+            />
           </TabsContent>
 
           {/* ── My Board tab ── */}
@@ -891,8 +775,12 @@ export const TicketsPage: React.FC = () => {
             forceMount
             className="mt-0 flex min-h-0 flex-1 flex-col gap-3"
           >
-            <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
-              <div className="flex items-center gap-2">
+            <TicketTablePanel
+              {...sharedTableProps}
+              showTimerColumn
+              view={boardView}
+              loading={ticketsLoading}
+              search={
                 <div className="relative min-w-0 flex-1">
                   <FontAwesomeIcon
                     icon={faSearch}
@@ -908,144 +796,51 @@ export const TicketsPage: React.FC = () => {
                     size="sm"
                   />
                 </div>
-
-                <div className="flex shrink-0 items-center gap-3">
-                  <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
-                    {ticketsLoading
-                      ? '…'
-                      : `${boardView.openCount} open · ${boardView.closedCount} closed`}
-                  </Text>
-                  <Switch
-                    size="sm"
-                    label="Closed"
-                    labelPosition="left"
-                    checked={boardView.showClosed}
-                    onCheckedChange={boardView.setShowClosed}
-                  />
-                  {hasActiveFilters(boardView.filters) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="whitespace-nowrap px-2 text-xs"
-                      onClick={boardView.clearFilters}
-                    >
-                      Clear filters
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {boardView.selectedKeys.size > 0 && (
-              <TicketBulkActionBar
-                selectedCount={boardView.selectedKeys.size}
-                onDeselectAll={boardView.clearSelection}
-                canDeleteSelected={canDeleteSelection(boardView.selectedKeys)}
-                onDelete={() => handleBulkDeleteRequest(boardView.selectedKeys)}
-                primaryLabel="Remove from My Board"
-                onPrimaryAction={handleRemoveFromBoard}
-              />
-            )}
-
-            {/* Unresolvable board entries, announced politely. */}
-            <div
-              role="status"
-              aria-live="polite"
-              className="board-unresolved-notice flex flex-wrap items-center gap-2 empty:hidden"
-            >
-              {unresolvedBoard && (
-                <>
-                  <Text size="xs" variant="muted">
-                    {unresolvedBoard.message}
-                  </Text>
-                  {removeUnavailableFailed && (
-                    <Text size="xs" variant="destructive">
-                      {removalText.removeUnavailableFailed}
-                    </Text>
-                  )}
-                  {unresolvedBoard.removableKeys.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleRemoveUnavailable}
-                      aria-label={removalText.removeUnavailableLabel(
-                        unresolvedBoard.removableKeys.length,
+              }
+              // Unresolvable board entries, announced politely.
+              afterBulkBar={
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="board-unresolved-notice flex flex-wrap items-center gap-2 empty:hidden"
+                >
+                  {unresolvedBoard && (
+                    <>
+                      <Text size="xs" variant="muted">
+                        {unresolvedBoard.message}
+                      </Text>
+                      {removeUnavailableFailed && (
+                        <Text size="xs" variant="destructive">
+                          {removalText.removeUnavailableFailed}
+                        </Text>
                       )}
-                    >
-                      {removalText.removeUnavailable}
-                    </Button>
+                      {unresolvedBoard.removableKeys.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleRemoveUnavailable}
+                          aria-label={removalText.removeUnavailableLabel(
+                            unresolvedBoard.removableKeys.length,
+                          )}
+                        >
+                          {removalText.removeUnavailable}
+                        </Button>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </div>
-
-            {/* ── My Board table ── */}
-            <Card ref={boardCardRef} padding="none" className="flex min-h-0 flex-1 flex-col">
-              <div ref={boardView.containerRef} className="min-h-0 flex-1 overflow-hidden">
-                <TicketTable
-                  tickets={boardView.pageTickets}
-                  optionSource={boardView.searchFilteredTickets}
-                  loading={ticketsLoading}
-                  errors={sourceErrors}
-                  isCreator={(t) => t.createdBy?.id === userId}
-                  sort={boardView.sort}
-                  onSortChange={boardView.onSortChange}
-                  filters={boardView.filters}
-                  onFiltersChange={boardView.setFilters}
-                  openMenuId={boardView.openFilterMenu}
-                  onOpenMenuChange={boardView.onOpenFilterMenuChange}
-                  boundaryRef={boardCardRef}
-                  selectedKeys={boardView.selectedKeys}
-                  onSelectedChange={boardView.onSelectedChange}
-                  onSelectAllChange={boardView.onSelectAllChange}
-                  runningTicketKey={runningTicket?.key ?? null}
-                  timerLoadingKey={timerLoadingKey}
-                  totalCount={boardView.sortedTickets.length}
-                  showClosed={boardView.showClosed}
-                  onToggleTimer={handleToggleTimer}
-                  showTimerColumn
-                  onEditRequest={(t) => void openEditModal(t)}
-                  onDeleteRequest={(t) => requestDelete([t])}
-                  onChangeStatusRequest={handleChangeStatusRequest}
-                  emptyState={
-                    <EmptyState
-                      title={
-                        boardView.searchQuery || hasActiveFilters(boardView.filters)
-                          ? 'No tickets match your filters'
-                          : boardView.showClosed
-                            ? 'No closed tickets on your board'
-                            : 'Your board is empty'
-                      }
-                      description={
-                        unresolvedBoardNotice ??
-                        (!boardView.searchQuery &&
-                        !hasActiveFilters(boardView.filters) &&
-                        !boardView.showClosed
-                          ? 'Select tickets on the Tickets tab and click "Move to My Board".'
-                          : undefined)
-                      }
-                    />
-                  }
-                />
-              </div>
-
-              {boardView.totalPages > 1 && (
-                <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-700">
-                  <Text size="xs" variant="muted">
-                    {boardView.selectedKeys.size > 0
-                      ? `${boardView.selectedKeys.size} selected`
-                      : `${boardView.sortedTickets.length} ticket${boardView.sortedTickets.length === 1 ? '' : 's'}`}
-                  </Text>
-                  <Pagination
-                    page={boardView.page}
-                    totalPages={boardView.totalPages}
-                    onPageChange={boardView.setPage}
-                    size="sm"
-                    label="Ticket pages"
-                  />
                 </div>
-              )}
-            </Card>
+              }
+              canDeleteSelected={canDeleteSelection(boardView.selectedKeys)}
+              onBulkDelete={() => handleBulkDeleteRequest(boardView.selectedKeys)}
+              primaryLabel="Remove from My Board"
+              onPrimaryAction={handleRemoveFromBoard}
+              emptyText={{
+                open: 'Your board is empty',
+                closed: 'No closed tickets on your board',
+                hint: 'Select tickets on the Tickets tab and click "Move to My Board".',
+              }}
+              emptyNotice={unresolvedBoardNotice}
+            />
           </TabsContent>
         </Tabs>
 

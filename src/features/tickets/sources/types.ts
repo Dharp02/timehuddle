@@ -165,3 +165,9 @@ export function defineSource<Raw>(source: TicketSource<Raw>): AnyTicketSource {
 /** Build the composite row key for a ticket. */
 export const ticketKey = (sourceId: TicketSourceId, id: string | number): string =>
   `${sourceId}:${id}`;
+
+/** The `{ sourceId, ticketId }` ref a row key stands for — what My Board stores. */
+export const ticketRefOf = (key: string): { sourceId: string; ticketId: string } => {
+  const [sourceId, ticketId] = key.split(/:(.*)/s);
+  return { sourceId, ticketId };
+};
