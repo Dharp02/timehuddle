@@ -734,7 +734,8 @@ export default function Huddle() {
                       // A Pulse video or ticket is a post on its own.
                       canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
                       leadingSlot: (
-                        <>
+                        // ChatComposer's leadingSlot wrapper has no gap of its own.
+                        <div className="flex flex-wrap items-center gap-1.5">
                           {/* Keyed by scope: it reads its pending reservation only on mount. */}
                           <PulseAttachButton
                             key={pulseScope}
@@ -762,7 +763,7 @@ export default function Huddle() {
                             attachments={pulseVideos}
                             onAttachmentRemove={removePulseVideo}
                           />
-                        </>
+                        </div>
                       ),
                     }}
                     // No outer border or rounding: the inbox sits on the page as the page.
