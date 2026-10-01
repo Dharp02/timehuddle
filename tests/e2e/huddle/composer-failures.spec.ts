@@ -19,11 +19,15 @@
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
+import { createTicket, deleteTicket } from '../tickets/helpers';
 import {
+  attachTicket,
   attachmentChipCount,
   composerEditor,
   dropFiles,
   inboxComposer,
+  inboxMessage,
+  openPostInInbox,
   openComposer,
   postFromHuddle as send,
   sendFromInbox,
@@ -77,6 +81,36 @@ test.describe('Huddle message box — post failures are visible', () => {
     await loginAs(page, TEST_USERS.owner1);
     await selectSharedTestTeam(page);
     await page.goto('/app/huddle');
+  });
+
+  test('rapid clicks on a ticket-backed send create only one post', async ({ page }) => {
+    const ticketTitle = `Duplicate send ticket ${Date.now()}`;
+    await createTicket(page, ticketTitle);
+    await page.goto('/app/huddle');
+    await attachTicket(page, ticketTitle);
+
+    const draft = `Duplicate send ${Date.now()}`;
+    await inboxComposer(page).fill(draft);
+
+    let postRequests = 0;
+    page.on('request', (request) => {
+      if (request.url().includes('/huddle_createPost')) postRequests++;
+    });
+
+    // Dispatch both clicks before React can render isSending; this exercises
+    // the synchronous re-entry guard with the ticket keeping send available.
+    await page.getByRole('button', { name: 'Send message' }).evaluate((button) => {
+      const click = () => button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      click();
+      click();
+    });
+
+    const post = await openPostInInbox(page, draft);
+    await expect(post).toContainText(ticketTitle);
+    await expect(inboxMessage(page, draft)).toHaveCount(1);
+    expect(postRequests).toBe(1);
+
+    await deleteTicket(page, ticketTitle);
   });
 
   test('a post rejected as too large says so, and keeps the draft', async ({ page }) => {

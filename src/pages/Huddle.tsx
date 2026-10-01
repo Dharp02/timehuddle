@@ -36,6 +36,7 @@ import type { MediaItem } from '../features/huddle/types';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { MAX_ATTACHMENT_BYTES } from '../features/huddle/useAttachmentUpload';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
+import { useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
@@ -155,6 +156,12 @@ export default function Huddle() {
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
   // The picked ticket's own videos come along with it.
   const ticketVideos = useTicketVideos(selectedTicketId);
+  // @mentions reach the whole team, not just whoever is in the open thread.
+  const mentions = useTeamMentions(postingTeamId);
+  // A send is in flight. The ref is what guards re-entry; the state only
+  // drives the composer's busy send button.
+  const sendingRef = useRef(false);
+  const [sending, setSending] = useState(false);
   useEffect(() => {
     setPulseVideos([]);
     setSelectedTicketId(undefined);
@@ -590,35 +597,66 @@ export default function Huddle() {
   // rejects; a slow refresh afterwards doesn't.
   async function handleMessageSent(
     text: string,
-    mentions: string[],
+    sentMentions: string[],
     composerAttachments: ComposerAttachment[],
   ) {
+    // A Pulse video or ticket keeps the send button live with an empty box, so
+    // a second click during the upload would post the same thing again. The
+    // composer's own `isSending` covers this a render later; the ref covers
+    // the click that lands before that render.
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    setSending(true);
     setInboxError(null);
     let id: string;
+    // Snapshot what's staged now: the uploads below take time, and anything
+    // picked meanwhile belongs to the *next* post, not this one.
+    const ticketId = selectedTicketId;
+    const postedPulseIds = new Set(pulseVideos.map((m) => m.id));
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
       if (pulsePending) {
         throw new Error('Your Pulse video is still uploading. Send again once it is attached.');
       }
-      const files = await Promise.all(composerAttachments.map(composerAttachmentToFile));
-      const media = await Promise.all(files.map((file) => uploadMedia(file)));
+      if (ticketVideos.loading) {
+        throw new Error("The ticket's videos are still loading. Send again in a moment.");
+      }
+      if (ticketVideos.error) throw new Error(ticketVideos.error);
+      const staged = [...pulseVideos, ...ticketVideos.videos];
+      // One file at a time: each attachment arrives as a base64 `data:` URL, so
+      // decoding and uploading them together would hold every string, blob and
+      // File in memory at once — enough to kill a mobile WebView at the size
+      // limit the picker accepts.
+      const media: MediaItem[] = [];
+      for (const attachment of composerAttachments) {
+        media.push(await uploadMedia(await composerAttachmentToFile(attachment)));
+      }
       ({ id } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
           text,
-          mentions: mentions.filter((participantId) => participantId !== SYSTEM_PARTICIPANT_ID),
+          // SuperChat only resolves names of people already in the thread, so
+          // the roster match is unioned in for everyone else on the team.
+          mentions: [...new Set([...sentMentions, ...mentions.detect(text)])].filter(
+            (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
+          ),
         },
-        ticketId: selectedTicketId,
-        attachments: [...media, ...pulseVideos, ...ticketVideos].map(toPostAttachment),
+        ticketId,
+        attachments: [...media, ...staged].map(toPostAttachment),
         postDate: toDateString(new Date()),
       }));
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
       setInboxError(composerErrorMessage(err, 'Failed to post. Please try again.'));
       throw err;
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
-    setPulseVideos([]);
-    setSelectedTicketId(undefined);
+    // Clear only what this post actually took: anything staged while it was in
+    // flight belongs to the next one.
+    setPulseVideos((prev) => prev.filter((m) => !postedPulseIds.has(m.id)));
+    setSelectedTicketId((prev) => (prev === ticketId ? undefined : prev));
     clearComposerPulseUpload(pulseScope);
 
     // The Personal view reads its own cross-team list, not the team feed —
@@ -722,8 +760,8 @@ export default function Huddle() {
                     virtualized
                     renderPlugins={renderPlugins}
                     acceptedFileTypes={['image', 'video', 'pdf']}
-                    onMessageSent={(text, { mentions, attachments }) =>
-                      handleMessageSent(text, mentions, attachments)
+                    onMessageSent={(text, { mentions: sentMentions, attachments }) =>
+                      handleMessageSent(text, sentMentions, attachments)
                     }
                     onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
                     composerProps={{
@@ -733,6 +771,8 @@ export default function Huddle() {
                       maxFileSize: MAX_ATTACHMENT_BYTES,
                       // A Pulse video or ticket is a post on its own.
                       canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
+                      isSending: sending,
+                      mentionOptions: mentions.options,
                       leadingSlot: (
                         // ChatComposer's leadingSlot wrapper has no gap of its own.
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -754,7 +794,7 @@ export default function Huddle() {
                               selectedId={selectedTicketId}
                             />
                           )}
-                          <TicketVideoChips videos={ticketVideos} />
+                          <TicketVideoChips videos={ticketVideos.videos} />
                           <ComposerChips
                             selectedTicketId={selectedTicketId}
                             onTicketRemove={() => setSelectedTicketId(undefined)}
