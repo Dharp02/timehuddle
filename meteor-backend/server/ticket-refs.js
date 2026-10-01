@@ -1,13 +1,12 @@
 /**
- * Source-aware ticket references (Milestone 3).
+ * Source-aware ticket references.
  *
- * A `WorkItem` used to point at a Huddle `Tickets._id` and nothing else. Now it
- * carries `{ source, ticketId }`, because a Redmine issue id (`42`) and a Huddle
- * ticket id are drawn from different namespaces and would otherwise collide.
- * This module is the single place that knows how to:
+ * A `WorkItem` carries `{ source, ticketId }`, because a Redmine issue id (`42`)
+ * and a Huddle ticket id are drawn from different namespaces and would otherwise
+ * collide. This module is the single place that knows how to:
  *
- *   1. normalize a source (rows written before M3 have no `source` field and
- *      are Huddle by definition),
+ *   1. normalize a source (older rows have no `source` field and are Huddle by
+ *      definition),
  *   2. check that the caller may actually time a given ticket, and
  *   3. resolve a ref to the display title + link a read path renders.
  *
@@ -47,7 +46,7 @@ export function isRedmineIssueId(value) {
 
 /**
  * Normalize a source supplied by a caller or read off a stored row.
- * Missing means Huddle: that is what every pre-M3 `WorkItem` is.
+ * Missing means Huddle: that is what every `WorkItem` without one is.
  */
 export function normalizeSource(source) {
   if (source === undefined || source === null || source === '') return HUDDLE;
@@ -59,7 +58,7 @@ export function normalizeSource(source) {
 
 /**
  * Mongo selector fragment matching exactly one source. Huddle also matches rows
- * with no `source` field at all, so pre-M3 work items keep resolving.
+ * with no `source` field at all, so older work items keep resolving.
  */
 export function sourceSelector(source) {
   return source === HUDDLE ? { source: { $in: [HUDDLE, null] } } : { source };

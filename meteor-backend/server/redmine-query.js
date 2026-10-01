@@ -1,7 +1,7 @@
 /**
- * Reading what the user typed into the Tickets search bar (MVP2 A2).
+ * Reading what the user typed into the Tickets search bar.
  *
- * Search is the escape hatch that makes MVP2's narrow relevant list acceptable:
+ * Search is the escape hatch that makes the narrow relevant list acceptable:
  * the list only shows a user their own work, so anything else has to be findable
  * by typing. Four things are worth typing, and they want four different Redmine
  * calls:
@@ -16,9 +16,6 @@
  * query is too short, or it is a link to somewhere that is not the user's own
  * instance. The caller answers an empty list, and `kind` lets the UI say why
  * without the server having to phrase it.
- *
- * Pure and Meteor-free, so every reading of a query can be tested as a table
- * (see tests/redmine-query.test.ts).
  */
 
 /**
@@ -37,7 +34,6 @@ const ASSIGNEE = /^@(.+)$/;
 /**
  * Read a raw query into `{ kind, value }`.
  *
- * @param {unknown} raw       what the user typed
  * @param {string|null} baseUrl  the instance their key belongs to, for link checking
  * @returns {{kind: 'id'|'url'|'assignee'|'text', value: number|string|null}}
  */
@@ -111,9 +107,6 @@ function issueIdFromUrl(raw, baseUrl) {
  *
  * Several matches are returned rather than resolved: the caller asks the user to
  * type more of the name instead of guessing which colleague they meant.
- *
- * @param {{id: number, name: string}[]} users
- * @param {string} name
  */
 export function matchAssignees(users, name) {
   const wanted = String(name ?? '').trim().toLowerCase();

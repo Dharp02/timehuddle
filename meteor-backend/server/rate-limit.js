@@ -13,9 +13,6 @@
  * Meteor process under PM2 — and the limit becomes per-process if it is ever
  * scaled out horizontally, which is a reason to move the counter to Mongo or
  * Redis at that point, not a reason to have no limit now.
- *
- * Kept free of Meteor imports so the windowing can be unit-tested with a fake
- * clock (see tests/rate-limit.test.ts).
  */
 
 /** Stop the counter map growing without bound when keys are one-off. */
@@ -27,8 +24,6 @@ const MAX_TRACKED_KEYS = 10_000;
  * `check(key)` counts the call and says whether it is allowed. Counting the call
  * that is refused is deliberate: a client hammering the method keeps its window
  * alive rather than slipping one call through each time the old window lapses.
- *
- * @param {{limit: number, windowMs: number, now?: () => number}} options
  */
 export function createRateLimiter({ limit, windowMs, now = Date.now }) {
   /** @type {Map<string, {count: number, resetAt: number}>} */

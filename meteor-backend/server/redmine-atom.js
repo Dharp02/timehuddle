@@ -1,5 +1,5 @@
 /**
- * Redmine activity-feed extraction — issue ids and timestamps, nothing else (MVP2 A1).
+ * Redmine activity-feed extraction — issue ids and timestamps, nothing else.
  *
  * The relevant-issues list uses "what have I touched lately" as one of its
  * signals, and Redmine only exposes that through `/activity.atom`. That feed is
@@ -21,9 +21,6 @@
  * mis-parse can drop or duplicate an id but cannot leak a word of the entry.
  * Escaped markup inside `content` (`&lt;a href=&quot;…`) cannot be mistaken for
  * a link element, because its quotes and angle brackets arrive escaped.
- *
- * Kept free of Meteor imports so it can be unit-tested directly
- * (see tests/redmine-atom.test.ts).
  */
 import { toIsoDate } from './redmine-issues';
 
@@ -38,11 +35,10 @@ const ENTRY_PATTERN = /<entry\b[\s\S]*?<\/entry>/g;
  * query parameter (`…/projects/x/time_entries?issue_id=1234`). Both are activity
  * on issue 1234, so both must be read.
  *
- * Matching only the path form made the whole signal near-inert on real data, and
- * did so silently: the feed is fetched and parsed without error, so `partial`
- * stays false and a short list looks like a quiet week. Measured against a live
- * feed, 11 of 13 entries were time-entry events and were all discarded — and time
- * logging is the activity this app exists to record.
+ * Matching only the path form would discard most of a real feed, silently: it is
+ * fetched and parsed without error, so `partial` stays false and a short list
+ * looks like a quiet week — and time logging is the activity this app exists to
+ * record.
  */
 const ISSUE_LINK_PATTERN = /<link\b[^>]*\bhref="[^"]*?(?:\/issues\/(\d+)|[?&]issue_id=(\d+))/i;
 
@@ -59,7 +55,6 @@ const UPDATED_PATTERN = /<updated>\s*([^<]+?)\s*<\/updated>/i;
  * and are dropped.
  * Non-string input yields an empty list.
  *
- * @param {unknown} xml  the body of `GET /activity.atom`
  * @returns {{issueId: number, at: string|null}[]}
  */
 export function activityIssueRefs(xml) {

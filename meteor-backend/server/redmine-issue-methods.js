@@ -1,5 +1,5 @@
 /**
- * Creating and editing Redmine issues from TimeHuddle (Milestone 6).
+ * Creating and editing Redmine issues from TimeHuddle.
  *
  * Every call runs under the caller's own personal API key, so Redmine enforces
  * their role and the tracker's workflow and records them as author/editor —
@@ -7,7 +7,7 @@
  * here: reads are live, and only rarely-changing lists (projects, trackers,
  * members, priorities) are held in a short per-user cache.
  *
- * Writes follow the M5 pattern: validate, write, then **read back** and report
+ * Writes follow the time-entry pattern: validate, write, then **read back** and report
  * any field Redmine did not store as sent. Edits carry the `updatedAt` the form
  * was opened with and are refused as `stale` if the issue changed in Redmine
  * meanwhile — Redmine's REST API has no optimistic locking of its own.

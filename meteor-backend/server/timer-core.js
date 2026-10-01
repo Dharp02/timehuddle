@@ -1,7 +1,7 @@
 /**
  * Timer helpers the clock domain needs: pause/resume/stop close or restart the
  * user's running work-timer, and the timesheet nests each shift's ticket
- * sessions under it (M3.1). Port of the timer-session helpers in
+ * sessions under it. Port of the timer-session helpers in
  * backend/src/services/timer.service.ts (closeRunningForUser, closeAllForUser,
  * findClosedAtTime, restartTimerForWorkItem).
  *
@@ -61,7 +61,7 @@ export function findClosedAtTime(userId, endTime) {
 
 /**
  * Every Redmine ticket-day this user has tracked time against, with its net
- * seconds — the full candidate set the manual push (M5, D2) draws from.
+ * seconds — the full candidate set the manual push draws from.
  *
  * One query for all of a user's Redmine work, so the confirmation dialog needs
  * one round trip rather than one per ticket-day. Sibling WorkItems for the same
@@ -70,8 +70,8 @@ export function findClosedAtTime(userId, endTime) {
  * ticket + date legitimately exist and all of them count.
  *
  * Days with no closed session are dropped: a still-running timer has no final
- * duration, and under D1 a pushed entry can never be corrected, so partial time
- * must not reach Redmine.
+ * duration, and a pushed entry can never be corrected, so partial time must not
+ * reach Redmine.
  *
  * @returns {Promise<Array<{ticketId: string, date: string, seconds: number}>>}
  */
@@ -115,7 +115,7 @@ export async function redmineTicketDaysFor(userId) {
  * Net Redmine seconds for one user + ticket + day, counting only sessions that
  * had closed by `cutoffMs`.
  *
- * Used once, to backfill how much time each pre-D5 sync row actually covered:
+ * Used once, to backfill how much time each older sync row actually covered:
  * those rows recorded rounded hours, not seconds, but the sessions that fed them
  * are still here and closed before the push, so the exact figure is recoverable.
  */
@@ -165,7 +165,7 @@ export async function restartTimerForWorkItem(userId, workItemId, now, clockEven
  * `Map<clockEventId, session[]>` sorted oldest-first, joined to their WorkItem
  * for the ticket ref and resolved to a display title + link.
  *
- * Only sessions written since M3 carry a `clockEventId`; older ones are simply
+ * Not every session carries a `clockEventId`; older ones without it are simply
  * absent from the result, which renders as a shift with no ticket rows.
  *
  * `viewerId` is who will read the result. Titles are resolved under that

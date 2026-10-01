@@ -1,9 +1,6 @@
 /**
- * Pure shaping for the manual push of ticket time into Redmine (M5, D2).
- *
- * Kept free of Meteor imports so the arithmetic and row shaping can be
- * unit-tested directly, matching redmine-net-hours.js / redmine-activities.js.
- * The Mongo and HTTP work lives in redmine-time-sync.js and redmine.js.
+ * Pure shaping for the manual push of ticket time into Redmine. The Mongo and
+ * HTTP work lives in redmine-time-sync.js and redmine.js.
  */
 import { ticketDayKey } from './redmine-net-hours';
 
@@ -16,9 +13,8 @@ export const PUSH_COMMENT = 'Logged by TimeHuddle';
  * **Quantized to whole minutes, then expressed to 2 places, and applied exactly
  * once.** Redmine does not store what you send verbatim: it converts the
  * submitted hours to whole minutes (`round(hours * 60)`) and reports them back
- * to two decimals. Probed against redmine0 (2026-09-22): sending `7.39` stored
- * `443` minutes and read back as `7.38`, while `0.11` stored `7` minutes and
- * read back as `0.12`.
+ * to two decimals: sending `7.39` stores `443` minutes and reads back as
+ * `7.38`, while `0.11` stores `7` minutes and reads back as `0.12`.
  *
  * Rounding the seconds to minutes first makes the value survive that trip
  * unchanged — the number in the confirmation dialog, the number stored, and the
@@ -70,17 +66,16 @@ export function hoursAgree(sent, stored) {
 }
 
 /**
- * The time on each ticket-day that has not yet reached Redmine (D5).
+ * The time on each ticket-day that has not yet reached Redmine.
  *
  * A ticket-day can be pushed more than once: a user may push mid-day and keep
- * working. Entries are create-only (D1), so later work goes up as a further
+ * working. Entries are create-only, so later work goes up as a further
  * entry covering just the difference. `sentSeconds` is tracked in raw seconds,
  * not rounded hours, so repeated pushes cannot drift.
  *
  * A ticket-day with nothing new is dropped; one with a few new seconds is kept,
  * so short stretches accumulate until they are worth sending.
  *
- * @param {Array<{ticketId: string, date: string, seconds: number}>} totals
  * @param {Map<string, number>} sentSecondsByKey  keyed `ticketId|date`
  * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number}>}
  */

@@ -8,27 +8,15 @@
  * personal API key is injected as the `X-Redmine-API-Key` header so every
  * request is attributed to that user (no admin switch-user needed).
  *
- * Helpers are added milestone by milestone to avoid dead code: `getCurrentUser`
- * (M1 key validation + identity),
- * `getIssue`/`listIssuesByIds` (M3 existence check + title resolution for
- * source-aware ticket timers), `listTimeEntryActivities` (M4 activity
- * resolution), `createTimeEntry`/`getTimeEntry` (M5 push + read-back), and the
- * M6 issue helpers (projects, trackers, members, priorities, issue detail,
- * `createIssue`/`updateIssue`).
- *
- * **Every issue read is filtered (MVP2).** `issueQuery` is the single door to
+ * **Every issue read is filtered.** `issueQuery` is the single door to
  * `/issues.json` and refuses a query that narrows nothing, so "list the whole
- * instance" is not expressible here — M2's unfiltered `listIssues` is gone, and
- * cannot be reintroduced by accident. Its callers are the relevant-list signals
- * (`listAssignedIssues`, `listWatchedIssues`, `listTimeEntryIssueIds`,
- * `listActivityIssueIds`), search (`listIssuesAssignedTo`, `searchIssues`),
- * `isIssueAssignedToMe` and `listIssuesByIds`.
+ * instance" is not expressible here and cannot be reintroduced by accident.
  *
  * **Writes, and only these three:** `createTimeEntry`, `createIssue` and
- * `updateIssue`. Time entries stay create-only (D1): once time is logged it is
+ * `updateIssue`. Time entries stay create-only: once time is logged it is
  * permanent, and changing it is an administrative act performed in Redmine
  * itself, so no update or delete helper exists for them. Issues are never
- * deleted from TimeHuddle either (M6 scope).
+ * deleted from TimeHuddle either.
  */
 import { activityIssueRefs } from './redmine-atom';
 
@@ -165,8 +153,8 @@ const DEFAULT_TIMEOUT_MS = 8000;
  * the user belongs to, which can outlast the default and surface as a false
  * "unreachable".
  *
- * Only the default. Every MVP2 signal passes its own, much shorter bound, because
- * a slow signal there is dropped rather than waited for.
+ * Only the default. Every relevant-list signal passes its own, much shorter
+ * bound, because a slow signal there is dropped rather than waited for.
  */
 const LIST_TIMEOUT_MS = 30_000;
 
@@ -260,10 +248,9 @@ function logRequestFailure({ method, path, startedAt, err, status = null }) {
 /**
  * `GET /issues.json` with an explicit, already-filtered query.
  *
- * Every issue read funnels through here, and the guard is the point: MVP2's
- * first acceptance criterion is that no code path can ask Redmine for issues
- * without narrowing them, and a helper added later that forgot to would fail
- * here rather than quietly listing the instance.
+ * Every issue read funnels through here, and the guard is the point: a helper
+ * added later that forgot to narrow its query would fail here rather than
+ * quietly listing the instance.
  */
 async function issueQuery(account, params, { timeoutMs = LIST_TIMEOUT_MS } = {}) {
   const query = new URLSearchParams({ limit: '100', ...params });
@@ -300,16 +287,16 @@ export async function getCurrentUser(account) {
   return data?.user ?? null;
 }
 
+/** How many open assigned issues the "assigned" signal returns, newest first. */
+export const ASSIGNED_ISSUES_LIMIT = 100;
+
 /**
- * Open issues assigned to the caller, most recently updated first (MVP2 A1).
+ * Open issues assigned to the caller, most recently updated first.
  *
  * The strongest standing signal of what someone is meant to be working on, and
  * the one query that is both cheap and bounded on a large instance: Redmine
  * filters by assignee before it checks visibility.
  */
-/** How many open assigned issues the "assigned" signal returns, newest first. */
-export const ASSIGNED_ISSUES_LIMIT = 100;
-
 export function listAssignedIssues(account, { timeoutMs } = {}) {
   return issueQuery(
     account,
@@ -325,7 +312,7 @@ export function listAssignedIssues(account, { timeoutMs } = {}) {
 
 /**
  * Whether one issue is assigned to the caller, by the same rule the "assigned"
- * signal uses (MVP2 A3, dismissal rule 5).
+ * signal uses (dismissal rule 5).
  *
  * `assigned_to_id=me` counts the caller's **groups** as well as the caller, so
  * comparing `assigned_to.id` with their own user id would call a group-assigned
@@ -342,13 +329,13 @@ export async function isIssueAssignedToMe(account, issueId, { timeoutMs } = {}) 
   return issues.length > 0;
 }
 
-/** Open issues the caller watches (MVP2 A1). A standing interest, so a smaller page. */
+/** Open issues the caller watches. A standing interest, so a smaller page. */
 export function listWatchedIssues(account, { timeoutMs } = {}) {
   return issueQuery(account, { watcher_id: 'me', status_id: 'open', limit: '50' }, { timeoutMs });
 }
 
 /**
- * Open issues assigned to one Redmine user id (MVP2 A2, the `@name` search).
+ * Open issues assigned to one Redmine user id (the `@name` search).
  *
  * Separate from `listAssignedIssues` because the id is not `me`: the caller is
  * asking what someone else is carrying, which their own key still gates.
@@ -363,7 +350,7 @@ export function listIssuesAssignedTo(account, redmineUserId, { limit = 25, timeo
 
 /**
  * The issues the caller logged time against since `from`, as `{ issueId, at }`
- * per entry (MVP2 A1).
+ * per entry.
  *
  * `at` is the entry's `spent_on` — the day the work happened, which is what the
  * signal decays on, not when the row was typed in. Comments are dropped here:
@@ -381,7 +368,7 @@ export async function listTimeEntryIssueIds(account, { from, timeoutMs } = {}) {
 
 /**
  * The issues the caller's own activity feed mentions since `from`, as
- * `{ issueId, at }` (MVP2 A1).
+ * `{ issueId, at }`.
  *
  * Atom, not JSON: Redmine has no REST endpoint for a user's activity. The feed
  * is the one response in this integration that carries issue subjects and note
@@ -427,11 +414,8 @@ async function requestOrNull(path, account) {
  * List the instance's time-entry activities via
  * `GET /enumerations/time_entry_activities.json`.
  *
- * Enumerable with an ordinary personal key — no admin rights needed. Redmine
- * rejects a time entry with no `activity_id`, and this instance has no
- * `is_default` activity, so the id has to be resolved from here at runtime
- * rather than hardcoded (enumeration ids are instance-specific and an admin can
- * renumber them).
+ * Enumerable with an ordinary personal key — no admin rights needed. Why the id
+ * is resolved from here at runtime rather than hardcoded: redmine-activities.js.
  */
 export async function listTimeEntryActivities(account) {
   const data = await redmineRequest('/enumerations/time_entry_activities.json', { account });
@@ -461,7 +445,7 @@ export function listIssuesByIds(account, issueIds, { timeoutMs = DEFAULT_TIMEOUT
 
 /**
  * Search issue **titles** via `GET /search.json`, and return the matching issue
- * ids and nothing else (MVP2 A2).
+ * ids and nothing else.
  *
  * `titles_only=1` is not a nicety: without it Redmine matches descriptions and
  * notes, which on the enterprise instance is where clinical detail lives, so a
@@ -493,18 +477,14 @@ export async function searchIssues(account, query, { limit = 25, timeoutMs } = {
  * Create one time entry via `POST /time_entries.json`, attributed to the owner
  * of `account`'s key.
  *
- * **Create-only and permanent (D1).** Requires the caller's Redmine
+ * **Create-only and permanent.** Requires the caller's Redmine
  * role to hold `log_time`; without it every call returns `403`. `activity_id` is
  * mandatory on this instance (it has no `is_default` activity), so omitting it
  * fails with `422 Activity cannot be blank`.
  *
- * @param {object} account      the caller's `{ apiKey, baseUrl }`
- * @param {object} entry
- * @param {number} entry.issueId    Redmine issue id
  * @param {number} entry.hours      decimal hours, already rounded by the caller
  * @param {number} entry.activityId resolved enumeration id — never hardcoded
  * @param {string} entry.spentOn    the day being logged, `YYYY-MM-DD`
- * @param {string} [entry.comments] free text shown in Redmine's Spent time tab
  * @returns {Promise<object|null>} the created entry as Redmine echoes it back
  */
 export async function createTimeEntry(account, { issueId, hours, activityId, spentOn, comments }) {
@@ -527,15 +507,14 @@ export async function createTimeEntry(account, { issueId, hours, activityId, spe
 /**
  * Fetch one time entry via `GET /time_entries/{id}.json`, or null when it is
  * gone. Used to confirm a write actually stored what we sent — Redmine can
- * answer `201` while persisting something else, and the cross-cutting
- * definition of done requires confirmation-by-read for every write.
+ * answer `201` while persisting something else.
  */
 export async function getTimeEntry(account, entryId) {
   const data = await requestOrNull(`/time_entries/${entryId}.json`, account);
   return data?.time_entry ?? null;
 }
 
-// ─── M6: issue create / edit ─────────────────────────────────────────────────
+// ─── Issue create / edit ──────────────────────────────────────────────────
 
 /** Upper bound on paginated reads, so a huge instance cannot stall a dropdown. */
 const MAX_PAGED_ITEMS = 1000;

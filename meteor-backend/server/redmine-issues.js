@@ -1,29 +1,19 @@
 /**
  * Pure shaping of raw Redmine issues into the client-safe DTO the unified
- * ticket list renders (M2.1; read-only).
+ * ticket list renders.
  *
- * Kept free of Meteor imports so it can be unit-tested directly (see
- * tests/redmine-issues.test.ts).
- *
- * M2 deliberately mapped only `id`/`subject`/`project`/`status`/`assignedTo`.
- * M2.1 merges Redmine issues with Huddle tickets into one sortable, filterable
- * list, which needs three more things that are *not* presentational extras:
+ * Redmine issues are merged with Huddle tickets into one sortable, filterable
+ * list, so beyond the names the list DTO carries:
  *   - `createdAt` / `updatedAt` — without them a merged list cannot be sorted
  *     chronologically at all,
  *   - `priority` — so the shared priority filter means the same thing for both
  *     sources,
- *   - `status.isClosed` — drives the existing Open/Closed tabs. Redmine statuses
- *     are instance-defined free text, so the name alone cannot tell us whether
- *     an issue is closed.
- * `tracker` is mapped too: it is Redmine's nearest equivalent to a ticket type
- * and rides along at zero cost. Everything else Redmine returns (due_date,
- * description, custom fields, …) is still intentionally dropped from the list.
- *
- * M6 adds the shapes its create/edit forms need, kept separate so the list DTO
- * stays lean: `toIssueDetail` (one issue, with `description`, `author` and the
- * status transitions the caller may make), `toNamedList` (projects, trackers)
- * and `toFormOptions` (a project's trackers, assignable members, priorities),
- * plus `toJournals` and `toTimeEntries` for the issue page's history.
+ *   - `status.isClosed` — drives the Open/Closed tabs. Redmine statuses are
+ *     instance-defined free text, so the name alone cannot tell us whether an
+ *     issue is closed.
+ * Everything else Redmine returns (due_date, description, custom fields, …) is
+ * intentionally dropped from the list. The create/edit forms and the issue page
+ * get shapes of their own, kept separate so the list DTO stays lean.
  */
 
 /** Shape a Redmine `{ id, name }` sub-object, or null when absent. */
@@ -51,10 +41,7 @@ export function toIsoDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-/**
- * Shape a single raw Redmine issue into our read-only DTO.
- * @param {object} issue  a raw issue from `GET /issues.json`
- */
+/** Shape a single raw Redmine issue into our read-only DTO. */
 export function toIssue(issue) {
   return {
     id: issue.id,
@@ -113,12 +100,9 @@ export function toIssueDetail(issue) {
 /**
  * Shape what the create/edit form offers for one project.
  *
- * Only **user** memberships become assignees: group assignment depends on an
- * instance setting and is out of scope for M6. A user holding several roles
- * appears once. Priorities keep `isDefault` so a new issue starts on the
- * instance's own default rather than one we guess.
- *
- * @param {{trackers: unknown, memberships: unknown, priorities: unknown}} raw
+ * Assignees are users only (see `toAssignableUsers`). Priorities keep
+ * `isDefault` so a new issue starts on the instance's own default rather than
+ * one we guess.
  */
 export function toFormOptions({ trackers, memberships, priorities }) {
   const priorityList = Array.isArray(priorities)
@@ -141,8 +125,8 @@ export function toFormOptions({ trackers, memberships, priorities }) {
  * Group memberships are skipped: group assignment depends on an instance setting
  * and is out of scope. A user holding several roles appears once.
  *
- * Shared by the M6 create/edit form and MVP2's `@name` search, which needs the
- * same answer across every project the caller belongs to.
+ * Shared by the create/edit form and the `@name` search, which needs the same
+ * answer across every project the caller belongs to.
  */
 export function toAssignableUsers(memberships) {
   const byId = new Map();
@@ -176,8 +160,8 @@ function nameFor(lookup, value) {
 /** One journal detail as `{ field, from, to }`; values are null when not shown. */
 function toJournalChange(detail, lookups) {
   if (detail?.property !== 'attr') {
-    // Custom fields, attachments and relations are out of M6 scope: name the
-    // kind of change without pretending to render its values.
+    // Custom fields, attachments and relations are out of scope: name the kind
+    // of change without pretending to render its values.
     const kind = { cf: 'custom field', attachment: 'attachment', relation: 'relation' }[
       detail?.property
     ];
@@ -208,7 +192,6 @@ function toJournalChange(detail, lookups) {
  * it. Each entry is `{ id, user, createdAt, notes, changes }`; an entry with
  * neither notes nor changes is dropped.
  *
- * @param {unknown} raw  the `journals` array from `include=journals`
  * @param {{statuses?: Map, priorities?: Map, users?: Map, trackers?: Map}} lookups
  *   id → name maps used to name `status_id`, `priority_id`, … values
  */

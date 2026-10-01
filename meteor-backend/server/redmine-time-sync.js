@@ -1,5 +1,5 @@
 /**
- * One row per time entry TimeHuddle has created in Redmine (M5, D5).
+ * One row per time entry TimeHuddle has created in Redmine.
  *
  * Row shape:
  *   userId              TimeHuddle user id
@@ -20,16 +20,13 @@
  *                       counts as handled so it is never offered again; no
  *                       entry exists in Redmine.
  *
- * **Why one row per entry, not per ticket-day (D5).** The first design allowed
- * exactly one entry per ticket-day, enforced by a unique index. Combined with
- * create-only (D1), that meant any work done after a mid-day push could never
- * reach Redmine, and the push panel silently disappeared. A ticket-day may now
- * carry several entries; each push sends only the seconds not already covered,
- * and Redmine's per-issue total stays correct.
+ * **Why one row per entry, not per ticket-day.** Entries are create-only, so
+ * with one entry per ticket-day any work done after a mid-day push could never
+ * reach Redmine. A ticket-day may carry several entries; each push sends only
+ * the seconds not already covered, and Redmine's per-issue total stays correct.
  *
  * `redmineTimeEntryId` and `syncedSeconds` are canonical business data: losing
- * either would resend time already in Redmine. Titles and urls stay out, as M3
- * established.
+ * either would resend time already in Redmine. Titles and urls stay out.
  */
 import { Meteor } from 'meteor/meteor';
 
@@ -38,7 +35,7 @@ import { ticketDayKey } from './redmine-net-hours';
 import { redmineClosedSecondsUntil } from './timer-core';
 
 Meteor.startup(async () => {
-  // The pre-D5 index made a second entry for the same ticket-day impossible.
+  // An older unique index made a second entry for the same ticket-day impossible.
   try {
     await RedmineTimeSyncs.rawCollection().dropIndex('unique_redmine_time_sync_day');
   } catch {
@@ -67,8 +64,8 @@ Meteor.startup(async () => {
 });
 
 /**
- * One-time backfill for rows written before D5, which recorded rounded hours but
- * not the seconds they covered.
+ * One-time backfill for older rows, which recorded rounded hours but not the
+ * seconds they covered.
  *
  * Deriving seconds from `syncedHours` would be up to 18 seconds out per row, and
  * that error would resurface as phantom unsent time. The exact figure is

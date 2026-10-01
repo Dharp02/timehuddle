@@ -2,10 +2,10 @@
  * Ticket timers — WorkItems (one row per user + ticket + day) and the Timer
  * sessions inside them.
  *
- * Since Milestone 3 a WorkItem is source-aware: it points at a Huddle ticket or
- * a Redmine issue via `{ source, ticketId }` (see ticket-refs.js), and starting
- * a session requires an active shift, which is what guarantees every session is
- * contained by — and auto-closed with — the shift it belongs to.
+ * A WorkItem is source-aware: it points at a Huddle ticket or a Redmine issue
+ * via `{ source, ticketId }` (see ticket-refs.js), and starting a session
+ * requires an active shift, which is what guarantees every session is contained
+ * by — and auto-closed with — the shift it belongs to.
  */
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
@@ -27,7 +27,7 @@ import { pinIssueIfUnset } from './redmine-prefs';
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 /**
- * Pin a Redmine issue the user has just started timing (MVP2 A3).
+ * Pin a Redmine issue the user has just started timing.
  *
  * Starting a timer is the strongest statement anyone makes about an issue, and
  * the pin is what keeps it near the top of their suggestions afterwards — the
@@ -46,7 +46,6 @@ function pinTimedRedmineIssue(userId, source, ticketId) {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * @param {object} e        the stored WorkItem
  * @param {{title: string|null, url: string|null}|null} display  resolved at read
  *   time by ticket-refs.js — never persisted on the row itself.
  */
@@ -110,7 +109,7 @@ async function closeRunningSession(userId, now) {
 /**
  * The caller's running shift, or a hard stop.
  *
- * A ticket timer may only run inside a shift (M3 D3). That is what lets the
+ * A ticket timer may only run inside a shift. That is what lets the
  * existing 8h auto-clockout close ticket sessions for free, and what lets the
  * Dashboard timesheet nest a session under the shift that contains it.
  * Source-agnostic on purpose: it works the same for a Huddle team and a
@@ -249,7 +248,6 @@ export async function applyTimerDelete(entry, actorId, notifyAdmins = true, onCo
   onCommit?.();
   const deletedSessions = await Timers.removeAsync({ workItemId: entryId });
   await WorkItems.removeAsync(entry._id);
-  // Huddle-only: a Redmine entry has no team, so it has no timesheet admins.
   if (notifyAdmins && normalizeSource(entry.source) === HUDDLE) {
     notifyTimesheetAdmins(actorId, entry.ticketId, entry.date, 'deleted').catch(() => {});
   }
@@ -590,7 +588,7 @@ Meteor.methods({
 
     // Retargeting is Huddle-only: the Work page's ticket picker lists Huddle
     // tickets, and moving logged time onto a *different* Redmine issue is a
-    // sync concern (M5), not an edit.
+    // sync concern, not an edit.
     const retargeting = Boolean(ticketId) && ticketId !== entry.ticketId;
     if (retargeting) {
       try {

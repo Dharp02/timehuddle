@@ -1,5 +1,5 @@
 /**
- * Net worked seconds for one user, one ticket, one day (M4).
+ * Net worked seconds for one user, one ticket, one day.
  *
  * **Nothing is ever subtracted here.** Breaks are excluded *structurally*:
  * `clock.pause` closes the running session and stamps its duration, and
@@ -11,9 +11,8 @@
  * the break as a deduction against time that never included it. The net total
  * is a plain sum of closed session durations — nothing more.
  *
- * Kept free of Meteor imports so it can be unit-tested directly (see
- * tests/redmine-net-hours.test.ts). The Mongo-touching query that feeds it lives
- * in timer-core.js, which cannot be imported from vitest because it pulls in
+ * Kept free of Meteor imports: the Mongo-touching query that feeds it lives in
+ * timer-core.js, which cannot be imported from vitest because it pulls in
  * `meteor/mongo` at module scope.
  */
 

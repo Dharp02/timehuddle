@@ -1,5 +1,5 @@
 /**
- * Pure rules for creating and editing Redmine issues from TimeHuddle (M6).
+ * Pure rules for creating and editing Redmine issues from TimeHuddle.
  *
  * Every write goes out under the acting user's personal API key, so Redmine
  * itself enforces their role, the tracker's workflow and required fields. What
@@ -13,9 +13,6 @@
  *   - **read-back comparison**, because Redmine can answer 2xx while storing
  *     something else (a workflow or plugin rewriting a field);
  *   - **named failure reasons**, so the UI can say *why* a write was refused.
- *
- * Kept free of Meteor imports so it can be unit-tested directly
- * (tests/redmine-issue-writes.test.ts), like redmine-issues.js.
  */
 import { normalizeText } from './redmine-issues';
 

@@ -11,10 +11,8 @@
  * current key, falls back to the previous one, and says which it used so the
  * caller can re-encrypt.
  *
- * The functions are pure and take the derived key explicitly so they can be
- * unit-tested without any environment setup (see tests/redmine-crypto.test.ts).
- * `envKey()` and `decryptStoredSecret()` are the env-coupled conveniences callers
- * use at runtime.
+ * The functions are pure and take the derived key explicitly; `envKey()` and
+ * `decryptStoredSecret()` are the env-coupled conveniences callers use at runtime.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 

@@ -1,17 +1,16 @@
 /**
- * The Redmine suggestion surface (MVP2) — what TimeHuddle offers a user before
- * and while they type in the Tickets search bar.
+ * The Redmine suggestion surface — what TimeHuddle offers a user before and
+ * while they type in the Tickets search bar.
  *
- * MVP1 asked Redmine for every issue the user's key could see and filtered in the
- * browser. On the enterprise instance that is an enormous response, and every
- * subject in it may carry PHI, so MVP2 replaces it with questions that are
- * narrow by construction:
+ * Every issue the user's key can see is an enormous response on the enterprise
+ * instance, and every subject in it may carry PHI, so the questions asked here
+ * are narrow by construction:
  *
  *   - `redmine.issues.relevant` — merge a handful of filtered signals into the
- *     list shown on focus (Task A1),
- *   - `redmine.issues.search`   — one bounded query for what the user typed (A2),
+ *     list shown on focus,
+ *   - `redmine.issues.search`   — one bounded query for what the user typed,
  *   - `redmine.prefs.set` / `redmine.prefs.listDismissed` — TimeHuddle's own pins
- *     and dismissals, which Redmine has no field for (A3),
+ *     and dismissals, which Redmine has no field for,
  *   - `redmine.issues.removeFromTable` — take issues out of the user's Tickets
  *     table and My Board (bulk Delete), leaving Redmine untouched.
  *
@@ -87,8 +86,10 @@ const MEMBERSHIP_CONCURRENCY = 5;
  * in typing. The relevant list is tight, and counts only the calls its 90-second
  * cache cannot answer: a cache hit costs Redmine nothing, and the Tickets table
  * and the search dropdown both read the list, so counting hits would refuse a
- * person working normally. Ten real rebuilds a minute is a client looping. Applied in the method rather than through `DDPRateLimiter` — see
- * rate-limit.js for why that would guard a door this app does not use.
+ * person working normally. Ten real rebuilds a minute is a client looping.
+ *
+ * Applied in the method rather than through `DDPRateLimiter` — see rate-limit.js
+ * for why that would guard a door this app does not use.
  */
 const searchLimiter = createRateLimiter({ limit: 20, windowMs: 10 * 1000 });
 const relevantLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
@@ -232,10 +233,7 @@ function requireIssueId(issueId) {
  * dismissal has to know about the issue it is hiding (rule 5).
  *
  * Asked of Redmine rather than of whatever the client had on screen, because the
- * answer decides whether the dismissal can be undone by someone else's action,
- * and asked with `assigned_to_id=me` — the query the "assigned" signal runs — so
- * an issue assigned to one of the caller's groups counts here exactly as it
- * counts there.
+ * answer decides whether the dismissal can be undone by someone else's action.
  *
  * `whenUnknown` is the answer when Redmine cannot say. A dismissal passes
  * **true**: that makes it permanent for its 15 days, which honours what the user
@@ -255,11 +253,9 @@ async function isAssignedToCaller(account, issueId, whenUnknown) {
 
 Meteor.methods({
   /**
-   * The issues most likely to be what the caller is looking for (A1).
-   *
-   * Replaces MVP1's "every issue this key can see": one small filtered query per
-   * signal, merged and scored here, capped at 100. `partial: true` means a signal
-   * dropped out and the list is short rather than wrong.
+   * The issues most likely to be what the caller is looking for: one small
+   * filtered query per signal, merged and scored, capped at 100. `partial: true`
+   * means a signal dropped out and the list is short rather than wrong.
    *
    * `includeDismissed` is for the Tickets page table, which is not the dropdown
    * and must not be reshaped by what the user hid from their suggestions.
@@ -312,7 +308,7 @@ Meteor.methods({
   },
 
   /**
-   * Find issues the caller named (A2).
+   * Find issues the caller named.
    *
    * One bounded Redmine call per search, chosen by what they typed — an issue
    * number, a pasted link, `@someone`, or words matched against issue **titles**
@@ -350,7 +346,7 @@ Meteor.methods({
   },
 
   /**
-   * Pin, dismiss or clear one Redmine issue for the caller (A3).
+   * Pin, dismiss or clear one Redmine issue for the caller.
    *
    * `state: null` clears it — Undo in the dropdown and Restore in Settings are
    * the same call. A dismissal affects only this user's suggestions: nothing here
@@ -412,7 +408,7 @@ Meteor.methods({
   },
 
   /**
-   * The issues the caller has hidden, for the Restore list in Settings (A3).
+   * The issues the caller has hidden, for the Restore list in Settings.
    *
    * Titles are resolved here, from Redmine, at read time — `RedmineIssuePrefs`
    * stores ids only. An issue whose title cannot be fetched is dropped rather

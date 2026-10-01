@@ -1,5 +1,5 @@
 /**
- * "My Board" — a personal priority list of tickets/issues (Milestone 2.2).
+ * "My Board" — a personal priority list of tickets/issues.
  *
  * Identity only: `{ userId, sourceId, ticketId, addedAt }`. No title, status, or
  * any other display field is snapshotted here — the client resolves those by

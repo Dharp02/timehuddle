@@ -1,5 +1,5 @@
 /**
- * Redmine time-entry activity resolution (M4).
+ * Redmine time-entry activity resolution.
  *
  * Redmine rejects a time entry with no `activity_id`, and the target instance
  * has **no default** activity — it offers `Design` and `Development`, neither
@@ -9,10 +9,6 @@
  * The id is resolved at runtime and never hardcoded: enumeration ids are
  * instance-specific and an admin can renumber them, which would silently log
  * time under the wrong activity with no signal.
- *
- * Kept free of Meteor imports so the shaping and fallback logic can be
- * unit-tested directly (see tests/redmine-activities.test.ts), matching
- * redmine-issues.js / redmine-status.js.
  */
 import { listTimeEntryActivities } from './redmine-client';
 import { createUserTtlCache } from './redmine-cache';
@@ -25,19 +21,17 @@ import { createUserTtlCache } from './redmine-cache';
 const cache = createUserTtlCache(60 * 60 * 1000);
 
 /**
- * Tracker name → activity name (D4). Matched case-insensitively, by **name**
+ * Tracker name → activity name. Matched case-insensitively, by **name**
  * on both sides: enumeration and tracker ids are instance-specific and an admin
  * can renumber either, so an id here would silently log under the wrong
  * activity.
  *
- * Every entry currently resolves to `Development`, and that is not an oversight.
- * redmine0 offers the trackers `Bug` / `Feature` / `Support` against the
- * activities `Design` / `Development`, and the two vocabularies answer different
- * questions — a tracker says *what kind of issue this is*, an activity says
- * *what kind of work you did on it*. All three trackers are engineering
- * categories, so the honest mapping is degenerate today. It earns its keep as
- * the seam: adding a design-oriented tracker becomes one line here rather than a
- * code change, and the per-row override in the push dialog covers the rest.
+ * Every entry currently resolves to `Development`, and that is not an oversight:
+ * a tracker says *what kind of issue this is*, an activity *what kind of work
+ * you did on it*, and all three trackers are engineering categories, so the
+ * honest mapping is degenerate today. It earns its keep as the seam: adding a
+ * design-oriented tracker becomes one line here rather than a code change, and
+ * the per-row override in the push dialog covers the rest.
  */
 const TRACKER_ACTIVITY = {
   bug: 'Development',
@@ -85,18 +79,16 @@ export function toActivityList(raw) {
  * Choose which activity to log time under.
  *
  * Order: the user's explicit choice (when it still exists in the enumeration) →
- * the issue's tracker (D4) → the instance default → one named "Development" →
+ * the issue's tracker → the instance default → one named "Development" →
  * the first → none. `reason` is returned so the UI can surface which rule fired
- * instead of choosing silently on the user's behalf — under D1 a logged entry is
+ * instead of choosing silently on the user's behalf — a logged entry is
  * permanent, so a wrong activity cannot be corrected afterwards.
  *
- * **Why the explicit choice outranks the tracker**, where the plan's first draft
- * had it the other way round: `TRACKER_ACTIVITY` is degenerate on this instance
- * (every tracker → `Development`), so tracker-first would swallow the user's
- * setting entirely and make the Settings control dead weight — a designer who
- * picked `Design` would still log `Development` on every issue. A deliberate
- * choice beats an inference; the tracker is the smart default for the user who
- * has not made one.
+ * **Why the explicit choice outranks the tracker:** `TRACKER_ACTIVITY` is
+ * degenerate on this instance (every tracker → `Development`), so tracker-first
+ * would swallow the user's setting entirely — a designer who picked `Design`
+ * would still log `Development` on every issue. A deliberate choice beats an
+ * inference; the tracker is the smart default for the user who has not made one.
  *
  * @returns {{activity: object|null, reason: 'chosen'|'tracker'|'is_default'|'named'|'first'|'none'}}
  */

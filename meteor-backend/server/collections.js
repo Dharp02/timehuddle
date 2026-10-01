@@ -34,10 +34,7 @@ export const RedmineLinks = new Mongo.Collection('redmine_links', { idGeneration
 // unified tickets (Core Model Data Discipline).
 export const MyBoard = new Mongo.Collection('my_board', { idGeneration: 'MONGO' });
 // One row per time entry TimeHuddle has created in Redmine, or per stretch of
-// time the user chose never to send. A (user, Redmine issue, day) may carry
-// several: entries are create-only, and each push sends only the seconds not
-// already covered by earlier rows (see redmine-time-sync.js for the row shape
-// and why the grain is not the ticket-day).
+// time the user chose never to send (row shape: redmine-time-sync.js).
 //
 // Deliberately NOT a field on WorkItems: `timers.copyPrevious` dedupes on a
 // signature that includes `note` and `sortOrder`, so sibling WorkItem rows for
@@ -47,14 +44,9 @@ export const RedmineTimeSyncs = new Mongo.Collection('redmine_time_syncs', { idG
 // One row per (user, Redmine issue) the user has pinned or dismissed — TimeHuddle's
 // own opinion about a Redmine issue, which Redmine has no field for.
 //
-// Ids, a state, a boolean and a date. No subject, no project, no description:
-// the whole point of MVP2 is that issue content never lands in TimeHuddle, and a
-// cached title here would be both a PHI store and a stale one (Core Model Data
-// Discipline — titles are resolved at read time through `listIssuesByIds`).
-//
-// A dismissal expires on its own after 15 days, enforced twice: a TTL index so
-// the rows really go, and a read-time filter because Mongo's TTL sweeper runs
-// only about once a minute and "15 days" should not mean "15 days and a bit".
+// Ids, a state, a boolean and a date — never a subject or description: issue
+// content must not land in TimeHuddle, and a cached title here would be both a
+// PHI store and a stale one (row shape and expiry: redmine-prefs.js).
 export const RedmineIssuePrefs = new Mongo.Collection('redmine_issue_prefs', {
   idGeneration: 'MONGO',
 });

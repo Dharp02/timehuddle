@@ -1,10 +1,9 @@
 /**
- * The pin and dismissal rules, as one pure function (MVP2 A3).
+ * The pin and dismissal rules, as one pure function.
  *
- * Six rules were agreed for dismissals, and all of them are read rules — they
- * decide what a stored row *means* now, not what to write. Keeping them in one
- * place, over plain rows and an explicit `now`, is what lets them be tested
- * without a database (see tests/redmine-prefs-core.test.ts); it is also why the
+ * All of them are read rules — they decide what a stored row *means* now, not
+ * what to write. Keeping them in one place, over plain rows and an explicit
+ * `now`, is what lets them be tested without a database; it is also why the
  * store does a single query and asks this function, rather than encoding each
  * rule again as a Mongo selector.
  *
@@ -34,8 +33,6 @@
  * the issue from the table. Storing it on the pin's row, rather than turning the
  * row into a dismissal, also keeps the pin out of reach of the TTL index, which
  * sweeps `state: 'dismissed'` rows only.
- *
- * Kept free of Meteor imports, like redmine-issues.js and redmine-activities.js.
  */
 
 export const PINNED = 'pinned';
@@ -63,10 +60,9 @@ export const DISMISSAL_TTL_MS = DISMISSAL_TTL_DAYS * 24 * 60 * 60 * 1000;
 export const MAX_DISMISSALS_PER_USER = 500;
 
 /**
- * Most pins any one user may hold — the same bound, for a worse gap. Pins had no
- * cap at all: `surplusDismissalIds` counts `state: 'dismissed'` rows only, and
- * the TTL index sweeps the same, so nothing bounded a loop of pins. They neither
- * expire nor evict.
+ * Most pins any one user may hold. Pins neither expire nor evict — the
+ * dismissal cap and the TTL index cover `state: 'dismissed'` rows only — so
+ * without this nothing bounds a loop of pins.
  *
  * Past this cap a new pin is **refused**, where a dismissal evicts. The two are
  * not symmetrical: a pin is what keeps an issue in the user's Tickets table and
@@ -110,7 +106,6 @@ export const MAX_PINS_PER_USER = 500;
  *   that would undo every removal at once.
  *
  * @param {{issueId: number, state: string, updatedAt: Date, dismissedAt?: Date, assignedToMeAtDismissal?: boolean}[]} rows
- * @param {{assignedIssueIds?: number[], assignedKnown?: boolean, now?: number}} [options]
  */
 export function partitionIssuePrefs(
   rows,

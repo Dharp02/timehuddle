@@ -1,33 +1,21 @@
 /**
- * Scoring for the relevant-issues list (MVP2 A1).
+ * Scoring for the relevant-issues list.
  *
- * MVP1 answered "which Redmine issues should I see?" with "all of them". On the
- * enterprise instance that is a very large set and every subject may carry PHI,
- * so MVP2 asks Redmine a handful of *filtered* questions instead — what is
- * assigned to me, what I logged time against, what I touched, what I watch, what
- * I pinned — and merges the answers here.
+ * "Every issue the key can see" is a very large set on the enterprise instance,
+ * and every subject may carry PHI, so Redmine is asked a handful of *filtered*
+ * questions instead — what is assigned to me, what I logged time against, what
+ * I touched, what I watch, what I pinned — and the answers are merged here.
  *
- * Merging is the whole job: one issue usually answers several of those questions
- * at once, and the order the user sees has to come from the combination rather
- * than from whichever query happened to return first. So each signal carries a
- * weight, an issue's score is the sum of the signals that matched it, and the
- * reasons ride along in the order they contributed — the dropdown shows only the
- * strongest one, and reading it off the front of the list keeps that choice on
- * this side of the wire.
+ * One issue usually answers several of those questions at once, so each signal
+ * carries a weight, an issue's score is the sum of the signals that matched it,
+ * and the reasons ride along in the order they contributed — the dropdown shows
+ * only the strongest one, read off the front of the list.
  *
- * The module owns the whole list bar the plumbing: it asks Redmine the filtered
- * questions (`gatherRemoteSignals`), merges and scores the answers
- * (`scoreRelevantIssues`), and assembles the response (`buildRelevantIssues`).
- * What it deliberately does *not* do is touch Meteor or Mongo. The three things
- * it needs from them — the caller's pins, whether a timer is running, and which
+ * The module deliberately does not touch Meteor or Mongo. The three things it
+ * needs from them — the caller's pins, whether a timer is running, and which
  * issues they have hidden — arrive as arguments, one of them as a callback,
  * because the hidden set can only be computed once Redmine has said what is
  * assigned to the user (dismissal rule 5).
- *
- * That is what makes the list testable: `tests/redmine-relevance.test.ts` checks
- * the ordering with no I/O at all, and the signal handling with nothing but a
- * stubbed `fetch` — including the case that matters most, a signal timing out
- * while the rest of the list still arrives.
  */
 import {
   ASSIGNED_ISSUES_LIMIT,
@@ -122,20 +110,9 @@ const IDS_PER_REQUEST = 100;
 const MAX_KEPT_ISSUES = 1000;
 
 /**
- * A `SlimIssue` (as `toIssue` shapes one) plus why it is in the list — the
- * `RelevantIssue` of the Part A/Part B API contract, written down where the code
- * that produces it lives.
+ * A slim issue (as `toIssue` shapes one) plus why it is in the list.
  *
  * @typedef {object} RelevantIssue
- * @property {number} id
- * @property {string} subject
- * @property {{id: number, name: string}|null} project
- * @property {{id: number, name: string, isClosed: boolean}|null} status
- * @property {{id: number, name: string}|null} assignedTo
- * @property {{id: number, name: string}|null} priority
- * @property {{id: number, name: string}|null} tracker
- * @property {string|null} createdAt
- * @property {string|null} updatedAt
  * @property {string[]} reasons  the signals that matched, strongest contribution first
  * @property {number} score
  * @property {string} [lastTimeLoggedAt]  present only when the `logged` signal matched
@@ -203,15 +180,8 @@ function idsOf(signal) {
  * whose slim fields could not be resolved is dropped rather than rendered as a
  * bare number, and the caller decides how many ids are worth resolving.
  *
- * @param {object} signals
- * @param {number[]} [signals.running]  ids with a live timer
- * @param {number[]} [signals.assigned] ids assigned to the user
- * @param {{issueId: number, lastAt: string|null}[]} [signals.logged]   from `latestByIssue`
- * @param {{issueId: number, lastAt: string|null}[]} [signals.activity] from `latestByIssue`
- * @param {number[]} [signals.watching] ids the user watches
- * @param {number[]} [signals.pinned]   ids the user pinned
- * @param {number[]} [signals.board]    ids on the user's My Board
- * @param {Map<number, object>} issuesById  slim issue DTOs, keyed by id
+ * @param {object} signals  issue ids per signal; `logged` and `activity` are
+ *   `{ issueId, lastAt }` as `latestByIssue` returns them
  * @param {number} [now]  epoch ms the decay is measured from
  * @returns {RelevantIssue[]} best first
  */
@@ -270,8 +240,8 @@ export function scoreRelevantIssues(signals, issuesById, now = Date.now()) {
 }
 
 /**
- * The reasons an issue matched, strongest contribution first — the order Part B
- * reads a row's single chip off the front of.
+ * The reasons an issue matched, strongest contribution first — the client reads
+ * a row's single chip off the front.
  */
 function orderedReasons(contributions) {
   return [...contributions.entries()]
@@ -371,18 +341,12 @@ const issueIdsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) =>
  * The order matters in two places. Dismissals are removed **before** the cap, so
  * hiding a suggestion pulls the next one up instead of leaving the list a row
  * short. And the "assigned to me" answer is handed to `resolvePrefs`, so the
- * reassignment rules (A3, rules 5 and 10) can be applied without a second
- * Redmine call.
+ * reassignment rules (rules 5 and 10) can be applied without a second Redmine
+ * call.
  *
  * Throws the first signal's own error when *every* signal failed — mapping it to
  * something a client understands is the Meteor layer's job.
  *
- * @param {{apiKey: string, baseUrl: string}} account
- * @param {object} [context]
- * @param {number[]} [context.pinnedIds]   the caller's pins
- * @param {number[]} [context.boardIds]    the Redmine issues on the caller's My Board
- * @param {number[]} [context.runningIds]  the issue a timer is running on, if any
- * @param {number|null} [context.redmineUserId]  for the activity feed
  * @param {(assignedIssueIds: number[], assignedKnown: boolean) =>
  *   Promise<{hiddenIds?: number[], removedIds?: number[]}>} [context.resolvePrefs]
  *   given what Redmine says is assigned to the caller: the ids to leave out

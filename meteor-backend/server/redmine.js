@@ -1,5 +1,5 @@
 /**
- * Redmine account linking (Milestone 1).
+ * Redmine account linking.
  *
  * A TimeHuddle user links their personal Redmine account by pasting their API
  * key. We validate it against `GET /users/current.json`, then store one
@@ -60,10 +60,7 @@ export function enforceRedmineLimit(limiter, userId) {
  * that branch on it need no change.
  *
  * Nothing is logged here. The failure is logged where it happens, in
- * `redmineRequest`, which knows the method, the path, the status and the
- * duration — and knows to log the path without its query string, because a query
- * string can carry a search term and a user may type a patient's name into the
- * search box.
+ * `redmineRequest`, which knows what must stay out of the log.
  */
 export function toRedmineMeteorError(err) {
   if (err?.status === 401 || err?.status === 403) {
@@ -131,11 +128,11 @@ async function hasOpenShift(userId) {
 }
 
 /**
- * Whether the caller is idle enough to push (D2).
+ * Whether the caller is idle enough to push.
  *
  * Both halves matter. An open shift means the day is not finished, and a
- * running ticket session has no final duration — under D1 either would write a
- * partial total that can never be corrected.
+ * running ticket session has no final duration — entries are create-only, so
+ * either would write a partial total that can never be corrected.
  */
 async function isIdleForPush(userId) {
   if (await hasOpenShift(userId)) return false;
@@ -149,8 +146,8 @@ const PUSH_LOCK_STALE_MS = 2 * 60 * 1000;
 /**
  * Claim the caller's push lock, or return false if a push is already running.
  *
- * Under D5 a ticket-day may take several entries, so the storage layer no longer
- * rejects a second one. Without this, two tabs pressing Send together would both
+ * A ticket-day may take several entries, so the storage layer does not reject
+ * a second one. Without this, two tabs pressing Send together would both
  * compute the same unsent time and both create an entry for it. The claim is a
  * single atomic update on the caller's `redmine_links` row, so exactly one of
  * two concurrent pushes wins.
@@ -220,7 +217,7 @@ async function buildPreviewRows(userId, account) {
   const totals = await redmineTicketDaysFor(userId);
   if (!totals.length) return [];
 
-  // Only the time not already covered by earlier entries (D5).
+  // Only the time not already covered by earlier entries.
   const unsynced = unsentTotals(totals, await sentSecondsFor(userId));
   if (!unsynced.length) return [];
 
@@ -265,8 +262,8 @@ async function buildPreviewRows(userId, account) {
  * Create one entry, confirm it by reading it back, and record the outcome.
  *
  * The read-back is not ceremony: Redmine can answer `201` while storing
- * something other than what was sent, and under D1 there is no second chance to
- * correct it — so a mismatch is surfaced rather than assumed away. The
+ * something other than what was sent, and a create-only entry leaves no second
+ * chance to correct it — so a mismatch is surfaced rather than assumed away. The
  * comparison allows a minute of slack (`hoursAgree`), because Redmine keeps
  * time to the minute; a larger gap means it stored something else entirely.
  */
@@ -461,7 +458,7 @@ Meteor.methods({
   },
 
   /**
-   * What a push would send, for the confirmation dialog (M5, D2).
+   * What a push would send, for the confirmation dialog.
    *
    * Pure read — it creates nothing in Redmine. Rows that cannot be sent are
    * still returned, carrying a `blockedReason`, so the dialog can explain the
@@ -513,9 +510,9 @@ Meteor.methods({
   },
 
   /**
-   * Create one Redmine time entry per confirmed ticket-day (M5, D1 + D2).
+   * Create one Redmine time entry per confirmed ticket-day.
    *
-   * **Irreversible (D1): time entries are never edited or deleted.** The
+   * **Irreversible: time entries are never edited or deleted.** The
    * client says *which* ticket-days to send and may override the activity; it
    * never supplies the hours. Those are recomputed here from the timer
    * sessions, because a client-supplied number would let a stale or tampered
@@ -598,9 +595,9 @@ async function pushRequestedEntries(userId, account, entries) {
 
     // An override is honoured only if this instance really has that activity,
     // matching the check `redmine.activities.setDefault` makes. An invalid one
-    // rejects the row instead of falling back to the default: under D1 the
-    // entry is permanent, and writing an activity the user did not choose is
-    // worse than writing nothing.
+    // rejects the row instead of falling back to the default: the entry is
+    // permanent, and writing an activity the user did not choose is worse than
+    // writing nothing.
     let activityId = row.activityId;
     if (requested.activityId != null) {
       if (!Number.isInteger(requested.activityId) || !validActivityIds.has(requested.activityId)) {

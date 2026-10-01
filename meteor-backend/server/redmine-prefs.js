@@ -1,35 +1,24 @@
 /**
- * Storage for TimeHuddle's own opinions about Redmine issues (MVP2 A3).
+ * Storage for TimeHuddle's own opinions about Redmine issues.
  *
  * Redmine has no field for "keep this near the top of my list" or "stop
- * suggesting this to me", so those live here. Two states, one row each:
+ * suggesting this to me", so those live here. Three states, one row each:
  *
  *   - **pinned** — the user, or starting a timer on their behalf, said this issue
- *     matters. Worth 30 points to the relevant list, and permanent until cleared.
+ *     matters. Permanent until cleared.
  *   - **dismissed** — the user pressed the x on a suggestion. Hides the issue from
- *     *their own* search suggestions and nothing else: not from search results,
- *     not from the Tickets table, not from anyone else's view, and never from
- *     Redmine. It expires by itself after 15 days.
- *
+ *     *their own* search suggestions and nothing else, and expires by itself.
  *   - **removed** — the user deleted the issue from their Tickets table (bulk
- *     Delete). Replaces a pin, and stops "assigned to me" putting it back for as
- *     long as it stays assigned. Starting a timer pins it again. Nothing in
- *     Redmine changes.
- *
- * Hiding a **pinned** (or removed) issue does not turn its row into a dismissal:
- * the row keeps its state and gains `dismissedAt`. The pin is what keeps an issue someone else
- * owns in the Tickets table, so losing it would make hiding a suggestion drop a
- * table row. See rule 7 in redmine-prefs-core.js.
+ *     Delete). Nothing in Redmine changes.
  *
  * **Ids only.** A row holds a user id, an issue id, a state, one boolean and a
  * date. No subject, no project, no description — resolving a dismissal's title
  * for the Settings list is a read-time `listIssuesByIds` call, so TimeHuddle
  * never becomes a second, staler, unaudited copy of the issue tracker.
  *
- * This module is the Mongo half. What the rows *mean* — the expiry, the
- * reassignment rule, the cap — is in redmine-prefs-core.js, which is why reads
- * here are a single query handed to one pure function instead of a selector per
- * rule.
+ * This module is the Mongo half. What the rows *mean* — the numbered rules, the
+ * expiry, the caps — is in redmine-prefs-core.js, which is why reads here are a
+ * single query handed to one pure function instead of a selector per rule.
  */
 import { RedmineIssuePrefs } from './collections';
 import { bustUserCaches } from './redmine-cache';

@@ -4,7 +4,7 @@
  *
  * In-process and lossy on purpose: a stale entry costs at most a stale dropdown
  * for one TTL, and a cold cache after a restart costs one cheap GET. Nothing
- * here is persisted — M6 keeps Redmine reads live.
+ * here is persisted.
  *
  * Every cache is keyed by TimeHuddle user id first, so re-linking with a key
  * for a different Redmine account (`bustUserCaches`) can never be served the
