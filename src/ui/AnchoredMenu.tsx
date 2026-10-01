@@ -75,8 +75,7 @@ export function AnchoredMenu({
       // it. Flip from the whole card's top instead, so the menu always clears
       // the composer rather than landing on the text being typed.
       const boundaryTop =
-        anchor.closest('[data-slot="chat-composer-card"]')?.getBoundingClientRect().top ??
-        rect.top;
+        anchor.closest('[data-slot="chat-composer-card"]')?.getBoundingClientRect().top ?? rect.top;
       const menuWidth = Math.min(width, window.innerWidth - GUTTER * 2);
       const left = Math.min(Math.max(GUTTER, rect.left), window.innerWidth - GUTTER - menuWidth);
       const spaceBelow = window.innerHeight - rect.bottom - GUTTER * 2;
