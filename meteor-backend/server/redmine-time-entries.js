@@ -31,7 +31,11 @@ export const PUSH_COMMENT = 'Logged by TimeHuddle';
  */
 export function toHours(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return 0;
-  const minutes = Math.round(seconds / 60);
+  return minutesToHours(Math.round(seconds / 60));
+}
+
+/** Whole minutes as the 2-decimal hours Redmine is sent. */
+function minutesToHours(minutes) {
   return Math.round((minutes / 60) * 100) / 100;
 }
 
@@ -70,29 +74,40 @@ export function hoursAgree(sent, stored) {
  *
  * A ticket-day can be pushed more than once: a user may push mid-day and keep
  * working. Entries are create-only, so later work goes up as a further
- * entry covering just the difference. `sentSeconds` is tracked in raw seconds,
- * not rounded hours, so repeated pushes cannot drift.
+ * entry covering just the difference.
+ *
+ * `seconds` is that difference in raw seconds, which is what the ledger records.
+ * `minutes` is what to send: the whole minutes the day's total comes to, less
+ * the minutes Redmine already holds. Rounding the total rather than each
+ * difference is what stops repeated pushes drifting — two 30-second pushes
+ * would otherwise each round up, and put two minutes in Redmine for one worked.
  *
  * A ticket-day with nothing new is dropped; one with a few new seconds is kept,
  * so short stretches accumulate until they are worth sending.
  *
- * @param {Map<string, number>} sentSecondsByKey  keyed `ticketId|date`
- * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number}>}
+ * @param {Map<string, {seconds: number, discardedSeconds: number, minutes: number}>} ledgerByKey
+ *   what has been handled per `ticketId|date` — see `pushLedgerFor`
+ * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number, minutes: number}>}
  */
-export function unsentTotals(totals, sentSecondsByKey) {
+export function unsentTotals(totals, ledgerByKey) {
   if (!Array.isArray(totals)) return [];
   return totals
     .map((total) => {
-      const alreadySentSeconds = sentSecondsByKey.get(ticketDayKey(total.ticketId, total.date)) ?? 0;
+      const held = ledgerByKey.get(ticketDayKey(total.ticketId, total.date)) ?? NOTHING_HANDLED;
+      // Discarded time is never owed to Redmine, so it is left out of the target.
+      const owedMinutes = Math.round((total.seconds - held.discardedSeconds) / 60);
       return {
         ticketId: total.ticketId,
         date: total.date,
-        seconds: Math.max(0, total.seconds - alreadySentSeconds),
-        alreadySentSeconds,
+        seconds: Math.max(0, total.seconds - held.seconds),
+        alreadySentSeconds: held.seconds,
+        minutes: Math.max(0, owedMinutes - held.minutes),
       };
     })
     .filter((total) => total.seconds > 0);
 }
+
+const NOTHING_HANDLED = { seconds: 0, discardedSeconds: 0, minutes: 0 };
 
 /**
  * Build the confirmation-dialog rows for a set of unsynced ticket-days.
@@ -106,8 +121,9 @@ export function unsentTotals(totals, sentSecondsByKey) {
  * tracked time, and hiding it would silently drop work. It carries
  * `issueMissing: true` so the dialog can show it as unsendable instead.
  *
- * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number}>} totals
- *   `seconds` is the unsent time only — see `unsentTotals`
+ * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number}>} totals
+ *   `seconds` is the unsent time only, and `minutes` what to send for it — see
+ *   `unsentTotals`. Without `minutes`, the seconds are rounded as they stand.
  * @param {Map<string, {subject: string, trackerName: string|null}>} issuesById
  * @param {(trackerName: string|null) => {activityId: number|null, activityName: string|null, reason: string}} resolveActivity
  */
@@ -117,7 +133,8 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
   return totals
     .map((total) => {
       const issue = issuesById.get(String(total.ticketId)) ?? null;
-      const hours = toHours(total.seconds);
+      const hours =
+        total.minutes == null ? toHours(total.seconds) : minutesToHours(total.minutes);
       const activity = resolveActivity(issue?.trackerName ?? null);
 
       return {

@@ -88,25 +88,31 @@ async function backfillSyncedSeconds() {
 }
 
 /**
- * Seconds already sent to Redmine, per ticket-day, for one user.
- * @returns {Promise<Map<string, number>>} keyed `ticketId|date` — safe because a
- *   ticket id is a decimal or hex string and a date is `YYYY-MM-DD`, so neither
- *   can contain the separator. Must match the keys built in redmine-time-entries.js.
+ * What has already been handled per ticket-day, for one user: the raw seconds
+ * covered (sent or discarded), how many of those were discarded, and the whole
+ * minutes Redmine holds from the entries sent.
+ * @returns {Promise<Map<string, {seconds: number, discardedSeconds: number, minutes: number}>>}
+ *   keyed by `ticketDayKey`
  */
-export async function sentSecondsFor(userId) {
+export async function pushLedgerFor(userId) {
   // Discarded time counts too: "handled" is what keeps it out of the dialog.
   const rows = await RedmineTimeSyncs.find(
     {
       userId,
       $or: [{ redmineTimeEntryId: { $type: 'number' } }, { discardedAt: { $type: 'date' } }],
     },
-    { fields: { ticketId: 1, date: 1, syncedSeconds: 1 } },
+    { fields: { ticketId: 1, date: 1, syncedSeconds: 1, syncedHours: 1, redmineTimeEntryId: 1 } },
   ).fetchAsync();
 
   const byKey = new Map();
   for (const row of rows) {
     const key = ticketDayKey(row.ticketId, row.date);
-    byKey.set(key, (byKey.get(key) ?? 0) + (row.syncedSeconds ?? 0));
+    const held = byKey.get(key) ?? { seconds: 0, discardedSeconds: 0, minutes: 0 };
+    const seconds = row.syncedSeconds ?? 0;
+    held.seconds += seconds;
+    if (row.redmineTimeEntryId == null) held.discardedSeconds += seconds;
+    else held.minutes += Math.round((row.syncedHours ?? seconds / 3600) * 60);
+    byKey.set(key, held);
   }
   return byKey;
 }

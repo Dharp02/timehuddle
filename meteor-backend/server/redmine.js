@@ -35,7 +35,7 @@ import { bustUserCaches } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
 import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
-import { flagEntry, recordDiscard, recordEntry, sentSecondsFor } from './redmine-time-sync';
+import { flagEntry, pushLedgerFor, recordDiscard, recordEntry } from './redmine-time-sync';
 import { ticketDayKey } from './redmine-net-hours';
 import { redmineTicketDaysFor } from './timer-core';
 
@@ -254,7 +254,7 @@ async function buildPreviewRows(userId, account) {
   if (!totals.length) return [];
 
   // Only the time not already covered by earlier entries.
-  const unsynced = unsentTotals(totals, await sentSecondsFor(userId));
+  const unsynced = unsentTotals(totals, await pushLedgerFor(userId));
   if (!unsynced.length) return [];
 
   const issueIds = [...new Set(unsynced.map((total) => total.ticketId))];
@@ -549,7 +549,7 @@ Meteor.methods({
       const totals = (await redmineTicketDaysFor(userId)).filter(
         (total) => String(total.ticketId) === ticketId && total.date === date,
       );
-      const [unsent] = unsentTotals(totals, await sentSecondsFor(userId));
+      const [unsent] = unsentTotals(totals, await pushLedgerFor(userId));
       if (!unsent) return { discardedSeconds: 0 };
       await recordDiscard(userId, ticketId, date, unsent.seconds);
       return { discardedSeconds: unsent.seconds };

@@ -171,34 +171,40 @@ describe('buildPushRows', () => {
   });
 });
 
+/** A ledger holding one ticket-day whose `seconds` were all sent, as whole minutes. */
+const sent = (key: string, seconds: number, minutes = Math.round(seconds / 60)) =>
+  new Map([[key, { seconds, discardedSeconds: 0, minutes }]]);
+
 describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
   it('sends only the work done after an earlier push', () => {
     // The case that surfaced this: #15 pushed mid-day at 4546s, then worked
     // another 2215s. Only the 2215s may go up, as its own entry.
     const [row] = unsentTotals(
       [{ ticketId: '15', date: '2026-09-21', seconds: 4546 + 2215 }],
-      new Map([['15|2026-09-21', 4546]]),
+      sent('15|2026-09-21', 4546),
     );
     expect(row).toEqual({
       ticketId: '15',
       date: '2026-09-21',
       seconds: 2215,
       alreadySentSeconds: 4546,
+      minutes: 37,
     });
-    expect(toHours(row.seconds)).toBe(0.62);
   });
 
   it('passes a never-pushed ticket-day through whole', () => {
     expect(
       unsentTotals([{ ticketId: '12', date: '2026-09-21', seconds: 1442 }], new Map()),
-    ).toEqual([{ ticketId: '12', date: '2026-09-21', seconds: 1442, alreadySentSeconds: 0 }]);
+    ).toEqual([
+      { ticketId: '12', date: '2026-09-21', seconds: 1442, alreadySentSeconds: 0, minutes: 24 },
+    ]);
   });
 
   it('drops a ticket-day with nothing new', () => {
     expect(
       unsentTotals(
         [{ ticketId: '12', date: '2026-09-21', seconds: 1442 }],
-        new Map([['12|2026-09-21', 1442]]),
+        sent('12|2026-09-21', 1442),
       ),
     ).toEqual([]);
   });
@@ -206,10 +212,10 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
   it('keeps a few new seconds so they can accumulate', () => {
     const [row] = unsentTotals(
       [{ ticketId: '12', date: '2026-09-21', seconds: 1447 }],
-      new Map([['12|2026-09-21', 1442]]),
+      sent('12|2026-09-21', 1442),
     );
     expect(row.seconds).toBe(5);
-    expect(isPushable(toHours(row.seconds))).toBe(false);
+    expect(row.minutes).toBe(0);
   });
 
   it('never goes negative if more was sent than is now recorded', () => {
@@ -217,7 +223,7 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
     expect(
       unsentTotals(
         [{ ticketId: '12', date: '2026-09-21', seconds: 1000 }],
-        new Map([['12|2026-09-21', 1442]]),
+        sent('12|2026-09-21', 1442),
       ),
     ).toEqual([]);
   });
@@ -226,11 +232,32 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
     const [row] = buildPushRows(
       unsentTotals(
         [{ ticketId: '19', date: '2026-09-21', seconds: 7200 }],
-        new Map([['19|2026-09-21', 3600]]),
+        sent('19|2026-09-21', 3600),
       ),
       issues,
       resolver,
     );
     expect(row).toMatchObject({ seconds: 3600, alreadySentSeconds: 3600, hours: 1 });
+  });
+
+  it('rounds the day, not each push, so repeated pushes do not add up to more', () => {
+    const day = (seconds: number) => [{ ticketId: '12', date: '2026-09-21', seconds }];
+    // 30 seconds went up as one minute. The next 30 seconds make the day one
+    // minute in all, which Redmine already holds — so there is nothing to send.
+    const [second] = unsentTotals(day(60), sent('12|2026-09-21', 30, 1));
+    expect(second).toMatchObject({ seconds: 30, minutes: 0 });
+    expect(buildPushRows([second], issues, resolver)[0].blockedReason).toBe('too-short');
+
+    // Once the day reaches a second whole minute, exactly that minute is owed.
+    const [later] = unsentTotals(day(100), sent('12|2026-09-21', 30, 1));
+    expect(later).toMatchObject({ seconds: 70, minutes: 1 });
+  });
+
+  it('leaves discarded time out of what Redmine is owed', () => {
+    const [row] = unsentTotals(
+      [{ ticketId: '12', date: '2026-09-21', seconds: 3600 }],
+      new Map([['12|2026-09-21', { seconds: 1800, discardedSeconds: 1800, minutes: 0 }]]),
+    );
+    expect(row).toMatchObject({ seconds: 1800, minutes: 30 });
   });
 });
