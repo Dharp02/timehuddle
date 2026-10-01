@@ -16,8 +16,16 @@ import { Mongo } from 'meteor/mongo';
 import { MyBoard, Teams, Tickets, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { bustUserCaches } from './redmine-cache';
+import { HUDDLE, REDMINE, isRedmineIssueId, refKey } from './ticket-refs';
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
+
+/**
+ * The most tickets one board holds, and so the most one call may name. Every
+ * Redmine entry is an issue the relevant list fetches, so the board cannot be
+ * left to grow without limit; nobody works from a list of 500.
+ */
+export const MAX_BOARD_ENTRIES_PER_USER = 500;
 
 // Enforces "one board row per (user, ticket)" at the storage layer, so
 // `addMany` can upsert idempotently instead of erroring on a re-add.
@@ -36,11 +44,34 @@ function validateRefs(refs) {
   if (!Array.isArray(refs) || refs.length === 0) {
     throw new Meteor.Error('bad-request', 'refs array required');
   }
+  if (refs.length > MAX_BOARD_ENTRIES_PER_USER) {
+    throw new Meteor.Error('bad-request', `At most ${MAX_BOARD_ENTRIES_PER_USER} refs per call.`);
+  }
   for (const ref of refs) {
     if (typeof ref?.sourceId !== 'string' || !ref.sourceId || typeof ref?.ticketId !== 'string' || !ref.ticketId) {
       throw new Meteor.Error('bad-request', 'Each ref requires a sourceId and a ticketId.');
     }
   }
+}
+
+/** Whether a ref names a known source and an id that source could have issued. */
+const isTicketRef = ({ sourceId, ticketId }) =>
+  (sourceId === HUDDLE && isValidId(ticketId)) || (sourceId === REDMINE && isRedmineIssueId(ticketId));
+
+/**
+ * The distinct refs of an add request. Stricter than `validateRefs`, which
+ * removal keeps so that a row written before this check can still be removed.
+ */
+function addableRefs(refs) {
+  validateRefs(refs);
+  const byKey = new Map();
+  for (const { sourceId, ticketId } of refs) {
+    if (!isTicketRef({ sourceId, ticketId })) {
+      throw new Meteor.Error('bad-request', 'Unknown ticket reference.');
+    }
+    byKey.set(refKey(sourceId, ticketId), { sourceId, ticketId });
+  }
+  return [...byKey.values()];
 }
 
 /** Upsert one (userId, sourceId, ticketId) entry, tolerating a concurrent-insert race. */
@@ -130,13 +161,39 @@ Meteor.methods({
     };
   },
 
-  /** Add tickets to the caller's My Board. Idempotent — re-adding is a no-op. */
+  /**
+   * Add tickets to the caller's My Board. Idempotent — re-adding is a no-op.
+   * `addedCount` is how many of the refs are on the board afterwards.
+   */
   async 'myBoard.addMany'({ refs } = {}) {
     const { userId } = await requireIdentity(this);
-    validateRefs(refs);
-    await Promise.all(refs.map((ref) => upsertEntry(userId, ref)));
-    bustIfRedmine(userId, refs);
-    return { addedCount: refs.length };
+    const wanted = addableRefs(refs);
+
+    // A Huddle ticket the caller cannot see is skipped, not refused: one stale
+    // row in a selection should not stop the rest. A Redmine issue is not
+    // checked here — it is only ever read through the caller's own key.
+    const hidden = await unavailableHuddleTicketIds(
+      userId,
+      wanted.filter((ref) => ref.sourceId === HUDDLE).map((ref) => ref.ticketId),
+    );
+    const allowed = wanted.filter((ref) => ref.sourceId !== HUDDLE || !hidden.has(ref.ticketId));
+
+    const existing = await MyBoard.find(
+      { userId },
+      { fields: { sourceId: 1, ticketId: 1 } },
+    ).fetchAsync();
+    const onBoard = new Set(existing.map((e) => refKey(e.sourceId, e.ticketId)));
+    const fresh = allowed.filter((ref) => !onBoard.has(refKey(ref.sourceId, ref.ticketId)));
+    if (existing.length + fresh.length > MAX_BOARD_ENTRIES_PER_USER) {
+      throw new Meteor.Error(
+        'board-full',
+        `My Board holds at most ${MAX_BOARD_ENTRIES_PER_USER} tickets. Remove some first.`,
+      );
+    }
+
+    await Promise.all(fresh.map((ref) => upsertEntry(userId, ref)));
+    bustIfRedmine(userId, fresh);
+    return { addedCount: allowed.length };
   },
 
   /** Remove tickets from the caller's My Board. */
@@ -146,3 +203,4 @@ Meteor.methods({
     return { removedCount: await removeBoardEntries(userId, refs) };
   },
 });
+
