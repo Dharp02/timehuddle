@@ -11,7 +11,7 @@
  */
 import { Meteor } from 'meteor/meteor';
 
-import { ClockEvents, RedmineLinks, Timers } from './collections';
+import { ClockEvents, DUPLICATE_KEY_ERROR_CODE, RedmineLinks, Timers } from './collections';
 import { requireIdentity } from './auth-bridge';
 import {
   createTimeEntry,
@@ -26,16 +26,15 @@ import {
   redmineUrlRefusal,
 } from './redmine-client';
 import { encryptSecret, envKey } from './redmine-crypto';
-import { findRedmineAccount } from './redmine-account';
+import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
 import { toStatus } from './redmine-status';
 import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
 import { removeUserIssuePrefs } from './redmine-prefs';
 import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
 import { flagEntry, recordDiscard, recordEntry, sentSecondsFor } from './redmine-time-sync';
+import { ticketDayKey } from './redmine-net-hours';
 import { redmineTicketDaysFor } from './timer-core';
-
-const DUPLICATE_KEY_ERROR_CODE = 11000;
 
 /**
  * Count this call against `limiter` (see rate-limit.js), or refuse it with
@@ -174,6 +173,41 @@ async function acquirePushLock(userId) {
 
 function releasePushLock(userId) {
   return RedmineLinks.updateAsync({ userId }, { $set: { pushingSince: null } });
+}
+
+/** Run `work` holding the caller's push lock, or refuse with `push-in-progress`. */
+async function withPushLock(userId, work) {
+  if (!(await acquirePushLock(userId))) {
+    throw new Meteor.Error(
+      'push-in-progress',
+      'A push to Redmine is already running. Wait for it to finish, then try again.',
+    );
+  }
+  try {
+    return await work();
+  } finally {
+    await releasePushLock(userId);
+  }
+}
+
+/** The activity enumeration, with a Redmine failure mapped for the client. */
+async function activitiesOrMeteorError(userId, account) {
+  try {
+    return await getActivitiesForUser(userId, account);
+  } catch (err) {
+    throw toRedmineMeteorError(err);
+  }
+}
+
+/** What both activity methods answer: the list, and which one applies and why. */
+function activitySelection(activities, chosenId) {
+  const { activity, reason } = pickDefaultActivity(activities, chosenId);
+  return {
+    connected: true,
+    activities,
+    selectedId: activity?.id ?? null,
+    selectedReason: reason,
+  };
 }
 
 /**
@@ -396,22 +430,9 @@ Meteor.methods({
     const account = await findRedmineAccount(userId);
     if (!account) return { connected: false, activities: [], selectedId: null, selectedReason: 'none' };
 
-    let activities;
-    try {
-      activities = await getActivitiesForUser(userId, account);
-    } catch (err) {
-      throw toRedmineMeteorError(err);
-    }
-
+    const activities = await activitiesOrMeteorError(userId, account);
     const link = await RedmineLinks.findOneAsync({ userId }, { fields: { defaultActivityId: 1 } });
-    const { activity, reason } = pickDefaultActivity(activities, link?.defaultActivityId ?? null);
-
-    return {
-      connected: true,
-      activities,
-      selectedId: activity?.id ?? null,
-      selectedReason: reason,
-    };
+    return activitySelection(activities, link?.defaultActivityId ?? null);
   },
 
   /**
@@ -428,31 +449,15 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'An activity id is required.');
     }
 
-    const account = await findRedmineAccount(userId);
-    if (!account) {
-      throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
-    }
-
-    let activities;
-    try {
-      activities = await getActivitiesForUser(userId, account);
-    } catch (err) {
-      throw toRedmineMeteorError(err);
-    }
+    const account = await requireRedmineAccount(userId);
+    const activities = await activitiesOrMeteorError(userId, account);
 
     if (!activities.some((a) => a.id === activityId)) {
       throw new Meteor.Error('bad-request', 'That activity does not exist on this Redmine instance.');
     }
 
     await RedmineLinks.updateAsync({ userId }, { $set: { defaultActivityId: activityId } });
-
-    const { activity, reason } = pickDefaultActivity(activities, activityId);
-    return {
-      connected: true,
-      activities,
-      selectedId: activity?.id ?? null,
-      selectedReason: reason,
-    };
+    return activitySelection(activities, activityId);
   },
 
   /**
@@ -493,18 +498,10 @@ Meteor.methods({
     ) {
       throw new Meteor.Error('bad-request', 'A ticket id and a YYYY-MM-DD date are required.');
     }
-    if (!(await findRedmineAccount(userId))) {
-      throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
-    }
+    await requireRedmineAccount(userId);
 
     // The push lock: a push running now could otherwise send the same seconds.
-    if (!(await acquirePushLock(userId))) {
-      throw new Meteor.Error(
-        'push-in-progress',
-        'A push to Redmine is already running. Wait for it to finish, then try again.',
-      );
-    }
-    try {
+    return withPushLock(userId, async () => {
       const totals = (await redmineTicketDaysFor(userId)).filter(
         (total) => String(total.ticketId) === ticketId && total.date === date,
       );
@@ -512,9 +509,7 @@ Meteor.methods({
       if (!unsent) return { discardedSeconds: 0 };
       await recordDiscard(userId, ticketId, date, unsent.seconds);
       return { discardedSeconds: unsent.seconds };
-    } finally {
-      await releasePushLock(userId);
-    }
+    });
   },
 
   /**
@@ -533,10 +528,7 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'Nothing to send.');
     }
 
-    const account = await findRedmineAccount(userId);
-    if (!account) {
-      throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
-    }
+    const account = await requireRedmineAccount(userId);
 
     // The same gate the button enforces, re-checked server-side: a timer that
     // started after the dialog opened would otherwise have its partial total
@@ -551,21 +543,13 @@ Meteor.methods({
     // Held across both the unsent-time calculation and the writes: releasing it
     // between them would let a second push read the same unsent figure before
     // this one records its entry.
-    if (!(await acquirePushLock(userId))) {
-      throw new Meteor.Error(
-        'push-in-progress',
-        'A push to Redmine is already running. Wait for it to finish, then try again.',
-      );
-    }
-    try {
+    return withPushLock(userId, async () => {
       const results = await pushRequestedEntries(userId, account, entries);
       // Logged time is one of the relevant list's signals, so the cached list is
       // now out of date about the issues this push covered.
       bustUserCaches(userId);
       return { results };
-    } finally {
-      await releasePushLock(userId);
-    }
+    });
   },
 });
 
@@ -577,7 +561,7 @@ Meteor.methods({
  */
 async function pushRequestedEntries(userId, account, entries) {
   const previewRows = await buildPreviewRows(userId, account);
-  const byKey = new Map(previewRows.map((row) => [`${row.ticketId}|${row.date}`, row]));
+  const byKey = new Map(previewRows.map((row) => [ticketDayKey(row.ticketId, row.date), row]));
 
   // The same enumeration the rows were resolved from, served from cache. If it
   // cannot be fetched the set stays empty, so every override is rejected as
@@ -594,40 +578,40 @@ async function pushRequestedEntries(userId, account, entries) {
 
   const results = [];
   for (const requested of entries) {
-    const key = `${requested?.ticketId}|${requested?.date}`;
+    const key = ticketDayKey(requested?.ticketId, requested?.date);
     const row = handled.has(key) ? undefined : byKey.get(key);
     handled.add(key);
 
     if (!row) {
-        results.push({
-          ticketId: requested?.ticketId ?? null,
-          date: requested?.date ?? null,
-          ok: false,
-          reason: 'already-synced-or-gone',
-        });
-        continue;
-      }
-      if (row.blockedReason) {
-        results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: row.blockedReason });
-        continue;
-      }
-
-      // An override is honoured only if this instance really has that activity,
-      // matching the check `redmine.activities.setDefault` makes. An invalid one
-      // rejects the row instead of falling back to the default: under D1 the
-      // entry is permanent, and writing an activity the user did not choose is
-      // worse than writing nothing.
-      let activityId = row.activityId;
-      if (requested.activityId != null) {
-        if (!Number.isInteger(requested.activityId) || !validActivityIds.has(requested.activityId)) {
-          results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
-          continue;
-        }
-        activityId = requested.activityId;
-      }
-
-      results.push(await pushOneEntry(userId, account, row, activityId));
+      results.push({
+        ticketId: requested?.ticketId ?? null,
+        date: requested?.date ?? null,
+        ok: false,
+        reason: 'already-synced-or-gone',
+      });
+      continue;
     }
+    if (row.blockedReason) {
+      results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: row.blockedReason });
+      continue;
+    }
+
+    // An override is honoured only if this instance really has that activity,
+    // matching the check `redmine.activities.setDefault` makes. An invalid one
+    // rejects the row instead of falling back to the default: under D1 the
+    // entry is permanent, and writing an activity the user did not choose is
+    // worse than writing nothing.
+    let activityId = row.activityId;
+    if (requested.activityId != null) {
+      if (!Number.isInteger(requested.activityId) || !validActivityIds.has(requested.activityId)) {
+        results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
+        continue;
+      }
+      activityId = requested.activityId;
+    }
+
+    results.push(await pushOneEntry(userId, account, row, activityId));
+  }
 
   return results;
 }

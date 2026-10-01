@@ -34,6 +34,7 @@
 import { Meteor } from 'meteor/meteor';
 
 import { RedmineTimeSyncs } from './collections';
+import { ticketDayKey } from './redmine-net-hours';
 import { redmineClosedSecondsUntil } from './timer-core';
 
 Meteor.startup(async () => {
@@ -107,7 +108,7 @@ export async function sentSecondsFor(userId) {
 
   const byKey = new Map();
   for (const row of rows) {
-    const key = `${row.ticketId}|${row.date}`;
+    const key = ticketDayKey(row.ticketId, row.date);
     byKey.set(key, (byKey.get(key) ?? 0) + (row.syncedSeconds ?? 0));
   }
   return byKey;

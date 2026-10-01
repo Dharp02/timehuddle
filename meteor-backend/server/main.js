@@ -1645,7 +1645,7 @@ Meteor.startup(async() => {
   });
   Wormhole.expose('timers.getTicketTotal', {
     description: "Get the caller's own total seconds for a ticket across all closed sessions",
-    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' } }, required: ['ticketId'] },
+    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, source: { type: 'string', enum: ['huddle', 'redmine'] } }, required: ['ticketId'] },
   });
   Wormhole.expose('timers.createEntry', {
     description: 'Create a WorkItem for a ticket on a given date',

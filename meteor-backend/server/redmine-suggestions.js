@@ -170,7 +170,11 @@ async function runSearch(userId, account, kind, value) {
 
   // Redmine's own search order is the useful one, and `/issues.json` does not keep
   // it, so the slim issues are put back into the order the ids arrived in.
-  const raw = await listIssuesByIds(account, ids.slice(0, MAX_SEARCH_RESULTS));
+  return slimIssuesInOrder(ids, await listIssuesByIds(account, ids.slice(0, MAX_SEARCH_RESULTS)));
+}
+
+/** The slim issues for `raw`, in the order of `ids`; an id Redmine left out is dropped. */
+function slimIssuesInOrder(ids, raw) {
   const byId = new Map(raw.map((issue) => [issue.id, toIssue(issue)]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
 }
@@ -231,28 +235,21 @@ function requireIssueId(issueId) {
  * answer decides whether the dismissal can be undone by someone else's action,
  * and asked with `assigned_to_id=me` — the query the "assigned" signal runs — so
  * an issue assigned to one of the caller's groups counts here exactly as it
- * counts there. When Redmine cannot be reached the answer is **yes**: that makes
- * the dismissal permanent for its 15 days, which honours what the user just did.
- * Guessing "no" would risk the reassignment rule firing on the next list build
- * and putting the row straight back.
+ * counts there.
+ *
+ * `whenUnknown` is the answer when Redmine cannot say. A dismissal passes
+ * **true**: that makes it permanent for its 15 days, which honours what the user
+ * just did, where guessing "no" would risk the reassignment rule firing on the
+ * next list build and putting the row straight back. The pin cap passes false,
+ * because there only a confirmed yes counts.
+ *
+ * `account` may be a promise, so that failing to resolve it is "unknown" too.
  */
-async function isAssignedToCaller(account, issueId) {
+async function isAssignedToCaller(account, issueId, whenUnknown) {
   try {
-    return await isIssueAssignedToMe(account, issueId);
+    return await isIssueAssignedToMe(await account, issueId);
   } catch {
-    return true;
-  }
-}
-
-/**
- * Whether `issueId` is assigned to the caller, where only a confirmed yes counts:
- * unlike `isAssignedToCaller`, a Redmine that cannot answer means no.
- */
-async function isAssignedToCallerStrict(userId, issueId) {
-  try {
-    return await isIssueAssignedToMe(await requireRedmineAccount(userId), issueId);
-  } catch {
-    return false;
+    return whenUnknown;
   }
 }
 
@@ -369,7 +366,9 @@ Meteor.methods({
 
     // Only a dismissal needs to know how the issue stood at the time.
     const assignedToMe =
-      state === DISMISSED ? await isAssignedToCaller(await requireRedmineAccount(userId), id) : true;
+      state === DISMISSED
+        ? await isAssignedToCaller(await requireRedmineAccount(userId), id, true)
+        : true;
 
     try {
       await setIssuePref(userId, id, state, { assignedToMe });
@@ -378,7 +377,7 @@ Meteor.methods({
         // A pin only exists to put the issue in the Tickets table. One assigned
         // to the caller (their groups included) is there already, so at the cap
         // it needs no pin, and the timer path goes on to add it to My Board.
-        if (await isAssignedToCallerStrict(userId, id)) return { ok: true };
+        if (await isAssignedToCaller(requireRedmineAccount(userId), id, false)) return { ok: true };
         throw new Meteor.Error('too-many-pins', err.message);
       }
       throw err;
@@ -441,11 +440,6 @@ Meteor.methods({
     }
 
     // Keep the user's own dismissal order (newest first) rather than Redmine's.
-    const byId = new Map(raw.map((issue) => [issue.id, toIssue(issue)]));
-    return {
-      connected: true,
-      baseUrl: account.baseUrl,
-      issues: issueIds.map((id) => byId.get(id)).filter(Boolean),
-    };
+    return { connected: true, baseUrl: account.baseUrl, issues: slimIssuesInOrder(issueIds, raw) };
   },
 });

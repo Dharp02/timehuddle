@@ -70,6 +70,9 @@ export async function ensureRedmineIssuePrefIndexes() {
   );
 }
 
+/** Everything a preference row holds besides its owner. */
+const PREF_FIELDS = { issueId: 1, state: 1, updatedAt: 1, dismissedAt: 1, assignedToMeAtDismissal: 1 };
+
 /** The fields that make a pinned or removed row also hidden (rules 7 and 11). */
 const HIDE_ON_PIN = { dismissedAt: '', assignedToMeAtDismissal: '' };
 
@@ -198,7 +201,7 @@ export async function removeIssuesFromTable(userId, issueIds) {
     (
       await RedmineIssuePrefs.find(
         { userId, issueId: { $in: issueIds } },
-        { fields: { issueId: 1, state: 1, updatedAt: 1, dismissedAt: 1, assignedToMeAtDismissal: 1 } },
+        { fields: PREF_FIELDS },
       ).fetchAsync()
     ).map((row) => [row.issueId, row]),
   );
@@ -256,7 +259,7 @@ async function trimDismissals(userId) {
 function allPrefRows(userId) {
   return RedmineIssuePrefs.find(
     { userId },
-    { fields: { issueId: 1, state: 1, updatedAt: 1, dismissedAt: 1, assignedToMeAtDismissal: 1 } },
+    { fields: PREF_FIELDS },
   ).fetchAsync();
 }
 

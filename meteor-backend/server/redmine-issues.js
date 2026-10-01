@@ -45,7 +45,7 @@ function toStatus(value) {
 }
 
 /** Normalize a Redmine timestamp to an ISO string, or null when absent. */
-function toIsoDate(value) {
+export function toIsoDate(value) {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();

@@ -5,6 +5,7 @@
  * unit-tested directly, matching redmine-net-hours.js / redmine-activities.js.
  * The Mongo and HTTP work lives in redmine-time-sync.js and redmine.js.
  */
+import { ticketDayKey } from './redmine-net-hours';
 
 /** Marker written into every entry's `comments` so its origin is legible in Redmine. */
 export const PUSH_COMMENT = 'Logged by TimeHuddle';
@@ -87,7 +88,7 @@ export function unsentTotals(totals, sentSecondsByKey) {
   if (!Array.isArray(totals)) return [];
   return totals
     .map((total) => {
-      const alreadySentSeconds = sentSecondsByKey.get(`${total.ticketId}|${total.date}`) ?? 0;
+      const alreadySentSeconds = sentSecondsByKey.get(ticketDayKey(total.ticketId, total.date)) ?? 0;
       return {
         ticketId: total.ticketId,
         date: total.date,

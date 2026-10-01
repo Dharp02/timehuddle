@@ -68,3 +68,6 @@ export function isValidId(id) {
   if (typeof id !== 'string') return false;
   return /^[0-9a-f]{24}$/i.test(id) || /^[a-zA-Z0-9]{7,32}$/.test(id);
 }
+
+/** Mongo's error code for a write that violates a unique index. */
+export const DUPLICATE_KEY_ERROR_CODE = 11000;

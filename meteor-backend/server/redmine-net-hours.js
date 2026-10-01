@@ -18,6 +18,13 @@
  */
 
 /**
+ * The key one ticket-day is grouped and looked up by. Every side of the push —
+ * the totals, the sent-seconds ledger, the preview rows and the request — must
+ * build it the same way, so they all build it here.
+ */
+export const ticketDayKey = (ticketId, date) => `${ticketId}|${date}`;
+
+/**
  * Sum the durations of closed sessions.
  *
  * A session still running has no final duration and must not be projected to

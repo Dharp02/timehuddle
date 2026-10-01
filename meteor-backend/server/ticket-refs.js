@@ -20,7 +20,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 
 import { RedmineLinks, Tickets, Teams, isValidId } from './collections';
-import { findRedmineAccount } from './redmine-account';
+import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
 import {
   getIssue,
   linkedRedmineBaseUrl,
@@ -91,10 +91,7 @@ export async function resolveTicketRef(userId, source, ticketId) {
     if (!isRedmineIssueId(ticketId)) {
       throw new Meteor.Error('not-found', 'Issue not found');
     }
-    const account = await findRedmineAccount(userId);
-    if (!account) {
-      throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
-    }
+    const account = await requireRedmineAccount(userId);
     let issue;
     try {
       issue = await getIssue(account, ticketId);
@@ -120,7 +117,7 @@ export async function resolveTicketRef(userId, source, ticketId) {
 }
 
 /** The ids of the teams in `teamIds` that `userId` is a member or an admin of. */
-async function teamsOpenTo(userId, teamIds) {
+export async function teamsOpenTo(userId, teamIds) {
   const ids = [...new Set(teamIds)].filter(isValidId);
   if (!ids.length) return new Set();
   const teams = await Teams.find(

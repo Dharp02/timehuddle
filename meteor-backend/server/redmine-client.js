@@ -409,9 +409,14 @@ export async function listActivityIssueIds(account, { redmineUserId, from, timeo
  * does not matter to a caller that only needs "can this user time this issue").
  */
 export async function getIssue(account, issueId) {
+  const data = await requestOrNull(`/issues/${issueId}.json`, account);
+  return data?.issue ?? null;
+}
+
+/** A GET whose 404 or 403 means "not there for this caller" rather than a failure. */
+async function requestOrNull(path, account) {
   try {
-    const data = await redmineRequest(`/issues/${issueId}.json`, { account });
-    return data?.issue ?? null;
+    return await redmineRequest(path, { account });
   } catch (err) {
     if (err?.status === 404 || err?.status === 403) return null;
     throw err;
@@ -526,13 +531,8 @@ export async function createTimeEntry(account, { issueId, hours, activityId, spe
  * definition of done requires confirmation-by-read for every write.
  */
 export async function getTimeEntry(account, entryId) {
-  try {
-    const data = await redmineRequest(`/time_entries/${entryId}.json`, { account });
-    return data?.time_entry ?? null;
-  } catch (err) {
-    if (err?.status === 404 || err?.status === 403) return null;
-    throw err;
-  }
+  const data = await requestOrNull(`/time_entries/${entryId}.json`, account);
+  return data?.time_entry ?? null;
 }
 
 // ─── M6: issue create / edit ─────────────────────────────────────────────────
@@ -597,15 +597,11 @@ export async function listIssuePriorities(account) {
  * `getIssue`.
  */
 export async function getIssueDetail(account, issueId) {
-  try {
-    const data = await redmineRequest(`/issues/${issueId}.json?include=allowed_statuses,journals`, {
-      account,
-    });
-    return data?.issue ?? null;
-  } catch (err) {
-    if (err?.status === 404 || err?.status === 403) return null;
-    throw err;
-  }
+  const data = await requestOrNull(
+    `/issues/${issueId}.json?include=allowed_statuses,journals`,
+    account,
+  );
+  return data?.issue ?? null;
 }
 
 /**

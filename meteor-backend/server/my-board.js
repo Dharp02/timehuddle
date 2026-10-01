@@ -13,12 +13,10 @@ import { Meteor } from 'meteor/meteor';
 
 import { Mongo } from 'meteor/mongo';
 
-import { MyBoard, Teams, Tickets, isValidId } from './collections';
+import { DUPLICATE_KEY_ERROR_CODE, MyBoard, Tickets, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { bustUserCaches } from './redmine-cache';
-import { HUDDLE, REDMINE, isRedmineIssueId, refKey } from './ticket-refs';
-
-const DUPLICATE_KEY_ERROR_CODE = 11000;
+import { HUDDLE, REDMINE, isRedmineIssueId, refKey, teamsOpenTo } from './ticket-refs';
 
 /**
  * The most tickets one board holds, and so the most one call may name. Every
@@ -101,15 +99,10 @@ async function unavailableHuddleTicketIds(userId, ticketIds) {
     },
     { fields: { teamId: 1 } },
   ).fetchAsync();
-  const teamIds = [...new Set(tickets.map((t) => t.teamId).filter(isValidId))];
-  const memberTeams = await Teams.find(
-    {
-      _id: { $in: teamIds.map((id) => new Mongo.ObjectID(id)) },
-      $or: [{ members: userId }, { admins: userId }],
-    },
-    { fields: { _id: 1 } },
-  ).fetchAsync();
-  const visibleTeams = new Set(memberTeams.map((t) => t._id.toHexString()));
+  const visibleTeams = await teamsOpenTo(
+    userId,
+    tickets.map((t) => t.teamId),
+  );
   const visible = new Set(
     tickets.filter((t) => visibleTeams.has(t.teamId)).map((t) => t._id.toHexString()),
   );

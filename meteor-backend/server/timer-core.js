@@ -12,7 +12,7 @@
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { normalizeSource, refKey, resolveTicketRefs, sourceSelector } from './ticket-refs';
-import { sumClosedSessions } from './redmine-net-hours';
+import { sumClosedSessions, ticketDayKey } from './redmine-net-hours';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -86,7 +86,7 @@ export async function redmineTicketDaysFor(userId) {
 
   // `timers.workItemId` is stored as a hex string, not an ObjectId.
   const keyByWorkItem = new Map(
-    rows.map((row) => [row._id.toHexString(), `${row.ticketId}|${row.date}`]),
+    rows.map((row) => [row._id.toHexString(), ticketDayKey(row.ticketId, row.date)]),
   );
 
   const sessions = await timers()

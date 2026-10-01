@@ -25,6 +25,7 @@
  * Kept free of Meteor imports so it can be unit-tested directly
  * (see tests/redmine-atom.test.ts).
  */
+import { toIsoDate } from './redmine-issues';
 
 /** One `<entry>…</entry>` block. Non-greedy, so entries do not run together. */
 const ENTRY_PATTERN = /<entry\b[\s\S]*?<\/entry>/g;
@@ -71,14 +72,7 @@ export function activityIssueRefs(xml) {
     if (!id) continue;
     const issueId = Number(id);
     if (!Number.isSafeInteger(issueId) || issueId <= 0) continue;
-    refs.push({ issueId, at: toIsoOrNull(entry.match(UPDATED_PATTERN)?.[1]) });
+    refs.push({ issueId, at: toIsoDate(entry.match(UPDATED_PATTERN)?.[1]) });
   }
   return refs;
-}
-
-/** An Atom timestamp as an ISO string, or null when it is absent or invalid. */
-function toIsoOrNull(raw) {
-  if (!raw) return null;
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
