@@ -48,7 +48,7 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 | Page                            | Params                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------- |
 | Teams `/app/teams/:teamId`      | the team is in the path; `/app/teams` redirects to the selected team            |
-| Tickets `/app/tickets`          | `q`, `status`, `priority`, `assignee` (`unassigned`), `tab=closed`, `teams=all` |
+| Tickets `/app/tickets`          | none yet — its search, filters and tab are component state (see #618 follow-up) |
 | Ticket `/app/tickets/:ticketId` | none — copy it with **Copy Link**                                               |
 | Dashboard                       | `tab=me\|team`, `view=timesheet`, `member`, `request`                           |
 | Huddle                          | `conversation`, `q`; `post` resolves to the `conversation` holding it           |

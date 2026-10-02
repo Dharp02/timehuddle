@@ -155,14 +155,22 @@ File: [`src/features/tickets/TicketDetailPage.tsx`](../src/features/tickets/Tick
 - [x] Picking a team on the Teams page uses `navigate('/app/teams/<id>')`
 - [x] Not a member → `<NoAccessState resource="team" />` (with **Request to join** if a join flow exists for that team) _Request to join left out (see 2b)._
 
-### 3b. Tickets list filters in the URL
+### 3b. Tickets list filters in the URL — **reverted, needs redoing**
 
-File: [`src/features/tickets/TicketsPage.tsx`](../src/features/tickets/TicketsPage.tsx)
+File: [`src/features/tickets/useTicketTableView.ts`](../src/features/tickets/useTicketTableView.ts)
 
-- [x] Move search, assignee, status and priority from `useState` to `useQueryParam`: `?q=`, `?assignee=`, `?status=`, `?priority=`. Team comes from `?team=` (Milestone 1). _Done: `?q=`, `?assignee=` (`unassigned` for none), `?status=`, `?priority=`, and `?tab=closed` for the Open/Closed tabs. The team filter *is* the app's `?team=`; "All teams" is `?teams=all`. TicketsPage stays mounted behind other routes, so it reads the URL only while it's the visible page, and restores its last filters when you come back through the sidebar._
-- [x] Search box: `replace`, and debounce about 300 ms so typing doesn't re-render on every key or add history entries _The list still filters on every keystroke; only the URL write is debounced._
-- [x] Dropdown filters: `replace` too (filters shouldn't fill Back history)
-- [x] Invalid values (e.g. `?status=banana`) are ignored, not crashed on
+This was built and then given up when `main` landed the unified ticket table.
+That rewrite moved every filter into a `TicketFilters` object owned by
+`useTicketTableView`, which is now instantiated twice (Tickets and My Board)
+with deliberately independent state, turned Open/Closed into a `Switch`, took
+`?teams=all` away entirely, and claimed `tab` for the Tickets/My Board tabs.
+None of the params below map onto it as written, so the merge took `main`'s
+version whole and the work is a follow-up against the new shape.
+
+- [ ] Move search, assignee, status and priority out of `useState` and into the URL: `?q=`, `?assignee=`, `?status=`, `?priority=`. Team comes from `?team=` (Milestone 1). Only the Tickets tab can own the URL — My Board shares the hook and must keep its own state.
+- [ ] Search box: `replace`, debounced (`useSearchParam` already does this)
+- [ ] Dropdown filters: `replace` too (filters shouldn't fill Back history)
+- [ ] Invalid values (e.g. `?status=banana`) are ignored, not crashed on
 
 ### 3c. One way to open a ticket
 
@@ -171,13 +179,13 @@ File: [`src/features/tickets/TicketsPage.tsx`](../src/features/tickets/TicketsPa
 
 ### 3d. Copy link
 
-- [x] Add a small `copyLink(path)` helper (absolute URL from `window.location.origin` + path, `navigator.clipboard.writeText`, toast on success/failure). Use it everywhere; don't repeat it. _Done as `useCopyLink()` in `src/lib/`. Feedback is a `@mieweb/ui` toast; `AppLayout` now mounts `ToastProvider` + `ToastContainer` (top-centre, clear of the mobile bottom nav)._
+- [x] Add a small `copyLink(path)` helper (absolute URL from `window.location.origin` + path, `navigator.clipboard.writeText`, toast on success/failure). Use it everywhere; don't repeat it. _Done as `useCopyLink()` in `src/lib/`. Feedback is a `@mieweb/ui` toast; `AppLayout` mounts `ToastProvider` + the app's own `AppToasts` container._
 - [x] **Copy link** action in the ticket list row menu and on the detail page, with an `aria-label`
 - [ ] Native app check: the copied link must be the **web** URL, not `capacitor://localhost`. Confirm what `window.location.origin` is inside the iOS app and use the configured public origin if they differ. _Not done: it uses `window.location.origin`, like the existing team join link. In the iOS/Android app that is not the public web URL. Needs a configured public origin; follow-up._
 
 ### 3e. Ship it
 
-- [x] E2E: filter tickets → reload → same filters; copy the URL into a new context (same user) → same view; Back after opening a ticket returns to the filtered list
+- [ ] E2E: filter tickets → reload → same filters; copy the URL into a new context (same user) → same view; Back after opening a ticket returns to the filtered list _Dropped with 3b above._
 - [x] E2E: `/app/teams/<id>` opens that team; `/app/teams` redirects
 - [x] Lint, typecheck, format, unit tests pass
 - [ ] PR title: `refs #618: deep-linkable teams and tickets`

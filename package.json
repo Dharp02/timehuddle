@@ -1,6 +1,6 @@
 {
   "name": "timehuddle",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -78,6 +78,7 @@
     "cmdk": "^1.1.1",
     "datavis-ace": "^4.1.0",
     "date-fns": "^4.4.0",
+    "downshift": "^9.4.0",
     "katex": "^0.17.0",
     "mermaid": "^11.16.1",
     "motion": "^12.34.3",
