@@ -70,14 +70,6 @@ Meteor.methods({
     return docs.map(toPublicTicket);
   },
 
-  /** Get a single ticket by ID. */
-  async 'tickets.get'({ ticketId } = {}) {
-    const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    const ticket = await requireTicketPermission(userId, ticketId, 'read');
-    return toPublicTicket(ticket);
-  },
-
   /** Create a ticket. Mirrors TicketService.create (creator auto-assigned). */
   async 'tickets.create'({ teamId, title, description, github, priority } = {}) {
     const identity = await requireIdentity(this);
@@ -331,6 +323,8 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
 
+    // A malformed id is a link to nothing, not a server error.
+    if (!isValidId(ticketId)) throw new Meteor.Error('not-found', 'Ticket not found');
     const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
     if (!ticket) {
       throw new Meteor.Error('not-found', 'Ticket not found');

@@ -7,6 +7,7 @@
  * See src/ui/ROUTING.md.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { MongoClient, ObjectId } from 'mongodb';
 
 import { getTeamIdByCode } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
@@ -15,6 +16,24 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 const UNKNOWN_TEAM_ID = 'ffffffffffffffffffffffff';
 
 const teamParam = (page: Page) => new URL(page.url()).searchParams.get('team');
+
+const MONGO_URL =
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
+
+/** Runs `fn` against the test DB's tickets collection. */
+async function withTickets<T>(
+  fn: (tickets: ReturnType<ReturnType<MongoClient['db']>['collection']>) => Promise<T>,
+): Promise<T> {
+  const client = await MongoClient.connect(MONGO_URL);
+  try {
+    return await fn(client.db().collection('tickets'));
+  } finally {
+    await client.close();
+  }
+}
+
+const noAccessHeading = (page: Page, what: RegExp) =>
+  page.getByRole('heading', { level: 1, name: what });
 
 let sharedTeamId: string;
 
@@ -59,11 +78,57 @@ test.describe('Deep links: team scope', () => {
     expect(teamParam(page)).toBe(sharedTeamId);
   });
 
-  test('a team the user is not in is never replaced by another team', async ({ page }) => {
+  test('a team the user is not in shows no access, never another team', async ({ page }) => {
     await page.goto(`/app/dashboard?team=${UNKNOWN_TEAM_ID}`);
-    // Give TeamContext time to load teams and, if it were going to, fall back.
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
+    await expect(noAccessHeading(page, /have access to this team/)).toBeVisible();
     expect(teamParam(page)).toBe(UNKNOWN_TEAM_ID);
+
+    await page.getByRole('button', { name: 'Go to dashboard' }).click();
+    await expect(noAccessHeading(page, /have access to this team/)).toBeHidden();
+    await expect.poll(() => teamParam(page)).not.toBe(UNKNOWN_TEAM_ID);
+  });
+});
+
+test.describe('Deep links: ticket no-access and not-found', () => {
+  test.setTimeout(60000);
+
+  // A ticket in a team no test user belongs to.
+  const foreignTicketId = new ObjectId();
+
+  test.beforeAll(async () => {
+    await withTickets((tickets) =>
+      tickets.insertOne({
+        _id: foreignTicketId,
+        teamId: new ObjectId().toHexString(),
+        title: 'Someone else’s ticket',
+        status: 'open',
+        createdBy: 'nobody',
+        createdAt: new Date(),
+      }),
+    );
+  });
+
+  test.afterAll(async () => {
+    await withTickets((tickets) => tickets.deleteOne({ _id: foreignTicketId }));
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+  });
+
+  test('a ticket in another team shows no access', async ({ page }) => {
+    await page.goto(`/app/tickets/${foreignTicketId.toHexString()}`);
+    await expect(noAccessHeading(page, /have access to this ticket/)).toBeVisible();
+  });
+
+  test('a ticket that does not exist shows not found, not no access', async ({ page }) => {
+    await page.goto(`/app/tickets/${new ObjectId().toHexString()}`);
+    await expect(noAccessHeading(page, /ticket doesn.t exist or was deleted/)).toBeVisible();
+    await expect(noAccessHeading(page, /have access/)).toBeHidden();
+  });
+
+  test('a malformed ticket id shows not found', async ({ page }) => {
+    await page.goto('/app/tickets/not-a-ticket');
+    await expect(noAccessHeading(page, /ticket doesn.t exist or was deleted/)).toBeVisible();
   });
 });

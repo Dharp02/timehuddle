@@ -36,7 +36,7 @@ import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPa
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY } from '../lib/constants';
-import { TeamProvider, useTeam } from '../lib/TeamContext';
+import { carriesTeamScope, TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSession } from '../lib/useSession';
@@ -49,6 +49,7 @@ import { BottomNav } from './BottomNav';
 import { CommandPalette } from './CommandPalette';
 import { PageTitleContext } from './pageTitle';
 import { PullToRefresh } from './PullToRefresh';
+import { NoAccessState } from './NoAccessState';
 import { matchPath, RouterProvider, useRouter } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
@@ -131,7 +132,7 @@ interface ForegroundNotif {
 
 const AppLayoutContent: React.FC = () => {
   const { refetch: refetchSession } = useSession();
-  const { refetchTeams, refetchClock } = useTeam();
+  const { refetchTeams, refetchClock, teamAccess } = useTeam();
 
   useBrand();
 
@@ -285,12 +286,20 @@ const AppLayoutContent: React.FC = () => {
         : (route?.title ?? 'App');
   useClockDocumentTitle(documentTitle);
 
+  // A `?team=` the user isn't in replaces the page — never shows another team.
+  const teamForbidden = teamAccess === 'forbidden' && carriesTeamScope(pathname);
+
   // Rendered in the body by <PageTitle />. Null on profile and ticket detail
-  // (both already lead with a more specific heading of their own).
-  const pageTitle = route?.title ?? null;
+  // (both already lead with a more specific heading of their own), and on the
+  // no-access state, which has its own.
+  const pageTitle = teamForbidden ? null : (route?.title ?? null);
 
   const isTicketsRoute =
-    !profileUserId && !profileUsername && !ticketDetailId && pathname === '/app/tickets';
+    !teamForbidden &&
+    !profileUserId &&
+    !profileUsername &&
+    !ticketDetailId &&
+    pathname === '/app/tickets';
 
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -397,7 +406,9 @@ const AppLayoutContent: React.FC = () => {
                           <TicketsPage />
                         </div>
                       </PageTitleContext.Provider>
-                      {profileUserId ? (
+                      {teamForbidden ? (
+                        <NoAccessState kind="forbidden" resource="team" />
+                      ) : profileUserId ? (
                         <ProfilePage key={profileUserId} userId={profileUserId} />
                       ) : profileUsername ? (
                         <ProfilePage key={profileUsername} username={profileUsername} />

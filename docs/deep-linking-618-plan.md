@@ -111,36 +111,36 @@ File: [`src/lib/TeamContext.tsx`](../src/lib/TeamContext.tsx) (the restore effec
 
 ### 2a. Error classification helper
 
-- [ ] Add `classifyLoadError(err): 'forbidden' | 'not-found' | 'error'` in `src/lib/` (next to `ApiError`). Base it on `ApiError.code` (`'forbidden'`, `'not-authorized'` → forbidden; `'not-found'` → not-found). Also check `DdpServerError` from [`src/lib/ddp.ts`](../src/lib/ddp.ts) if any deep-linked resource is loaded over DDP.
-- [ ] Unit tests for each branch, including a plain `Error` → `'error'`
+- [x] Add `classifyLoadError(err): 'forbidden' | 'not-found' | 'error'` in `src/lib/` (next to `ApiError`). Base it on `ApiError.code` (`'forbidden'`, `'not-authorized'` → forbidden; `'not-found'` → not-found). Also check `DdpServerError` from [`src/lib/ddp.ts`](../src/lib/ddp.ts) if any deep-linked resource is loaded over DDP. _Done in `src/lib/loadError.ts`. It trusts only the Meteor.Error code: wormhole answers every Meteor.Error with HTTP 500, and its bare 404 means "method not registered". No deep-linked resource loads over DDP, so `DdpServerError` isn't handled._
+- [x] Unit tests for each branch, including a plain `Error` → `'error'`
 
 ### 2b. `<NoAccessState>` component
 
-- [ ] Create `src/ui/NoAccessState.tsx`, built from `@mieweb/ui` components (check [`.github/instructions/mieweb-ui.instructions.md`](../.github/instructions/mieweb-ui.instructions.md) for the right empty-state/Card/Button). **No raw `<button>`/`<div>` styling** where the library has a component.
-- [ ] Props: `kind: 'forbidden' | 'not-found'`, `resource: 'team' | 'ticket' | 'profile' | 'org' | 'conversation'`, optional `name`, optional `onRequestJoin`
-- [ ] Actions: **Go to dashboard** (always); **Request to join** only when `onRequestJoin` is passed (join requests exist in `meteor-backend/server/team-join-requests.js`)
-- [ ] Wrap the message in `role="status"` / `aria-live="polite"`; the heading should be a real heading element
-- [ ] Put all copy in one exported object (e.g. `NO_ACCESS_COPY`) in the same file, with nothing hard-coded inline in JSX
-- [ ] Semantic class names on structural elements (e.g. `no-access-state`, `no-access-actions`)
+- [x] Create `src/ui/NoAccessState.tsx`, built from `@mieweb/ui` components (check [`.github/instructions/mieweb-ui.instructions.md`](../.github/instructions/mieweb-ui.instructions.md) for the right empty-state/Card/Button). **No raw `<button>`/`<div>` styling** where the library has a component.
+- [x] Props: `kind: 'forbidden' | 'not-found'`, `resource: 'team' | 'ticket' | 'profile' | 'org' | 'conversation'`, optional `name`, optional `onRequestJoin` _Done differently: `resource` is `'team' | 'ticket'` for now; later milestones add the rest as they use it. No `name` or `onRequestJoin` (see below)._
+- [x] Actions: **Go to dashboard** (always); **Request to join** only when `onRequestJoin` is passed (join requests exist in `meteor-backend/server/team-join-requests.js`) _Request to join is left out: joining needs the team's private code, and a link only carries the id._
+- [x] Wrap the message in `role="status"` / `aria-live="polite"`; the heading should be a real heading element
+- [x] Put all copy in one exported object (e.g. `NO_ACCESS_COPY`) in the same file, with nothing hard-coded inline in JSX
+- [x] Semantic class names on structural elements (e.g. `no-access-state`, `no-access-actions`)
 
 ### 2c. Ticket detail
 
 File: [`src/features/tickets/TicketDetailPage.tsx`](../src/features/tickets/TicketDetailPage.tsx) (the `.catch(() => setError('Ticket not found or you do not have access.'))` line)
 
-- [ ] Keep the error kind from `classifyLoadError`, not a string
-- [ ] `forbidden` → `<NoAccessState kind="forbidden" resource="ticket" />`; `not-found` → `kind="not-found"`; anything else → the existing generic error with a retry
-- [ ] Backend check: confirm `tickets.get` returns `'not-found'` for a **malformed** id too. Today `new Mongo.ObjectID('garbage')` may throw a different error first. If it does, validate the id and throw `'not-found'`.
+- [x] Keep the error kind from `classifyLoadError`, not a string
+- [x] `forbidden` → `<NoAccessState kind="forbidden" resource="ticket" />`; `not-found` → `kind="not-found"`; anything else → the existing generic error with a retry
+- [x] Backend check: confirm `tickets.get` returns `'not-found'` for a **malformed** id too. Today `new Mongo.ObjectID('garbage')` may throw a different error first. If it does, validate the id and throw `'not-found'`. _Fixed: `tickets.js` declared `tickets.get` twice in one object, so the second (unvalidated) one won. It now validates the id, and the dead first copy is removed. Note the live one checks team membership, not the CASL `read` rule the dead one used; unchanged here._
 
 ### 2d. Team access (uses the flag from 1d)
 
-- [ ] When `TeamContext` reports `teamAccess === 'forbidden'`, team-scoped pages render `<NoAccessState kind="forbidden" resource="team" />` instead of their content
-- [ ] Decide with the reviewer whether a team name can be shown safely. If the backend has no safe "team name only" lookup, **don't show a name**. Note the decision in the PR description.
+- [x] When `TeamContext` reports `teamAccess === 'forbidden'`, team-scoped pages render `<NoAccessState kind="forbidden" resource="team" />` instead of their content _Done once, in `AppLayout`: any team-scoped path is replaced by the no-access state, so no page needs its own check._
+- [x] Decide with the reviewer whether a team name can be shown safely. If the backend has no safe "team name only" lookup, **don't show a name**. Note the decision in the PR description. _Decision: no name. There is no endpoint that returns a team's name to a non-member, and adding one would leak which teams exist._
 
 ### 2e. Ship it
 
-- [ ] E2E (`tests/e2e/tickets/`): open a ticket from a team you're not in → forbidden state; open a random valid-format id → not-found state; the two show **different** text
-- [ ] E2E (`tests/e2e/teams/`): `/app/dashboard?team=<other team>` → forbidden state, **never** another team's data
-- [ ] Lint, typecheck, format, unit tests pass
+- [x] E2E (`tests/e2e/tickets/`): open a ticket from a team you're not in → forbidden state; open a random valid-format id → not-found state; the two show **different** text
+- [x] E2E (`tests/e2e/teams/`): `/app/dashboard?team=<other team>` → forbidden state, **never** another team's data
+- [x] Lint, typecheck, format, unit tests pass
 - [ ] PR title: `refs #618: shared no-access and not-found states`
 
 ---
