@@ -113,6 +113,7 @@ const MAX_KEPT_ISSUES = 1000;
  * A slim issue (as `toIssue` shapes one) plus why it is in the list.
  *
  * @typedef {object} RelevantIssue
+ * @property {number} id
  * @property {string[]} reasons  the signals that matched, strongest contribution first
  * @property {number} score
  * @property {string} [lastTimeLoggedAt]  present only when the `logged` signal matched
@@ -347,6 +348,12 @@ const issueIdsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) =>
  * Throws the first signal's own error when *every* signal failed — mapping it to
  * something a client understands is the Meteor layer's job.
  *
+ * @param {object} account
+ * @param {object} [context]
+ * @param {number[]} [context.pinnedIds]
+ * @param {number[]} [context.boardIds]
+ * @param {number[]} [context.runningIds]
+ * @param {number|null} [context.redmineUserId]
  * @param {(assignedIssueIds: number[], assignedKnown: boolean) =>
  *   Promise<{hiddenIds?: number[], removedIds?: number[]}>} [context.resolvePrefs]
  *   given what Redmine says is assigned to the caller: the ids to leave out
