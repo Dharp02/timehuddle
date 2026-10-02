@@ -198,15 +198,15 @@ export function ComposerChips({
 export function TicketVideoChips({ videos }: { videos: MediaItem[] }) {
   if (videos.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex min-w-0 max-w-full flex-wrap gap-2">
       {videos.map((video) => (
         <Badge
           key={video.id}
           size="sm"
-          className="gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-indigo-700 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300"
+          className="max-w-full min-w-0 gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-indigo-700 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300"
         >
           <svg
-            className="h-3.5 w-3.5"
+            className="h-3.5 w-3.5 shrink-0"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -219,8 +219,12 @@ export function TicketVideoChips({ videos }: { videos: MediaItem[] }) {
               d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
             />
           </svg>
-          {video.filename}
-          <span className="text-xs text-indigo-500 dark:text-indigo-400">(from ticket)</span>
+          <span className="truncate" title={video.filename}>
+            {video.filename}
+          </span>
+          <span className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400">
+            (from ticket)
+          </span>
         </Badge>
       ))}
     </div>

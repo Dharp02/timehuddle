@@ -326,10 +326,15 @@ export default function Huddle() {
   // Fetch the feed over REST and overlay it. Used by pull-to-refresh and as a
   // fallback when the live DDP socket is down (dropped while backgrounded for a
   // Pulse recording), so the feed still updates without a reconnect.
+  const selectedTeamIdRef = useRef(selectedTeamId);
+  selectedTeamIdRef.current = selectedTeamId;
   const refreshFeed = useCallback(async () => {
     if (!selectedTeamId) return;
     try {
       const fresh = await huddleApi.getPosts(selectedTeamId);
+      // A refetch that outlived a team switch (e.g. the post-send retry loop)
+      // must not write the old team's snapshot over the new team's feed.
+      if (selectedTeamIdRef.current !== selectedTeamId) return;
       restPostsRef.current = new Map(fresh.map((post) => [post.id, post]));
       syncPosts();
     } catch (err) {
@@ -772,7 +777,10 @@ export default function Huddle() {
                       maxFileSize: COMPOSER_MAX_FILE_BYTES,
                       // A Pulse video or ticket is a post on its own.
                       canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
-                      isSending: sending,
+                      // Also busy while staged content is still settling: a send
+                      // rejected then would lose the picked files, which the
+                      // composer clears before `onSend` (gap 4.14).
+                      isSending: sending || pulsePending || ticketVideos.loading,
                       mentionOptions: mentions.options,
                       leadingSlot: (
                         // ChatComposer's leadingSlot wrapper has no gap of its own.

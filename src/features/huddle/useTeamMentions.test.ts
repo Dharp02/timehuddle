@@ -54,6 +54,16 @@ describe('useTeamMentions', () => {
     expect(result.current.detect('mail priya@bob.com')).toEqual([]);
   });
 
+  it('leaves a first name two teammates share unresolved rather than tagging both', async () => {
+    mockFetch.mockResolvedValue([
+      ...roster,
+      { id: 'u4', name: 'Priya Patel', email: 'pp@x.com', username: null, image: null },
+    ]);
+    const { result } = renderHook(() => useTeamMentions('team-1'));
+    await waitFor(() => expect(result.current.options).toHaveLength(4));
+    expect(result.current.detect('@Priya and @Bob')).toEqual(['u2']);
+  });
+
   it('returns nothing without a team', () => {
     const { result } = renderHook(() => useTeamMentions(null));
     expect(result.current.options).toEqual([]);
