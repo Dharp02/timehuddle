@@ -149,11 +149,11 @@ File: [`src/features/tickets/TicketDetailPage.tsx`](../src/features/tickets/Tick
 
 ### 3a. `/app/teams/:teamId`
 
-- [ ] Register the pattern in `AppLayout.tsx` using `matchPath`; render `TeamsPage` with that team selected
-- [ ] `/app/teams` (no id) → `replace` to `/app/teams/<selectedTeamId>`
-- [ ] In [`src/features/teams/TeamsPage.tsx`](../src/features/teams/TeamsPage.tsx), **delete** the effect that reads `?teamId=` and then `replaceState`s every param away. Path and `TeamContext` now cover it. Keep the `?tab=timesheet` → dashboard forward, but move it into `RETIRED_ROUTES`-style handling or `resolveUrl` so it lives in one place.
-- [ ] Picking a team on the Teams page uses `navigate('/app/teams/<id>')`
-- [ ] Not a member → `<NoAccessState resource="team" />` (with **Request to join** if a join flow exists for that team)
+- [x] Register the pattern in `AppLayout.tsx` using `matchPath`; render `TeamsPage` with that team selected _`TeamContext` reads the path team like `?team=`, so the same no-access gate and "remember the linked team" rules apply. `isActivePath` keeps the Teams nav item highlighted on `/app/teams/:id`._
+- [x] `/app/teams` (no id) → `replace` to `/app/teams/<selectedTeamId>`
+- [x] In [`src/features/teams/TeamsPage.tsx`](../src/features/teams/TeamsPage.tsx), **delete** the effect that reads `?teamId=` and then `replaceState`s every param away. Path and `TeamContext` now cover it. Keep the `?tab=timesheet` → dashboard forward, but move it into `RETIRED_ROUTES`-style handling or `resolveUrl` so it lives in one place. _The `?tab=timesheet` forward now lives in `resolveUrl` in `router.tsx`._
+- [x] Picking a team on the Teams page uses `navigate('/app/teams/<id>')`
+- [x] Not a member → `<NoAccessState resource="team" />` (with **Request to join** if a join flow exists for that team) _Request to join left out (see 2b)._
 
 ### 3b. Tickets list filters in the URL
 

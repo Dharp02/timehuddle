@@ -89,6 +89,58 @@ test.describe('Deep links: team scope', () => {
   });
 });
 
+test.describe('Deep links: team pages', () => {
+  test.setTimeout(60000);
+
+  test.beforeAll(async () => {
+    const id = await getTeamIdByCode('TEST01');
+    if (!id) throw new Error('Shared seed team TEST01 not found — did global-setup run?');
+    sharedTeamId = id;
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+  });
+
+  test('/app/teams redirects to the selected team’s page', async ({ page }) => {
+    // Opening a team by link makes it the remembered team…
+    await page.goto(`/app/dashboard?team=${sharedTeamId}`);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(localStorage)
+            .filter((k) => k.startsWith('app:selectedTeamId:'))
+            .map((k) => localStorage.getItem(k)),
+        ),
+      )
+      .toEqual([sharedTeamId]);
+    // …so a bare /app/teams lands on it.
+    await page.goto('/app/teams');
+    await expect(page).toHaveURL(new RegExp(`/app/teams/${sharedTeamId}$`));
+  });
+
+  test('/app/teams/:teamId opens that team and survives a reload', async ({ page }) => {
+    await page.goto(`/app/teams/${sharedTeamId}`);
+    await expect(
+      page.locator('main').getByText('Test Team Alpha').filter({ visible: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.locator('aside').getByRole('button', { name: 'Teams', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
+
+    await page.reload();
+    await expect(
+      page.locator('main').getByText('Test Team Alpha').filter({ visible: true }).first(),
+    ).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/app/teams/${sharedTeamId}$`));
+  });
+
+  test('a team page the user is not in shows no access', async ({ page }) => {
+    await page.goto(`/app/teams/${UNKNOWN_TEAM_ID}`);
+    await expect(noAccessHeading(page, /have access to this team/)).toBeVisible();
+  });
+});
+
 test.describe('Deep links: ticket no-access and not-found', () => {
   test.setTimeout(60000);
 

@@ -293,6 +293,44 @@ describe('TeamContext URL scope', () => {
     expect(window.location.search).toBe('');
   });
 
+  it('sends a bare /app/teams to the selected team page', async () => {
+    renderAt('/app/teams?tab=pending&teamId=t2');
+    await waitFor(() => expect(window.location.pathname).toBe('/app/teams/t2'));
+    expect(window.location.search).toBe('?tab=pending');
+    expect(scope()).toBe('t2|org-a|ok');
+  });
+
+  it('selects the team named in a /app/teams/:teamId path', async () => {
+    renderAt('/app/teams/t3');
+    await waitFor(() => expect(scope()).toBe('t3|org-b|ok'));
+    expect(window.location.search).toBe('');
+  });
+
+  it('moves the team page path when the team is switched', async () => {
+    renderAt('/app/teams/t1');
+    await waitFor(() => expect(scope()).toBe('t1|org-a|ok'));
+    act(() => ctx.setSelectedTeamId('t2'));
+    expect(window.location.pathname).toBe('/app/teams/t2');
+  });
+
+  it('shows no access for a team page the user is not in', async () => {
+    renderAt('/app/teams/other');
+    await waitFor(() => expect(scope()).toBe('other|org-a|forbidden'));
+  });
+
+  it('treats a just-created team as accessible before the list refetches', async () => {
+    renderAt('/app/teams/t1');
+    await waitFor(() => expect(scope()).toBe('t1|org-a|ok'));
+    act(() => ctx.setSelectedTeamId('new', team('new', 'org-a')));
+    expect(window.location.pathname).toBe('/app/teams/new');
+    expect(scope()).toBe('new|org-a|ok');
+  });
+
+  it('ignores ?team= on a resource path', async () => {
+    renderAt('/app/tickets/abc?team=other');
+    await waitFor(() => expect(scope()).toBe('t1|org-a|ok'));
+  });
+
   it('drops the URL team when the org is switched', async () => {
     renderAt('/app/dashboard?team=t1');
     await waitFor(() => expect(scope()).toBe('t1|org-a|ok'));

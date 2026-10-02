@@ -36,7 +36,7 @@ import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPa
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY } from '../lib/constants';
-import { carriesTeamScope, TeamProvider, useTeam } from '../lib/TeamContext';
+import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSession } from '../lib/useSession';
@@ -90,6 +90,7 @@ const ROUTES: Record<string, RouteConfig> = {
 };
 
 function match(pathname: string): RouteConfig {
+  if (matchPath('/app/teams/:teamId', pathname)) return ROUTES['/app/teams'];
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
 
@@ -286,8 +287,8 @@ const AppLayoutContent: React.FC = () => {
         : (route?.title ?? 'App');
   useClockDocumentTitle(documentTitle);
 
-  // A `?team=` the user isn't in replaces the page — never shows another team.
-  const teamForbidden = teamAccess === 'forbidden' && carriesTeamScope(pathname);
+  // A linked team the user isn't in replaces the page — never shows another team.
+  const teamForbidden = teamAccess === 'forbidden';
 
   // Rendered in the body by <PageTitle />. Null on profile and ticket detail
   // (both already lead with a more specific heading of their own), and on the

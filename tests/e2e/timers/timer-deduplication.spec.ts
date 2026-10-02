@@ -27,7 +27,7 @@ test.describe('Timer Deduplication', () => {
     loginPage = new LoginPage(page);
     await loginPage.goto();
     await loginPage.loginAs(TEST_USERS.owner1);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
   });
 
   test('should reuse same work item when starting timer multiple times on same day', async ({

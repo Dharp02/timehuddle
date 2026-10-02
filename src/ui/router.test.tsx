@@ -1,7 +1,15 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { matchPath, RouterProvider, useQueryParam, useRouter, withQuery } from './router';
+import {
+  isActivePath,
+  matchPath,
+  resolveUrl,
+  RouterProvider,
+  useQueryParam,
+  useRouter,
+  withQuery,
+} from './router';
 
 describe('matchPath', () => {
   it('extracts named params', () => {
@@ -25,6 +33,30 @@ describe('matchPath', () => {
   it('returns null for missing or extra segments', () => {
     expect(matchPath('/app/tickets/:ticketId', '/app/tickets')).toBeNull();
     expect(matchPath('/app/tickets/:ticketId', '/app/tickets/a/b')).toBeNull();
+  });
+});
+
+describe('resolveUrl', () => {
+  it('sends /app to the dashboard', () => {
+    expect(resolveUrl('/app')).toBe('/app/dashboard');
+  });
+
+  it('forwards the old Teams timesheet link to the Dashboard, query intact', () => {
+    expect(resolveUrl('/app/teams?tab=timesheet&teamId=t1&memberId=m1')).toBe(
+      '/app/dashboard?tab=timesheet&teamId=t1&memberId=m1',
+    );
+  });
+
+  it('leaves other Teams links alone', () => {
+    expect(resolveUrl('/app/teams?tab=pending')).toBe('/app/teams?tab=pending');
+  });
+});
+
+describe('isActivePath', () => {
+  it('matches the page and its detail pages, not lookalikes', () => {
+    expect(isActivePath('/app/teams', '/app/teams')).toBe(true);
+    expect(isActivePath('/app/teams/t1', '/app/teams')).toBe(true);
+    expect(isActivePath('/app/teamsx', '/app/teams')).toBe(false);
   });
 });
 

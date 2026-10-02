@@ -36,7 +36,7 @@ import {
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
 import { useSession } from './useSession';
-import { useQueryParams, useRouter, type QueryPatch } from '../ui/router';
+import { matchPath, useQueryParams, useRouter, withQuery, type QueryPatch } from '../ui/router';
 
 const TEAM_KEY = 'app:selectedTeamId';
 const ORG_KEY = 'app:selectedOrgId';
@@ -44,9 +44,13 @@ const ENTERPRISE_KEY = 'app:selectedEnterpriseId';
 
 /**
  * Paths whose resource already names its own scope (a ticket belongs to one
- * team, a profile to no team), so the selected team is not stamped onto them.
+ * team, a profile to no team, a team page is the team), so `?team=` is
+ * neither read from nor stamped onto them.
  */
-const RESOURCE_PATH = /^\/app\/(tickets|profile)\/[^/]+/;
+const RESOURCE_PATH = /^\/app\/(tickets|profile|teams)\/[^/]+/;
+
+/** The Teams page names its team in the path rather than in `?team=`. */
+const TEAM_PAGE = '/app/teams/:teamId';
 
 /** Whether the selected team belongs in this path's `?team=`. */
 export function carriesTeamScope(pathname: string): boolean {
@@ -104,7 +108,11 @@ export interface TeamContextValue {
   setSelectedOrgId: (id: string) => void;
   selectedTeamId: string | null;
   selectedTeam: Team | null;
-  setSelectedTeamId: (id: string) => void;
+  /**
+   * Selects a team and moves the URL with it. Pass `team` when it was just
+   * created or joined, so it counts as the user's before the list refetches.
+   */
+  setSelectedTeamId: (id: string, team?: Team) => void;
   teamAccess: TeamAccess;
   isAdmin: boolean;
   activeClockEvent: ClockEvent | null;
@@ -329,13 +337,16 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [userId]);
 
   // ── Scope from the URL ──────────────────────────────────────────────────────
-  // `?team=` (legacy alias `?teamId=`) and `?org=` override the stored pick.
-  // A URL team also implies its org, so a link into another org's team opens
-  // in that org without the page having to switch it.
+  // `/app/teams/:teamId`, `?team=` (legacy alias `?teamId=`) and `?org=`
+  // override the stored pick. A URL team also implies its org, so a link into
+  // another org's team opens in that org without the page having to switch it.
 
-  const { pathname } = useRouter();
+  const { pathname, search, replace } = useRouter();
   const { params, setParams } = useQueryParams();
-  const urlTeamId = params.get('team') || params.get('teamId') || null;
+  const pathTeamId = matchPath(TEAM_PAGE, pathname)?.teamId ?? null;
+  const urlTeamId =
+    pathTeamId ??
+    (carriesTeamScope(pathname) ? params.get('team') || params.get('teamId') || null : null);
   const urlOrgId = params.get('org') || null;
   const teamsLoaded = teamsReady && teams.length > 0;
   const urlTeam = urlTeamId ? (teams.find((t) => t.id === urlTeamId) ?? null) : null;
@@ -347,37 +358,42 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /** Makes `id` (and its org) the persisted fallback for URLs without `?team=`. */
   const rememberTeam = useCallback(
-    (id: string) => {
+    (id: string, orgId: string | undefined) => {
       setStoredTeamId(id);
-      const orgId = teams.find((t) => t.id === id)?.orgId;
       if (orgId) setStoredOrgId(orgId);
       if (!userId || typeof window === 'undefined') return;
       localStorage.setItem(getUserTeamKey(userId), id);
       if (orgId) localStorage.setItem(getUserOrgKey(userId), orgId);
     },
-    [teams, userId],
+    [userId],
   );
 
   const setSelectedTeamId = useCallback(
-    (id: string) => {
-      rememberTeam(id);
+    (id: string, team?: Team) => {
+      // A just-created or just-joined team isn't in the list until the next
+      // fetch; without this its URL would read as forbidden in the meantime.
+      if (team && !teams.some((t) => t.id === team.id)) setTeams((prev) => [...prev, team]);
+      const orgId = team?.orgId ?? teams.find((t) => t.id === id)?.orgId;
+      rememberTeam(id, orgId);
+
       // A URL that names the scope must follow the pick, or the URL would keep
       // overriding it. An `?org=` that no longer matches the team is dropped.
-      if (urlTeamId || urlOrgId || carriesTeamScope(pathname)) {
+      if (pathTeamId) {
+        replace(withQuery(`/app/teams/${id}`, search, {}));
+      } else if (urlTeamId || urlOrgId || carriesTeamScope(pathname)) {
         const patch: QueryPatch = { team: id, teamId: null };
-        const orgId = teams.find((t) => t.id === id)?.orgId;
         if (urlOrgId && orgId !== urlOrgId) patch.org = null;
         setParams(patch);
       }
     },
-    [rememberTeam, teams, urlTeamId, urlOrgId, pathname, setParams],
+    [teams, rememberTeam, pathTeamId, urlTeamId, urlOrgId, pathname, search, replace, setParams],
   );
 
   // A team opened from a link becomes the remembered one too, so following a
   // sidebar link (which carries no `?team=`) stays on it.
   useEffect(() => {
     if (!urlTeam || restoredForUser !== userId || urlTeam.id === storedTeamId) return;
-    rememberTeam(urlTeam.id);
+    rememberTeam(urlTeam.id, urlTeam.orgId);
   }, [urlTeam, restoredForUser, userId, storedTeamId, rememberTeam]);
 
   const setSelectedEnterpriseId = useCallback(
@@ -397,11 +413,13 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       // The URL's team belongs to the old org, so it goes; the "pick first
       // available" effect then selects a team in the new org.
-      if (urlTeamId || urlOrgId) {
+      if (pathTeamId) {
+        replace(withQuery('/app/teams', search, {}));
+      } else if (urlTeamId || urlOrgId) {
         setParams({ team: null, teamId: null, org: urlOrgId ? id : null });
       }
     },
-    [userId, urlTeamId, urlOrgId, setParams],
+    [userId, pathTeamId, urlTeamId, urlOrgId, search, replace, setParams],
   );
 
   useEffect(() => {
@@ -470,14 +488,20 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Stamp the selected team onto team-scoped URLs that lack it (sidebar links,
   // notifications, a bare /app/dashboard) and normalise `?teamId=` to `?team=`,
-  // so every link copied from the address bar reopens the same team.
+  // so every link copied from the address bar reopens the same team. A bare
+  // /app/teams goes to the selected team's own page instead.
   useEffect(() => {
     // Only a team that's in scope: right after an org switch the stored team
     // still belongs to the old org until "pick first available" replaces it.
-    if (!selectedTeam || !carriesTeamScope(pathname)) return;
+    if (!selectedTeam) return;
+    if (pathname === '/app/teams') {
+      replace(withQuery(`/app/teams/${selectedTeam.id}`, search, { team: null, teamId: null }));
+      return;
+    }
+    if (!carriesTeamScope(pathname)) return;
     if (params.get('team') === selectedTeam.id && !params.has('teamId')) return;
     setParams({ team: selectedTeam.id, teamId: null });
-  }, [selectedTeam, pathname, params, setParams]);
+  }, [selectedTeam, pathname, search, params, replace, setParams]);
 
   const isAdmin = useMemo(() => {
     if (!userId || !selectedTeam) return false;

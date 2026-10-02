@@ -11,7 +11,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
 import { TEST_USERS, loginAs } from '../fixtures/users';
-import { selectSharedTestTeam } from '../fixtures/team';
+import { selectSharedTestTeam, selectTeamById } from '../fixtures/team';
 import { getUserIdByEmail, inboxMessage, seedPost } from '../huddle/helpers';
 
 const MONGO_URL =
@@ -48,18 +48,6 @@ async function tapNotification(page: Page, url: string): Promise<void> {
 function localDate(daysAgo = 0): string {
   const d = new Date(Date.now() - daysAgo * 86400000);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/** Force the app onto `teamId` the way the team fixture does, then reload. */
-async function selectTeam(page: Page, teamId: string): Promise<void> {
-  await page.evaluate((id) => {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('app:selectedTeamId'))
-      .forEach((k) => localStorage.setItem(k, id));
-    localStorage.setItem('app:selectedTeamId', id);
-  }, teamId);
-  await page.reload();
-  await page.waitForLoadState('domcontentloaded');
 }
 
 async function openHuddleFeed(page: Page): Promise<void> {
@@ -153,7 +141,7 @@ test.describe('Notification deep links', () => {
     const otherTeamId = await getOtherTeamId(TEST_USERS.owner1.email, sharedTeamId);
     test.skip(!otherTeamId, 'owner1 belongs to only one team — nothing to switch away from');
 
-    await selectTeam(page, otherTeamId!);
+    await selectTeamById(page, otherTeamId!);
     await openHuddleFeed(page);
     const sharedTeamPicker = page.getByRole('button', { name: 'Team: Test Team Alpha' });
     await expect(sharedTeamPicker).toBeHidden();

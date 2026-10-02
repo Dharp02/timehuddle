@@ -50,8 +50,13 @@ const RETIRED_ROUTES: Record<string, string> = {
  * Everything else passes through untouched, query string intact.
  */
 export function resolveUrl(url: string): string {
-  const path = url.split('?')[0];
+  const [path, query = ''] = url.split('?');
   if (path === '/app' || path === '/') return '/app/dashboard';
+  // Old notification URLs sent the team timesheet to the Teams page; it now
+  // lives on the Dashboard's Team tab.
+  if (path === '/app/teams' && new URLSearchParams(query).get('tab') === 'timesheet') {
+    return `/app/dashboard?${query}`;
+  }
   return RETIRED_ROUTES[path] ?? url;
 }
 
@@ -103,6 +108,11 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 
 // ─── Path params ──────────────────────────────────────────────────────────────
+
+/** Whether a nav item for `href` is the current page, detail pages included. */
+export function isActivePath(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 /**
  * Matches `pathname` against a pattern such as `/app/tickets/:ticketId`.
