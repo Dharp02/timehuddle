@@ -15,6 +15,7 @@ import {
   faEllipsisVertical,
   faExternalLink,
   faEye,
+  faLink,
   faPen,
   faCircleCheck,
   faCircleDot,
@@ -66,13 +67,12 @@ import { useSession } from '../../lib/useSession';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
-import { useRouter } from '../../ui/router';
+import { useCopyLink } from '../../lib/useCopyLink';
+import { useQueryParams, useRouter, type QueryPatch } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
-import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../pulse-upload/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -92,6 +92,28 @@ const PRIORITY_OPTIONS = [
   { value: 'high', label: 'High' },
   { value: 'critical', label: 'Critical' },
 ];
+
+/** Assignee filter value meaning "no assignee"; `?assignee=unassigned` in the URL. */
+const UNASSIGNED = '__unassigned__';
+
+/** Query params this page owns, restored when the user comes back to Tickets. */
+const FILTER_KEYS = ['q', 'tab', 'status', 'priority', 'assignee', 'teams'] as const;
+
+const NO_PARAMS = new URLSearchParams();
+
+/** `value` if it is one of `options`, else null — a hand-edited URL can't break the page. */
+function validOption(value: string | null, options: { value: string }[]): string | null {
+  return value && options.some((o) => o.value === value) ? value : null;
+}
+
+function pickFilters(params: URLSearchParams): QueryPatch {
+  const picked: QueryPatch = {};
+  for (const key of FILTER_KEYS) {
+    const value = params.get(key);
+    if (value) picked[key] = value;
+  }
+  return picked;
+}
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -177,6 +199,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   onToggleTimer,
 }) => {
   const { navigate } = useRouter();
+  const copyLink = useCopyLink();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -375,6 +398,15 @@ const TicketRow: React.FC<TicketRowProps> = ({
                   }}
                 >
                   Ticket Details
+                </DropdownItem>
+                <DropdownItem
+                  icon={<FontAwesomeIcon icon={faLink} />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void copyLink(`/app/tickets/${ticket.id}`);
+                  }}
+                >
+                  Copy Link
                 </DropdownItem>
                 {isCreator && (
                   <DropdownItem
@@ -653,6 +685,7 @@ export const TicketsPage: React.FC = () => {
   const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
   const { isClockedIn, clockIn } = useClockToggle();
   const { navigate, pathname } = useRouter();
+  const { params, setParams } = useQueryParams();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
@@ -700,11 +733,6 @@ export const TicketsPage: React.FC = () => {
   useEffect(() => {
     void refetch();
   }, [refetch]);
-
-  // When the user switches team in the header, follow the new team in the filter.
-  useEffect(() => {
-    if (selectedTeamId) setTeamFilter(selectedTeamId);
-  }, [selectedTeamId]);
 
   // Pull-to-refresh handler — only while this page is the active route. It
   // stays mounted (hidden) behind other routes, so registering unconditionally
@@ -816,11 +844,63 @@ export const TicketsPage: React.FC = () => {
   const createFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Search + filter
-  const [searchQuery, setSearchQuery] = useState('');
-  const [teamFilter, setTeamFilter] = useState<string | null>(() => selectedTeamId ?? null);
-  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
-  const [statusDetailFilter, setStatusDetailFilter] = useState<string | null>(null);
-  const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
+  // ── Filters live in the URL (see src/ui/ROUTING.md) ──
+  // This page stays mounted behind other routes, so it reads the URL only
+  // while it's the page on screen — another page's `?status=` isn't ours.
+  const onTicketsPage = pathname === '/app/tickets';
+  const filterParams = onTicketsPage ? params : NO_PARAMS;
+
+  // Search filters as you type; the URL follows once typing pauses, so it
+  // doesn't re-render the address bar on every key.
+  const queryParam = filterParams.get('q') ?? '';
+  const [searchQuery, setSearchQuery] = useState(queryParam);
+  const writtenQueryRef = useRef(queryParam);
+  useEffect(() => {
+    // Back/Forward, a reload or a shared link — not the echo of our own write.
+    if (queryParam === writtenQueryRef.current) return;
+    writtenQueryRef.current = queryParam;
+    setSearchQuery(queryParam);
+  }, [queryParam]);
+  useEffect(() => {
+    if (!onTicketsPage || searchQuery === writtenQueryRef.current) return;
+    const timer = window.setTimeout(() => {
+      writtenQueryRef.current = searchQuery;
+      setParams({ q: searchQuery });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [onTicketsPage, searchQuery, setParams]);
+
+  // The team filter is the app's team scope (`?team=`), plus "All teams".
+  const teamFilter = filterParams.get('teams') === 'all' ? null : selectedTeamId;
+  const setTeamFilter = (teamId: string | null) =>
+    setParams(teamId ? { team: teamId, teams: null } : { teams: 'all' });
+
+  const assigneeParam = filterParams.get('assignee');
+  const assigneeFilter = assigneeParam === 'unassigned' ? UNASSIGNED : assigneeParam;
+  const setAssigneeFilter = (value: string | null) =>
+    setParams({ assignee: value === UNASSIGNED ? 'unassigned' : value });
+
+  const statusDetailFilter = validOption(filterParams.get('status'), STATUS_OPTIONS);
+  const setStatusDetailFilter = (value: string | null) => setParams({ status: value });
+
+  const priorityFilter = validOption(filterParams.get('priority'), PRIORITY_OPTIONS);
+  const setPriorityFilter = (value: string | null) => setParams({ priority: value });
+
+  // Coming back to Tickets from another page (e.g. via the sidebar, whose link
+  // carries no filters) restores the filters the user left with.
+  const savedFiltersRef = useRef<QueryPatch>({});
+  const wasOnTicketsPageRef = useRef(false);
+  useEffect(() => {
+    const arrived = onTicketsPage && !wasOnTicketsPageRef.current;
+    wasOnTicketsPageRef.current = onTicketsPage;
+    if (!onTicketsPage) return;
+    const current = pickFilters(params);
+    if (arrived && !Object.keys(current).length && Object.keys(savedFiltersRef.current).length) {
+      setParams(savedFiltersRef.current);
+      return;
+    }
+    savedFiltersRef.current = current;
+  }, [onTicketsPage, params, setParams]);
   const [openFilterMenu, setOpenFilterMenu] = useState<
     'team' | 'priority' | 'status' | 'assignee' | null
   >(null);
@@ -846,12 +926,13 @@ export const TicketsPage: React.FC = () => {
   const [changeStatusSaving, setChangeStatusSaving] = useState(false);
 
   // Ticket details modal (read-only)
-  const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
-  const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
   // Status filter: Open vs Closed (GitHub style)
   type StatusFilter = 'open' | 'closed';
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
+  const statusFilter: StatusFilter = filterParams.get('tab') === 'closed' ? 'closed' : 'open';
+  // Open/Closed is a tab, so Back should switch it back.
+  const setStatusFilter = (value: StatusFilter) =>
+    setParams({ tab: value === 'open' ? null : value }, 'push');
 
   // Filter tickets by search + team + assignee
   const searchFilteredTickets = useMemo(() => {
@@ -865,7 +946,7 @@ export const TicketsPage: React.FC = () => {
     if (teamFilter) {
       result = result.filter((t) => t.teamId === teamFilter);
     }
-    if (assigneeFilter === '__unassigned__') {
+    if (assigneeFilter === UNASSIGNED) {
       result = result.filter((t) => !t.assignedTo || t.assignedTo.length === 0);
     } else if (assigneeFilter) {
       result = result.filter((t) => t.assignedTo?.includes(assigneeFilter));
@@ -989,7 +1070,7 @@ export const TicketsPage: React.FC = () => {
   );
   const activeAssigneeLabel = useMemo(() => {
     if (!assigneeFilter) return null;
-    if (assigneeFilter === '__unassigned__') return 'Unassigned';
+    if (assigneeFilter === UNASSIGNED) return 'Unassigned';
     return getAssigneeName(assigneeFilter) ?? null;
   }, [assigneeFilter, getAssigneeName]);
 
@@ -1457,11 +1538,9 @@ export const TicketsPage: React.FC = () => {
                     <DropdownSeparator />
                     <DropdownItem
                       onClick={() =>
-                        setAssigneeFilter(
-                          assigneeFilter === '__unassigned__' ? null : '__unassigned__',
-                        )
+                        setAssigneeFilter(assigneeFilter === UNASSIGNED ? null : UNASSIGNED)
                       }
-                      className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
+                      className={assigneeFilter === UNASSIGNED ? 'font-semibold' : ''}
                     >
                       Unassigned
                     </DropdownItem>
@@ -1686,147 +1765,6 @@ export const TicketsPage: React.FC = () => {
             </Button>
           </ModalFooter>
         </AppModal>
-
-        {/* Ticket Details modal */}
-        {detailsTicket && (
-          <AppModal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
-            <ModalHeader>
-              <ModalTitle>Ticket Details</ModalTitle>
-              <ModalClose />
-            </ModalHeader>
-            <ModalBody>
-              <div className="space-y-3">
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Title
-                  </Text>
-                  <Text size="sm">{detailsTicket.title}</Text>
-                </div>
-                {detailsTicket.description && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Description
-                    </Text>
-                    <Text size="sm">{detailsTicket.description}</Text>
-                  </div>
-                )}
-                <div className="flex gap-6">
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Status
-                    </Text>
-                    <Text size="sm">
-                      {STATUS_OPTIONS.find((s) => s.value === detailsTicket.status)?.label ??
-                        detailsTicket.status ??
-                        'Open'}
-                    </Text>
-                  </div>
-                  {detailsTicket.priority && (
-                    <div>
-                      <Text size="xs" variant="muted" weight="medium">
-                        Priority
-                      </Text>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span
-                          className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityLabelClass(detailsTicket.priority)}`}
-                        />
-                        <Text size="sm">
-                          {detailsTicket.priority.charAt(0).toUpperCase() +
-                            detailsTicket.priority.slice(1)}
-                        </Text>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {detailsTicket.github && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      GitHub
-                    </Text>
-                    <a
-                      href={detailsTicket.github}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline"
-                    >
-                      {detailsTicket.github}
-                    </a>
-                  </div>
-                )}
-                <div className="flex gap-6">
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Created By
-                    </Text>
-                    <Text size="sm">
-                      {getAssigneeName(detailsTicket.createdBy) ?? detailsTicket.createdBy}
-                    </Text>
-                  </div>
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Created At
-                    </Text>
-                    <Text size="sm">
-                      {new Date(detailsTicket.createdAt).toLocaleDateString(undefined, {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </div>
-                </div>
-                {detailsTicket.assignedTo && detailsTicket.assignedTo.length > 0 && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Assigned To
-                    </Text>
-                    <div className="flex flex-wrap gap-2">
-                      {detailsTicket.assignedTo.map((id) => {
-                        const name = getAssigneeName(id);
-                        return (
-                          <div key={id} className="flex items-center gap-2">
-                            <UserAvatar name={name ?? id} size="xs" />
-                            <Text size="sm">{name ?? id}</Text>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-1 pt-1">
-                  <AttachmentsPanel
-                    key={detailsAttachmentRefresh}
-                    kind="ticket"
-                    entityId={detailsTicket.id}
-                    currentUserId={userId ?? undefined}
-                  />
-                  <PulseUploadButton
-                    ticketId={detailsTicket.id}
-                    onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
-                  />
-                </div>
-              </div>
-            </ModalBody>
-            <ModalFooter>
-              {userId && !detailsTicket.assignedTo?.includes(userId) && (
-                <Button
-                  variant="secondary"
-                  onClick={async () => {
-                    const updatedAssignees = [...(detailsTicket.assignedTo ?? []), userId];
-                    await ticketApi.assignTicket(detailsTicket.id, updatedAssignees);
-                    setDetailsTicket((t) => (t ? { ...t, assignedTo: updatedAssignees } : t));
-                    void refetch();
-                  }}
-                >
-                  Assign to me
-                </Button>
-              )}
-              <Button variant="outline" onClick={() => setDetailsTicket(null)}>
-                Close
-              </Button>
-            </ModalFooter>
-          </AppModal>
-        )}
 
         {/* Delete confirmation */}
         <AppModal open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)} size="sm">

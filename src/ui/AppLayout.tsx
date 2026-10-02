@@ -12,6 +12,7 @@
  *
  * SidebarContext owns expand/collapse + mobile drawer state.
  */
+import { ToastContainer, ToastProvider, useToast } from '@mieweb/ui';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
@@ -434,14 +435,26 @@ const AppLayoutContent: React.FC = () => {
   );
 };
 
+// ─── Toasts ───────────────────────────────────────────────────────────────────
+
+/** Renders the toasts raised through useToast() (ToastProvider only holds them). */
+const AppToasts: React.FC = () => {
+  const { toasts, dismiss } = useToast();
+  return <ToastContainer toasts={toasts} onDismiss={dismiss} />;
+};
+
 // ─── AppLayout (Team wrapper) ─────────────────────────────────────────────────
 
 export const AppLayout: React.FC = () => {
   return (
     <RouterProvider>
-      <TeamProvider>
-        <AppLayoutContent />
-      </TeamProvider>
+      {/* Top-centre keeps toasts clear of the mobile bottom nav. */}
+      <ToastProvider position="top-center">
+        <AppToasts />
+        <TeamProvider>
+          <AppLayoutContent />
+        </TeamProvider>
+      </ToastProvider>
     </RouterProvider>
   );
 };

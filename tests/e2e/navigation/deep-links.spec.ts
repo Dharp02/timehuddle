@@ -10,6 +10,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
 
 import { getTeamIdByCode } from '../fixtures/team';
+import { createTicket, deleteTicket } from '../tickets/helpers';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 /** A well-formed team id no user belongs to. */
@@ -182,5 +183,67 @@ test.describe('Deep links: ticket no-access and not-found', () => {
   test('a malformed ticket id shows not found', async ({ page }) => {
     await page.goto('/app/tickets/not-a-ticket');
     await expect(noAccessHeading(page, /ticket doesn.t exist or was deleted/)).toBeVisible();
+  });
+});
+
+test.describe('Deep links: tickets list', () => {
+  test.setTimeout(90000);
+
+  const title = `deep-link ticket ${Date.now()}`;
+  const searchBox = (page: Page) => page.getByPlaceholder('Search tickets…');
+  const param = (page: Page, key: string) => new URL(page.url()).searchParams.get(key);
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+  });
+
+  test('filters live in the URL: reload, Back and returning via the sidebar', async ({ page }) => {
+    await createTicket(page, title);
+
+    // Typing filters immediately; the URL follows once typing pauses.
+    await searchBox(page).fill(title);
+    await expect.poll(() => param(page, 'q')).toBe(title);
+
+    // A filter replaces the history entry; a tab pushes one.
+    const historyBefore = await page.evaluate(() => history.length);
+    await page.getByRole('tab', { name: /Closed/ }).click();
+    await expect.poll(() => param(page, 'tab')).toBe('closed');
+    expect(await page.evaluate(() => history.length)).toBe(historyBefore + 1);
+    await page.goBack();
+    await expect.poll(() => param(page, 'tab')).toBeNull();
+
+    // Reload restores the search.
+    await page.reload();
+    await expect(searchBox(page)).toHaveValue(title);
+    await expect(page.locator('li').filter({ hasText: title }).first()).toBeVisible();
+
+    // Opening a ticket, then Back, lands on the filtered list.
+    await page.locator('li').filter({ hasText: title }).first().getByText(title).click();
+    await expect(page).toHaveURL(/\/app\/tickets\/[a-f0-9]{24}/);
+    await page.goBack();
+    await expect(searchBox(page)).toHaveValue(title);
+
+    // Leaving and coming back through the sidebar keeps the filters.
+    await page.locator('aside').getByRole('button', { name: 'Dashboard', exact: true }).click();
+    await page.locator('aside').getByRole('button', { name: 'Tickets', exact: true }).click();
+    await expect.poll(() => param(page, 'q')).toBe(title);
+    await expect(searchBox(page)).toHaveValue(title);
+
+    await page.goto('/app/tickets');
+    await deleteTicket(page, title);
+  });
+
+  test('Copy Link copies the ticket’s absolute URL', async ({ page }) => {
+    const copyTitle = `copy-link ticket ${Date.now()}`;
+    await createTicket(page, copyTitle);
+    await page.locator('li').filter({ hasText: copyTitle }).first().getByText(copyTitle).click();
+    await expect(page).toHaveURL(/\/app\/tickets\/[a-f0-9]{24}/);
+    const ticketUrl = page.url().split('?')[0];
+
+    await page.getByRole('button', { name: 'Copy link to this ticket' }).click();
+    await expect(page.getByText('Link copied')).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(ticketUrl);
+
+    await deleteTicket(page, copyTitle);
   });
 });

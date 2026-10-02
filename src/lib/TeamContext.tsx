@@ -36,7 +36,14 @@ import {
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
 import { useSession } from './useSession';
-import { matchPath, useQueryParams, useRouter, withQuery, type QueryPatch } from '../ui/router';
+import {
+  liveLocation,
+  matchPath,
+  useQueryParams,
+  useRouter,
+  withQuery,
+  type QueryPatch,
+} from '../ui/router';
 
 const TEAM_KEY = 'app:selectedTeamId';
 const ORG_KEY = 'app:selectedOrgId';
@@ -341,7 +348,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // override the stored pick. A URL team also implies its org, so a link into
   // another org's team opens in that org without the page having to switch it.
 
-  const { pathname, search, replace } = useRouter();
+  const { pathname, replace } = useRouter();
   const { params, setParams } = useQueryParams();
   const pathTeamId = matchPath(TEAM_PAGE, pathname)?.teamId ?? null;
   const urlTeamId =
@@ -379,14 +386,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // A URL that names the scope must follow the pick, or the URL would keep
       // overriding it. An `?org=` that no longer matches the team is dropped.
       if (pathTeamId) {
-        replace(withQuery(`/app/teams/${id}`, search, {}));
+        replace(withQuery(`/app/teams/${id}`, liveLocation().search, {}));
       } else if (urlTeamId || urlOrgId || carriesTeamScope(pathname)) {
         const patch: QueryPatch = { team: id, teamId: null };
         if (urlOrgId && orgId !== urlOrgId) patch.org = null;
         setParams(patch);
       }
     },
-    [teams, rememberTeam, pathTeamId, urlTeamId, urlOrgId, pathname, search, replace, setParams],
+    [teams, rememberTeam, pathTeamId, urlTeamId, urlOrgId, pathname, replace, setParams],
   );
 
   // A team opened from a link becomes the remembered one too, so following a
@@ -414,12 +421,12 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // The URL's team belongs to the old org, so it goes; the "pick first
       // available" effect then selects a team in the new org.
       if (pathTeamId) {
-        replace(withQuery('/app/teams', search, {}));
+        replace(withQuery('/app/teams', liveLocation().search, {}));
       } else if (urlTeamId || urlOrgId) {
         setParams({ team: null, teamId: null, org: urlOrgId ? id : null });
       }
     },
-    [userId, pathTeamId, urlTeamId, urlOrgId, search, replace, setParams],
+    [userId, pathTeamId, urlTeamId, urlOrgId, replace, setParams],
   );
 
   useEffect(() => {
@@ -495,13 +502,18 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // still belongs to the old org until "pick first available" replaces it.
     if (!selectedTeam) return;
     if (pathname === '/app/teams') {
-      replace(withQuery(`/app/teams/${selectedTeam.id}`, search, { team: null, teamId: null }));
+      replace(
+        withQuery(`/app/teams/${selectedTeam.id}`, liveLocation().search, {
+          team: null,
+          teamId: null,
+        }),
+      );
       return;
     }
     if (!carriesTeamScope(pathname)) return;
     if (params.get('team') === selectedTeam.id && !params.has('teamId')) return;
     setParams({ team: selectedTeam.id, teamId: null });
-  }, [selectedTeam, pathname, search, params, replace, setParams]);
+  }, [selectedTeam, pathname, params, replace, setParams]);
 
   const isAdmin = useMemo(() => {
     if (!userId || !selectedTeam) return false;

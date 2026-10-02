@@ -159,17 +159,29 @@ export function withQuery(pathname: string, search: string, patch: QueryPatch): 
   return query ? `${pathname}?${query}` : pathname;
 }
 
+/**
+ * The URL as it is right now. Writes build on this rather than on the
+ * `search` captured at render: two components patching the query in the same
+ * commit (e.g. TeamContext stamping `?team=` while a page restores its
+ * filters) would otherwise each start from the stale query and the last write
+ * would silently drop the other's change.
+ */
+export function liveLocation(): { pathname: string; search: string } {
+  return { pathname: window.location.pathname, search: window.location.search };
+}
+
 export function useQueryParams() {
-  const { pathname, search, navigate, replace } = useRouter();
+  const { search, navigate, replace } = useRouter();
   const params = useMemo(() => new URLSearchParams(search), [search]);
 
   const setParams = useCallback(
     (patch: QueryPatch, mode: HistoryMode = 'replace') => {
-      const target = withQuery(pathname, search, patch);
-      if (target === pathname + search) return;
+      const live = liveLocation();
+      const target = withQuery(live.pathname, live.search, patch);
+      if (target === live.pathname + live.search) return;
       (mode === 'push' ? navigate : replace)(target);
     },
-    [pathname, search, navigate, replace],
+    [navigate, replace],
   );
 
   return { params, setParams };

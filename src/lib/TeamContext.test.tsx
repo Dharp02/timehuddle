@@ -264,7 +264,8 @@ describe('TeamContext URL scope', () => {
 
   it('writes the URL when the team is switched', async () => {
     renderAt('/app/tickets?status=open');
-    await waitFor(() => expect(scope()).toBe('t1|org-a|ok'));
+    // Wait for the stamp, not just the selection, so the switch isn't racing it.
+    await waitFor(() => expect(window.location.search).toBe('?status=open&team=t1'));
     act(() => ctx.setSelectedTeamId('t2'));
     expect(window.location.search).toBe('?status=open&team=t2');
     expect(scope()).toBe('t2|org-a|ok');

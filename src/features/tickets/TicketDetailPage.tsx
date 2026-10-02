@@ -1,6 +1,7 @@
 import {
   faArrowLeft,
   faExternalLink,
+  faLink,
   faPen,
   faTrash,
   faCheck,
@@ -33,6 +34,7 @@ import { classifyLoadError } from '../../lib/loadError';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useCopyLink } from '../../lib/useCopyLink';
 import { AppPage } from '../../ui/AppPage';
 import { MarkdownContent } from '../../ui/MarkdownContent';
 import { NoAccessState, type NoAccessKind } from '../../ui/NoAccessState';
@@ -126,6 +128,7 @@ interface TicketDetailPageProps {
 
 export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) => {
   const { navigate } = useRouter();
+  const copyLink = useCopyLink();
   const { user } = useSession();
   const { teams } = useTeam();
 
@@ -311,8 +314,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   return (
     <AppPage>
-      {/* Back navigation */}
-      <div className="ticket-detail-back mb-4">
+      {/* Back navigation + share */}
+      <div className="ticket-detail-back mb-4 flex items-center justify-between gap-2">
         <Button
           variant="secondary"
           size="sm"
@@ -322,6 +325,16 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           leftIcon={<FontAwesomeIcon icon={faArrowLeft} size="sm" />}
         >
           TICKETS
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          aria-label="Copy link to this ticket"
+          className="rounded-full"
+          onClick={() => void copyLink(`/app/tickets/${ticket.id}`)}
+          leftIcon={<FontAwesomeIcon icon={faLink} size="sm" />}
+        >
+          Copy Link
         </Button>
       </div>
 

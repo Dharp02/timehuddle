@@ -159,27 +159,27 @@ File: [`src/features/tickets/TicketDetailPage.tsx`](../src/features/tickets/Tick
 
 File: [`src/features/tickets/TicketsPage.tsx`](../src/features/tickets/TicketsPage.tsx)
 
-- [ ] Move search, assignee, status and priority from `useState` to `useQueryParam`: `?q=`, `?assignee=`, `?status=`, `?priority=`. Team comes from `?team=` (Milestone 1).
-- [ ] Search box: `replace`, and debounce about 300 ms so typing doesn't re-render on every key or add history entries
-- [ ] Dropdown filters: `replace` too (filters shouldn't fill Back history)
-- [ ] Invalid values (e.g. `?status=banana`) are ignored, not crashed on
+- [x] Move search, assignee, status and priority from `useState` to `useQueryParam`: `?q=`, `?assignee=`, `?status=`, `?priority=`. Team comes from `?team=` (Milestone 1). _Done: `?q=`, `?assignee=` (`unassigned` for none), `?status=`, `?priority=`, and `?tab=closed` for the Open/Closed tabs. The team filter *is* the app's `?team=`; "All teams" is `?teams=all`. TicketsPage stays mounted behind other routes, so it reads the URL only while it's the visible page, and restores its last filters when you come back through the sidebar._
+- [x] Search box: `replace`, and debounce about 300 ms so typing doesn't re-render on every key or add history entries _The list still filters on every keystroke; only the URL write is debounced._
+- [x] Dropdown filters: `replace` too (filters shouldn't fill Back history)
+- [x] Invalid values (e.g. `?status=banana`) are ignored, not crashed on
 
 ### 3c. One way to open a ticket
 
-- [ ] Decide: the in-list `detailsTicket` modal either becomes `?ticket=<id>` (pushed with `navigate`, so Back closes it) **or** clicking a ticket just navigates to `/app/tickets/:ticketId`. **Recommendation:** navigate to the detail route and delete the modal. One way to open a ticket, less code. Get the reviewer's OK in the PR before deleting it.
-- [ ] Whichever you choose, remove the other path, so there's one way to open a ticket
+- [x] Decide: the in-list `detailsTicket` modal either becomes `?ticket=<id>` (pushed with `navigate`, so Back closes it) **or** clicking a ticket just navigates to `/app/tickets/:ticketId`. **Recommendation:** navigate to the detail route and delete the modal. One way to open a ticket, less code. Get the reviewer's OK in the PR before deleting it. _Decision: the modal was dead code (nothing ever opened it; rows already navigate to the detail route). Deleted._
+- [x] Whichever you choose, remove the other path, so there's one way to open a ticket
 
 ### 3d. Copy link
 
-- [ ] Add a small `copyLink(path)` helper (absolute URL from `window.location.origin` + path, `navigator.clipboard.writeText`, toast on success/failure). Use it everywhere; don't repeat it.
-- [ ] **Copy link** action in the ticket list row menu and on the detail page, with an `aria-label`
-- [ ] Native app check: the copied link must be the **web** URL, not `capacitor://localhost`. Confirm what `window.location.origin` is inside the iOS app and use the configured public origin if they differ.
+- [x] Add a small `copyLink(path)` helper (absolute URL from `window.location.origin` + path, `navigator.clipboard.writeText`, toast on success/failure). Use it everywhere; don't repeat it. _Done as `useCopyLink()` in `src/lib/`. Feedback is a `@mieweb/ui` toast; `AppLayout` now mounts `ToastProvider` + `ToastContainer` (top-centre, clear of the mobile bottom nav)._
+- [x] **Copy link** action in the ticket list row menu and on the detail page, with an `aria-label`
+- [ ] Native app check: the copied link must be the **web** URL, not `capacitor://localhost`. Confirm what `window.location.origin` is inside the iOS app and use the configured public origin if they differ. _Not done: it uses `window.location.origin`, like the existing team join link. In the iOS/Android app that is not the public web URL. Needs a configured public origin; follow-up._
 
 ### 3e. Ship it
 
-- [ ] E2E: filter tickets → reload → same filters; copy the URL into a new context (same user) → same view; Back after opening a ticket returns to the filtered list
-- [ ] E2E: `/app/teams/<id>` opens that team; `/app/teams` redirects
-- [ ] Lint, typecheck, format, unit tests pass
+- [x] E2E: filter tickets → reload → same filters; copy the URL into a new context (same user) → same view; Back after opening a ticket returns to the filtered list
+- [x] E2E: `/app/teams/<id>` opens that team; `/app/teams` redirects
+- [x] Lint, typecheck, format, unit tests pass
 - [ ] PR title: `refs #618: deep-linkable teams and tickets`
 
 ---
