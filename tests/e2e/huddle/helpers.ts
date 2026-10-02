@@ -102,6 +102,13 @@ export function inboxMessage(page: Page, uniqueText: string): Locator {
   return page.locator('[data-slot="superchat-message"]').filter({ hasText: uniqueText });
 }
 
+/** Start editing an own message; SuperChat folds Copy + Edit into its ⋯ menu. */
+export async function editInboxMessage(page: Page, message: Locator): Promise<void> {
+  await message.hover();
+  await message.getByRole('button', { name: 'Message actions' }).click();
+  await page.getByRole('menuitem', { name: 'Edit message' }).click();
+}
+
 /** The inbox's conversation list, whose header carries the page's filters. */
 export function conversationList(page: Page): Locator {
   return page.locator('[data-slot="superchat-conversations"]');

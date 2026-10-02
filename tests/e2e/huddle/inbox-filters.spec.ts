@@ -79,9 +79,9 @@ test.describe('Huddle inbox filters', () => {
     await expect(page.getByRole('button', { name: 'Ticket', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Share an update...' })).toHaveCount(0);
     await inboxMessage(page, token).hover();
-    await expect(
-      inboxMessage(page, token).getByRole('button', { name: 'Edit message' }),
-    ).toBeVisible();
+    await inboxMessage(page, token).getByRole('button', { name: 'Message actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Edit message' })).toBeVisible();
+    await page.keyboard.press('Escape');
   });
 
   test('Group by defaults to Day, explains each option, and remembers the choice', async ({
