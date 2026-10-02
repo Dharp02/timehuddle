@@ -87,7 +87,8 @@ test.describe('Notification deep links', () => {
 
     await expect(openedPost(page, text)).toBeVisible({ timeout: 15000 });
     // Left in place, a stale ?postId= makes the next identical tap a no-op.
-    await expect.poll(() => new URL(page.url()).search, { timeout: 10000 }).toBe('');
+    // The team stays: it's the page's scope, not part of the consumed link.
+    await expect.poll(() => new URL(page.url()).search, { timeout: 10000 }).toBe(`?team=${teamId}`);
   });
 
   test('a second post link is honoured while already on the feed', async ({ page }) => {

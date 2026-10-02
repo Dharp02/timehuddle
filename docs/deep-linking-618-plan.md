@@ -99,8 +99,8 @@ File: [`src/lib/TeamContext.tsx`](../src/lib/TeamContext.tsx) (the restore effec
 ### 1e. Ship it
 
 - [x] `npm run lint && npm run typecheck && npm run format && npm run test:unit` pass
-- [ ] Manual check: switch team → URL shows `?team=`; reload → same team; open the URL in a private window with the same user → same team
-- [ ] Old notification link `/app/dashboard?tab=timesheet&teamId=X&memberId=Y` still lands on the right team and member
+- [x] Manual check: switch team → URL shows `?team=`; reload → same team; open the URL in a private window with the same user → same team
+- [x] Old notification link `/app/dashboard?tab=timesheet&teamId=X&memberId=Y` still lands on the right team and member _Covered by `tests/e2e/navigation/deep-links.spec.ts` (reload, alias, sidebar, unknown team) and the existing `tests/e2e/notifications/deep-links.spec.ts` + `teams.spec.ts`._
 - [ ] PR title: `refs #618: URL conventions, router helpers and ?team= sync`
 
 ---
