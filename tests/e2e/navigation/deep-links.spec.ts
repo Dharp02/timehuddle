@@ -283,7 +283,9 @@ test.describe('Deep links: dashboard', () => {
     await page.goto(`/app/dashboard?tab=timesheet&teamId=${teamId}`);
     await expect.poll(() => param(page, 'view')).toBe('timesheet');
     expect(param(page, 'tab')).toBe('team');
-    expect(param(page, 'team')).toBe(teamId);
+    // ?teamId= becomes ?team= once the team list has loaded.
+    await expect.poll(() => param(page, 'team')).toBe(teamId);
+    expect(param(page, 'teamId')).toBeNull();
   });
 });
 

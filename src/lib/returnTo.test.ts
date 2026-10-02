@@ -16,9 +16,35 @@ describe('returnTo', () => {
     expect(restoreReturnTo()).toBe(true);
     expect(window.location.pathname + window.location.search).toBe('/app/tickets/abc?team=t1');
 
-    window.history.replaceState(null, '', '/app/dashboard');
+    window.history.replaceState(null, '', '/');
     expect(restoreReturnTo()).toBe(false);
-    expect(window.location.pathname).toBe('/app/dashboard');
+  });
+
+  it('restores after an OAuth round trip lands on the dashboard', () => {
+    window.history.replaceState(null, '', '/app/tickets/abc');
+    rememberReturnTo();
+    window.history.replaceState(null, '', '/app/dashboard');
+    expect(restoreReturnTo()).toBe(true);
+    expect(window.location.pathname).toBe('/app/tickets/abc');
+  });
+
+  it('never overrides a page the user opened since, and drops the stale link', () => {
+    window.history.replaceState(null, '', '/app/dashboard?team=t1');
+    rememberReturnTo();
+    window.history.replaceState(null, '', '/app/huddle');
+    expect(restoreReturnTo()).toBe(false);
+    expect(window.location.pathname).toBe('/app/huddle');
+
+    window.history.replaceState(null, '', '/');
+    expect(restoreReturnTo()).toBe(false);
+  });
+
+  it('lets an invite or join landing keep its own query', () => {
+    window.history.replaceState(null, '', '/app/tickets/abc');
+    rememberReturnTo();
+    window.history.replaceState(null, '', '/app/dashboard?join=CODE');
+    expect(restoreReturnTo()).toBe(false);
+    expect(window.location.search).toBe('?join=CODE');
   });
 
   it('ignores pages outside the app', () => {

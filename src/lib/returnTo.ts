@@ -27,7 +27,19 @@ export function rememberReturnTo(): void {
   }
 }
 
-/** Moves the browser back to the saved URL, once. Returns whether it did. */
+/**
+ * Where signing in lands: `/` after the password form, `/app/dashboard` after
+ * an OAuth round trip. Only there does the saved link take over.
+ */
+const SIGN_IN_LANDINGS = new Set(['/', '/app', '/app/dashboard']);
+
+/**
+ * Moves the browser back to the saved URL, once, if it has just come from
+ * signing in. Returns whether it did. The saved URL is dropped either way, so
+ * a stale one (from a session that blipped out and back) never overrides a
+ * page the user opened since. A landing that carries its own query (an invite
+ * or join link) wins over the saved one.
+ */
 export function restoreReturnTo(): boolean {
   let target: string | null = null;
   try {
@@ -36,7 +48,9 @@ export function restoreReturnTo(): boolean {
   } catch {
     return false;
   }
+  const { pathname, search } = window.location;
   if (!target || !isAppPath(target)) return false;
+  if (!SIGN_IN_LANDINGS.has(pathname) || search) return false;
   window.history.replaceState(null, '', target);
   return true;
 }
