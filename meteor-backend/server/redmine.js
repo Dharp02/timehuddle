@@ -97,6 +97,15 @@ Meteor.startup(async () => {
   }
 });
 
+// Redmine is on when a base URL is set, and every personal key is encrypted with
+// REDMINE_ENCRYPTION_KEY. Without it the first connect fails with a 500, so refuse
+// to boot instead.
+Meteor.startup(() => {
+  if (optionalRedmineBaseUrl() && !process.env.REDMINE_ENCRYPTION_KEY) {
+    throw new Error('REDMINE_BASE_URL is set but REDMINE_ENCRYPTION_KEY is not.');
+  }
+});
+
 /**
  * The caller's connection status, plus what Settings needs to offer a custom
  * Redmine URL: whether the deployment allows one, and the server default to

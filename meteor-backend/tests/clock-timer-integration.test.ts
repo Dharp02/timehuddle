@@ -148,7 +148,7 @@ describe('break pauses and resumes the running ticket timer', () => {
   });
 });
 
-describe('timesheet ticket titles follow the viewer', () => {
+describe('ticket titles follow the viewer', () => {
   const ADMIN = { name: 'Clock Timer Admin', email: 'wh-clock-timer-admin@test.dev', password: 'Password1!' };
   let adminJwt: string;
   let adminId: string;
@@ -165,6 +165,17 @@ describe('timesheet ticket titles follow the viewer', () => {
     const rows = res.result.sessions.flatMap((s) => s.ticketSessions);
     expect(rows.length).toBeGreaterThan(0);
     return rows.map((row) => row.title);
+  };
+
+  const todayTitlesSeenBy = async (viewerJwt: string) => {
+    const res = await wormhole<{ entries: { entry: { displayTitle: string | null } }[] }>(
+      'timers.getToday',
+      { userId },
+      viewerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.entries.length).toBeGreaterThan(0);
+    return res.result.entries.map(({ entry }) => entry.displayTitle);
   };
 
   beforeAll(async () => {
@@ -200,9 +211,15 @@ describe('timesheet ticket titles follow the viewer', () => {
     expect(titles.every((title) => title === null)).toBe(true);
   });
 
+  it('hides a title from an admin reading the member\u2019s day, too', async () => {
+    const titles = await todayTitlesSeenBy(adminJwt);
+    expect(titles.every((title) => title === null)).toBe(true);
+  });
+
   it('shows the title once the admin belongs to the ticket\u2019s team', async () => {
     const db = await getDb();
     await db.collection('teams').updateOne({ code: 'WHCLKTMR' }, { $push: { members: adminId } as never });
     expect(await titlesSeenBy(adminJwt)).toContain('Clock Timer Test Ticket');
+    expect(await todayTitlesSeenBy(adminJwt)).toContain('Clock Timer Test Ticket');
   });
 });

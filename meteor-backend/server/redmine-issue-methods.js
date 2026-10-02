@@ -142,6 +142,16 @@ async function loadJournals(userId, account, raw) {
  */
 const issueReadLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
 
+/**
+ * The writes and the form lookup are tighter than the read: nothing but a person
+ * submitting a form calls them, and each is several Redmine calls (create: 2,
+ * update: 3, form options: 3). Form options are cached per project, so a loop
+ * over project ids would walk straight past that cache without a limit.
+ */
+const issueCreateLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
+const issueUpdateLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
+const formOptionsLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
+
 /** How many Redmine time entries the issue page shows. */
 const ISSUE_TIME_ENTRY_LIMIT = 10;
 
@@ -191,6 +201,7 @@ Meteor.methods({
     if (!Number.isInteger(projectId) || projectId <= 0) {
       throw new Meteor.Error('bad-request', 'A Redmine project id is required.');
     }
+    enforceRedmineLimit(formOptionsLimiter, userId);
     const account = await requireAccount(userId);
 
     let options;
@@ -246,6 +257,7 @@ Meteor.methods({
     const { userId } = await requireIdentity(this);
     const validated = validateCreateInput(input);
     if (validated.error) throw new Meteor.Error('bad-request', validated.error);
+    enforceRedmineLimit(issueCreateLimiter, userId);
     const account = await requireAccount(userId);
 
     let created;
@@ -290,6 +302,7 @@ Meteor.methods({
     if (!edits || typeof edits !== 'object') {
       throw new Meteor.Error('bad-request', 'Nothing to change.');
     }
+    enforceRedmineLimit(issueUpdateLimiter, userId);
     const account = await requireAccount(userId);
 
     const current = await loadIssueDetail(account, issueId);

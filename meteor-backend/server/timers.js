@@ -150,11 +150,16 @@ async function notifyTimesheetAdmins(actorUserId, ticketId, date, action) {
   );
 }
 
-/** Shape a day's entries + sessions for the wire, resolving titles in one batch. */
-async function toPublicDay(userId, entries) {
+/**
+ * Shape a day's entries + sessions for the wire, resolving titles in one batch.
+ * Titles are resolved under `viewerId`'s access, which differs from `userId`
+ * when an admin reads a member's day.
+ */
+async function toPublicDay(userId, entries, viewerId = userId) {
   const display = await resolveTicketRefs(
     userId,
     entries.map(({ entry }) => entry),
+    viewerId,
   );
   return entries.map(({ entry, sessions }) => ({
     entry: toPublicEntry(entry, display.get(refKey(normalizeSource(entry.source), entry.ticketId))),
@@ -314,9 +319,7 @@ Meteor.methods({
 
     const today = todayInTz(tz);
     const entries = await getDayEntries(userId, today);
-    // Titles resolve against the *target* user's Redmine key, since the issues
-    // are only reachable through the key that logged the time.
-    return { entries: await toPublicDay(userId, entries) };
+    return { entries: await toPublicDay(userId, entries, requesterId) };
   },
 
   /** Get per-day totals for a 7-day week starting at date (YYYY-MM-DD). */
