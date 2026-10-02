@@ -776,7 +776,7 @@ export default function Huddle() {
                       mentionOptions: mentions.options,
                       leadingSlot: (
                         // ChatComposer's leadingSlot wrapper has no gap of its own.
-                        <div className="flex flex-wrap items-center gap-1.5">
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                           {/* Keyed by scope: it reads its pending reservation only on mount. */}
                           <PulseAttachButton
                             key={pulseScope}

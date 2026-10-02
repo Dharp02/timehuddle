@@ -157,19 +157,21 @@ export function ComposerChips({
       )}
 
       {attachments.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex min-w-0 max-w-full flex-wrap gap-2">
           {attachments.map((media) => (
             /* `rounded-lg` overrides Badge's pill shape — file chips are square. */
             <Badge
               key={media.id}
               size="sm"
-              className="relative gap-2 rounded-lg border border-gray-200 bg-gray-100 p-2 text-gray-600 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
+              className="relative max-w-full min-w-0 gap-2 rounded-lg border border-gray-200 bg-gray-100 p-2 text-gray-600 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
             >
-              {media.filename}
+              <span className="truncate" title={media.filename}>
+                {media.filename}
+              </span>
               <button
                 type="button"
                 onClick={() => onAttachmentRemove(media.id)}
-                className="text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors"
+                className="shrink-0 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors"
                 aria-label={`Remove attachment ${media.filename}`}
               >
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
