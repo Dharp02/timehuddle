@@ -244,9 +244,9 @@ File: [`src/main.tsx`](../src/main.tsx). The `if (!user)` block does `window.his
 
 ### 5c. Release note
 
-- [ ] Follow [`release-notes/README.md`](../release-notes/README.md): find the version that will ship (check `package.json` and `.github/workflows/ota-publish.yml`), then add to that version's note or create it
-- [ ] Write it for users: "Links now open exactly what you were looking at…", not implementation details
-- [ ] Open `/app/release-notes` and confirm the note shows up (a version mismatch silently drops it)
+- [x] Follow [`release-notes/README.md`](../release-notes/README.md): find the version that will ship (check `package.json` and `.github/workflows/ota-publish.yml`), then add to that version's note or create it _Added to `1.0.4.md`: `package.json` is still 1.0.4 and the README says to add to an existing note. Users who already opened 1.0.4's notes won't see it flagged New unless the version is bumped._
+- [x] Write it for users: "Links now open exactly what you were looking at…", not implementation details
+- [x] Open `/app/release-notes` and confirm the note shows up (a version mismatch silently drops it)
 
 ### 5d. Ship it
 
