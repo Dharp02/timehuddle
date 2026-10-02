@@ -68,4 +68,17 @@ describe('useTeamMentions', () => {
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
     expect(result.current.options).toEqual([]);
   });
+
+  it('drops the previous team’s roster as soon as the team changes', async () => {
+    mockFetch.mockResolvedValueOnce(roster);
+    mockFetch.mockImplementationOnce(() => new Promise(() => {}));
+    const { result, rerender } = renderHook(({ teamId }) => useTeamMentions(teamId), {
+      initialProps: { teamId: 'team-1' },
+    });
+    await waitFor(() => expect(result.current.options).toHaveLength(3));
+
+    rerender({ teamId: 'team-2' });
+    expect(result.current.options).toEqual([]);
+    expect(result.current.detect('@Priya')).toEqual([]);
+  });
 });

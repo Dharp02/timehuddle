@@ -110,4 +110,22 @@ describe('useTicketVideos', () => {
     rerender({ id: undefined });
     expect(result.current).toEqual({ videos: [], loading: false, error: null });
   });
+
+  it('reloads, not reuses, a ticket that is deselected and picked again', async () => {
+    const again = deferred<unknown[]>();
+    mockList.mockResolvedValueOnce([videoAttachment('vid-a')] as never);
+    mockList.mockImplementationOnce(() => again.promise as never);
+    const { result, rerender } = renderHook(({ id }) => useTicketVideos(id), {
+      initialProps: { id: 'ticket-a' as string | undefined },
+    });
+    await waitFor(() => expect(result.current.videos).toHaveLength(1));
+
+    rerender({ id: undefined });
+    rerender({ id: 'ticket-a' });
+    expect(result.current).toEqual({ videos: [], loading: true, error: null });
+
+    again.resolve([]);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.videos).toEqual([]);
+  });
 });

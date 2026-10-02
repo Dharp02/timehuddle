@@ -21,10 +21,14 @@ interface Loaded {
   error: string | null;
 }
 
+const NOTHING_LOADED: Loaded = { ticketId: undefined, videos: [], error: null };
+
 export function useTicketVideos(ticketId: string | undefined): TicketVideos {
-  const [loaded, setLoaded] = useState<Loaded>({ ticketId: undefined, videos: [], error: null });
+  const [loaded, setLoaded] = useState<Loaded>(NOTHING_LOADED);
 
   useEffect(() => {
+    // Drop the last result so reselecting the same ticket refetches before it reads as settled.
+    setLoaded(NOTHING_LOADED);
     if (!ticketId) return;
     let cancelled = false;
     attachmentApi

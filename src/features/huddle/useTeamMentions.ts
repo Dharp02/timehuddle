@@ -29,26 +29,29 @@ function escapeRegExp(value: string): string {
 }
 
 export function useTeamMentions(teamId: string | null | undefined): TeamMentions {
-  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loaded, setLoaded] = useState<{ teamId: string; members: TeamMember[] } | null>(null);
 
   useEffect(() => {
-    if (!teamId) {
-      setMembers([]);
-      return;
-    }
+    if (!teamId) return;
     let cancelled = false;
     fetchTeamMembers(teamId)
       .then((data) => {
-        if (!cancelled) setMembers(data);
+        if (!cancelled) setLoaded({ teamId, members: data });
       })
       .catch((err) => {
         console.error('[useTeamMentions] Failed to load team members:', err);
-        if (!cancelled) setMembers([]);
+        if (!cancelled) setLoaded({ teamId, members: [] });
       });
     return () => {
       cancelled = true;
     };
   }, [teamId]);
+
+  // Keyed by team: the previous team's roster must not mention people into this team's post.
+  const members = useMemo(
+    () => (teamId && loaded?.teamId === teamId ? loaded.members : []),
+    [teamId, loaded],
+  );
 
   return useMemo(
     () => ({

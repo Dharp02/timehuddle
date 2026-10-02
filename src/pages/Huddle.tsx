@@ -34,7 +34,6 @@ import {
 } from '../features/huddle/superChatFeed';
 import type { MediaItem } from '../features/huddle/types';
 import { TicketPicker } from '../features/huddle/TicketPicker';
-import { MAX_ATTACHMENT_BYTES } from '../features/huddle/useAttachmentUpload';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
@@ -51,6 +50,8 @@ import styles from './Huddle.module.css';
 const THREAD_BY_KEY = 'app:huddleThreadBy';
 // Team-picker value for the Personal view; team ids are never this string.
 const PERSONAL_VIEW = 'personal';
+// Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
+const COMPOSER_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
   session: 'Session',
@@ -768,7 +769,7 @@ export default function Huddle() {
                       // Input on its own row, labelled buttons underneath.
                       layout: 'stacked',
                       placeholder: 'Share an update…',
-                      maxFileSize: MAX_ATTACHMENT_BYTES,
+                      maxFileSize: COMPOSER_MAX_FILE_BYTES,
                       // A Pulse video or ticket is a post on its own.
                       canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
                       isSending: sending,

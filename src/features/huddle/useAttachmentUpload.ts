@@ -14,7 +14,7 @@ import type { MediaItem } from './types';
  * so an oversize pick fails instantly with a message naming the file, instead
  * of after however long it takes to push the bytes up and be rejected.
  */
-export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 const formatMb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
 
