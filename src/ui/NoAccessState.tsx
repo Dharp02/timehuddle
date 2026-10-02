@@ -15,7 +15,7 @@ import React from 'react';
 import { useRouter } from './router';
 
 export type NoAccessKind = 'forbidden' | 'not-found';
-export type NoAccessResource = 'team' | 'ticket' | 'profile';
+export type NoAccessResource = 'team' | 'org' | 'ticket' | 'profile' | 'conversation';
 
 /** All user-facing copy, kept together for translation. */
 export const NO_ACCESS_COPY: Record<
@@ -28,6 +28,11 @@ export const NO_ACCESS_COPY: Record<
       description:
         'You aren’t a member of the team this link points to. Ask one of its admins for an invite, then open the link again.',
     },
+    org: {
+      title: 'You don’t have access to this organization',
+      description:
+        'You aren’t a member of the organization this link points to. Ask one of its admins for an invite, then open the link again.',
+    },
     ticket: {
       title: 'You don’t have access to this ticket',
       description:
@@ -37,10 +42,19 @@ export const NO_ACCESS_COPY: Record<
       title: 'This profile isn’t available to you',
       description: 'You can only view profiles of people who share a team with you.',
     },
+    conversation: {
+      title: 'You don’t have access to this conversation',
+      description:
+        'It belongs to a team you aren’t a member of. Ask one of its admins for an invite, then open the link again.',
+    },
   },
   'not-found': {
     team: {
       title: 'This team doesn’t exist',
+      description: 'It may have been deleted, or the link may be incomplete.',
+    },
+    org: {
+      title: 'This organization doesn’t exist',
       description: 'It may have been deleted, or the link may be incomplete.',
     },
     ticket: {
@@ -50,6 +64,11 @@ export const NO_ACCESS_COPY: Record<
     profile: {
       title: 'This person doesn’t exist',
       description: 'The profile may have been removed, or the username may have changed.',
+    },
+    conversation: {
+      title: 'This conversation isn’t here',
+      description:
+        'Its posts may have been deleted, or it may belong to another team or Thread by option. Pick a conversation from the list to carry on.',
     },
   },
   goToDashboard: 'Go to dashboard',

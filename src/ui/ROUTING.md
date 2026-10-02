@@ -14,7 +14,8 @@ There is no router library. [`router.tsx`](router.tsx) provides `RouterProvider`
 
 - **Scope** is owned by [`TeamContext`](../lib/TeamContext.tsx). `?team=` wins over the team remembered in `localStorage`, which is only the fallback for a URL without one. A URL team also selects its org. Team-scoped pages get the selected team stamped into the URL automatically, so pages never write `?team=` themselves.
 - **Resource paths that already belong to a scope** (`/app/tickets/:ticketId`, `/app/profile/:idOrUsername`) don't get `?team=` stamped on.
-- **A URL that names a team the user can't access is never swapped for another team.** `useTeam().teamAccess` becomes `'forbidden'` and the page shows a no-access state.
+- **A URL that names a team or org the user can't access is never swapped for one they can.** `useTeam().teamAccess` / `orgAccess` become `'forbidden'` and the page shows a no-access state. (`?org=` is only read this way when no `?team=` already implies an org.)
+- **A shared link points at the public web origin**, not at whatever the app is loaded from: inside the native shell `window.location.origin` is `capacitor://localhost`. Build share links with `absoluteAppUrl()` from [`lib/useCopyLink.ts`](../lib/useCopyLink.ts), which falls back to `VITE_PUBLIC_APP_URL` (then the backend host) on native.
 
 ## Writing to the URL: `replace` vs `push`
 

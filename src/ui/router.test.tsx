@@ -35,6 +35,10 @@ describe('matchPath', () => {
     expect(matchPath('/app/tickets/:ticketId', '/app/tickets')).toBeNull();
     expect(matchPath('/app/tickets/:ticketId', '/app/tickets/a/b')).toBeNull();
   });
+
+  it('returns null for a malformed escape instead of throwing', () => {
+    expect(matchPath('/app/tickets/:ticketId', '/app/tickets/%E0%A4%A')).toBeNull();
+  });
 });
 
 describe('resolveUrl', () => {
@@ -50,6 +54,15 @@ describe('resolveUrl', () => {
 
   it('leaves other Teams links alone', () => {
     expect(resolveUrl('/app/teams?tab=pending')).toBe('/app/teams?tab=pending');
+  });
+
+  it('keeps the scope an old link carried', () => {
+    expect(resolveUrl('/app/timesheet?team=t1')).toBe('/app/dashboard?team=t1&view=timesheet');
+    expect(resolveUrl('/app?org=o1')).toBe('/app/dashboard?org=o1');
+  });
+
+  it('lets the replacement win on a shared key', () => {
+    expect(resolveUrl('/app/timesheet?view=team')).toBe('/app/dashboard?view=timesheet');
   });
 });
 

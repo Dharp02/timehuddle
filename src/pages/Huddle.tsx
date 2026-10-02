@@ -38,6 +38,7 @@ import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
+import { NoAccessState } from '../ui/NoAccessState';
 import { useQueryParams, useSearchParam } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
@@ -528,12 +529,20 @@ export default function Huddle() {
   );
 
   // The conversation the inbox has open (controlled — see onConversationOpened
-  // below). Resetting it when the grouping/scope changes avoids pointing at an
-  // id from the previous Thread by option, which would just show nothing open.
-  // Same fallback SuperChatInbox uses for an unknown id — including one left
-  // over from another team or view.
-  const activeConversation =
-    conversations.find((c) => c.id === conversationParam) ?? conversations[0];
+  // below).
+  //
+  // A linked id is resolved against every conversation, not the search-filtered
+  // list, so the search box can't hide what the link points at. The starter
+  // conversation is the one id that exists only in the rendered list. An id
+  // that resolves to nothing is a dead link rather than a reason to open
+  // someone else's conversation, so it gets the not-found state instead of
+  // silently falling back to the first one.
+  const linkedConversation = conversationParam
+    ? (allConversations.find((c) => c.id === conversationParam) ??
+      conversations.find((c) => c.id === conversationParam) ??
+      null)
+    : null;
+  const activeConversation = conversationParam ? linkedConversation : conversations[0];
   const openConversation = (conversationId: string) =>
     setParams({ conversation: conversationId }, 'push');
 
@@ -546,6 +555,26 @@ export default function Huddle() {
     scopeKeyRef.current = scopeKey;
     setParams({ conversation: null });
   }, [scopeKey, setParams]);
+
+  const feedLoading = scope === 'me' ? myPostsLoading : loading;
+  const feedError = scope === 'me' ? myPostsError : error;
+
+  // The link points at a conversation we have, but the search box is hiding
+  // it — the link wins, so the search goes.
+  useEffect(() => {
+    if (!linkedConversation || !searchQuery.trim()) return;
+    if (conversations.some((c) => c.id === linkedConversation.id)) return;
+    setSearchQuery('');
+  }, [linkedConversation, conversations, searchQuery, setSearchQuery]);
+
+  // Only once the posts are in, and not across a scope change, where the
+  // effect above clears the param a render later.
+  const conversationUnavailable =
+    !!conversationParam &&
+    !linkedConversation &&
+    scopeKeyRef.current === scopeKey &&
+    !feedLoading &&
+    !feedError;
 
   // Post link → the conversation that holds it (see `targetPostLoaded`).
   // Searched in every conversation, not just the ones the search box shows.
@@ -690,18 +719,22 @@ export default function Huddle() {
 
           {(scope === 'me' || selectedTeamId) && (
             <>
-              {(scope === 'me' ? myPostsLoading : loading) && (
+              {feedLoading && (
                 <div className="huddle-loading flex items-center justify-center py-16">
                   <Spinner size="lg" label="Loading posts" />
                 </div>
               )}
 
-              {(scope === 'me' ? myPostsError : error) && (
+              {feedError && (
                 <div className="huddle-load-error flex items-center justify-center py-16 px-4">
                   <p role="alert" className="text-sm text-red-500 dark:text-red-400">
-                    {scope === 'me' ? myPostsError : error}
+                    {feedError}
                   </p>
                 </div>
+              )}
+
+              {conversationUnavailable && (
+                <NoAccessState kind="not-found" resource="conversation" />
               )}
 
               <ComposerError message={inboxError} onDismiss={() => setInboxError(null)} />
@@ -711,70 +744,68 @@ export default function Huddle() {
                   Stays mounted through an empty search so the filters in its
                   list header don't vanish mid-typing, and with no posts at all
                   it opens the starter conversation (see `conversations`). */}
-              {!(scope === 'me' ? myPostsLoading : loading) &&
-                !(scope === 'me' ? myPostsError : error) &&
-                user && (
-                  <SuperChatInbox
-                    conversations={conversations}
-                    activeConversationId={activeConversation?.id}
-                    onConversationOpened={(conversation) => openConversation(conversation.id)}
-                    currentParticipantId={user.id}
-                    virtualized
-                    renderPlugins={renderPlugins}
-                    acceptedFileTypes={['image', 'video', 'pdf']}
-                    onMessageSent={(text, { mentions: sentMentions, attachments }) =>
-                      handleMessageSent(text, sentMentions, attachments)
-                    }
-                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
-                    composerProps={{
-                      // Input on its own row, labelled buttons underneath.
-                      layout: 'stacked',
-                      placeholder: 'Share an update…',
-                      maxFileSize: COMPOSER_MAX_FILE_BYTES,
-                      // A Pulse video or ticket is a post on its own.
-                      canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
-                      // Also busy while staged content is still settling: a send
-                      // rejected then would lose the picked files, which the
-                      // composer clears before `onSend` (gap 4.14).
-                      isSending: sending || pulsePending || ticketVideos.loading,
-                      mentionOptions: mentions.options,
-                      leadingSlot: (
-                        // ChatComposer's leadingSlot wrapper has no gap of its own.
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          {/* Keyed by scope: it reads its pending reservation only on mount. */}
-                          <PulseAttachButton
-                            key={pulseScope}
-                            scope={pulseScope}
-                            onAttach={(media) =>
-                              setPulseVideos((prev) =>
-                                prev.some((m) => m.id === media.id) ? prev : [...prev, media],
-                              )
-                            }
-                            onPendingChange={setPulsePending}
+              {!feedLoading && !feedError && !conversationUnavailable && user && (
+                <SuperChatInbox
+                  conversations={conversations}
+                  activeConversationId={activeConversation?.id}
+                  onConversationOpened={(conversation) => openConversation(conversation.id)}
+                  currentParticipantId={user.id}
+                  virtualized
+                  renderPlugins={renderPlugins}
+                  acceptedFileTypes={['image', 'video', 'pdf']}
+                  onMessageSent={(text, { mentions: sentMentions, attachments }) =>
+                    handleMessageSent(text, sentMentions, attachments)
+                  }
+                  onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
+                  composerProps={{
+                    // Input on its own row, labelled buttons underneath.
+                    layout: 'stacked',
+                    placeholder: 'Share an update…',
+                    maxFileSize: COMPOSER_MAX_FILE_BYTES,
+                    // A Pulse video or ticket is a post on its own.
+                    canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
+                    // Also busy while staged content is still settling: a send
+                    // rejected then would lose the picked files, which the
+                    // composer clears before `onSend` (gap 4.14).
+                    isSending: sending || pulsePending || ticketVideos.loading,
+                    mentionOptions: mentions.options,
+                    leadingSlot: (
+                      // ChatComposer's leadingSlot wrapper has no gap of its own.
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        {/* Keyed by scope: it reads its pending reservation only on mount. */}
+                        <PulseAttachButton
+                          key={pulseScope}
+                          scope={pulseScope}
+                          onAttach={(media) =>
+                            setPulseVideos((prev) =>
+                              prev.some((m) => m.id === media.id) ? prev : [...prev, media],
+                            )
+                          }
+                          onPendingChange={setPulsePending}
+                        />
+                        {postingTeamId && (
+                          <TicketPicker
+                            teamId={postingTeamId}
+                            onSelect={setSelectedTicketId}
+                            selectedId={selectedTicketId}
                           />
-                          {postingTeamId && (
-                            <TicketPicker
-                              teamId={postingTeamId}
-                              onSelect={setSelectedTicketId}
-                              selectedId={selectedTicketId}
-                            />
-                          )}
-                          <TicketVideoChips videos={ticketVideos.videos} />
-                          <ComposerChips
-                            selectedTicketId={selectedTicketId}
-                            onTicketRemove={() => setSelectedTicketId(undefined)}
-                            mentions={[]}
-                            onMentionRemove={() => {}}
-                            attachments={pulseVideos}
-                            onAttachmentRemove={removePulseVideo}
-                          />
-                        </div>
-                      ),
-                    }}
-                    // No outer border or rounding: the inbox sits on the page as the page.
-                    className={`h-full rounded-none border-0 ${styles.inbox}`}
-                  />
-                )}
+                        )}
+                        <TicketVideoChips videos={ticketVideos.videos} />
+                        <ComposerChips
+                          selectedTicketId={selectedTicketId}
+                          onTicketRemove={() => setSelectedTicketId(undefined)}
+                          mentions={[]}
+                          onMentionRemove={() => {}}
+                          attachments={pulseVideos}
+                          onAttachmentRemove={removePulseVideo}
+                        />
+                      </div>
+                    ),
+                  }}
+                  // No outer border or rounding: the inbox sits on the page as the page.
+                  className={`h-full rounded-none border-0 ${styles.inbox}`}
+                />
+              )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}
             </>
           )}

@@ -61,6 +61,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { usePresence } from '../../lib/usePresence';
+import { absoluteAppUrl } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { PendingJoinRequests } from './PendingJoinRequests';
@@ -421,7 +422,7 @@ export const TeamsPage: React.FC = () => {
   // Shareable signup link encoded in the QR code — scanning it lands on the
   // signup page and auto-joins this team after account creation.
   const joinUrl = selectedTeam?.code
-    ? `${window.location.origin}/app?mode=signup&join=${encodeURIComponent(selectedTeam.code)}`
+    ? absoluteAppUrl(`/app?mode=signup&join=${encodeURIComponent(selectedTeam.code)}`)
     : '';
 
   const [linkCopied, setLinkCopied] = useState(false);

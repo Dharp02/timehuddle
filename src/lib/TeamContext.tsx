@@ -121,6 +121,8 @@ export interface TeamContextValue {
    */
   setSelectedTeamId: (id: string, team?: Team) => void;
   teamAccess: TeamAccess;
+  /** 'forbidden' when `?org=` names an organization the user isn't in. */
+  orgAccess: TeamAccess;
   isAdmin: boolean;
   activeClockEvent: ClockEvent | null;
   clockReady: boolean;
@@ -146,6 +148,7 @@ const TeamCtx = createContext<TeamContextValue>({
   selectedTeam: null,
   setSelectedTeamId: () => {},
   teamAccess: 'ok',
+  orgAccess: 'ok',
   isAdmin: false,
   activeClockEvent: null,
   clockReady: false,
@@ -179,6 +182,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // True once the authoritative org fetch resolves; gates the session seed.
   const orgsLoadedRef = useRef(false);
+  // The same fact as state, because `orgAccess` below is read during render.
+  const [orgsReady, setOrgsReady] = useState(false);
 
   const refetchTeams = useCallback(() => {
     teamApi
@@ -206,6 +211,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!userId) {
       setOrganizations([]);
       orgsLoadedRef.current = false;
+      setOrgsReady(false);
       return Promise.resolve();
     }
     return orgApi
@@ -214,7 +220,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         orgsLoadedRef.current = true;
         setOrganizations(orgs);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setOrgsReady(true));
   }, [userId]);
 
   // Seed from the session's already-loaded org list so the header scope shows
@@ -362,6 +369,19 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const selectedOrgId = urlTeam?.orgId ?? urlOrgId ?? storedOrgId;
   const teamAccess: TeamAccess =
     !urlTeamId || urlTeam ? 'ok' : teamsLoaded ? 'forbidden' : 'pending';
+
+  // `?org=` only speaks for itself when no URL team already implies an org.
+  // Like a URL team, an org the user isn't in is never swapped for one they
+  // are in — the page says so instead, or every org link would silently open
+  // the reader's own org with no scoped teams in it.
+  const orgIsFromUrl = !!urlOrgId && !urlTeamId;
+  const orgAccess: TeamAccess = !orgIsFromUrl
+    ? 'ok'
+    : organizations.some((org) => org.id === urlOrgId)
+      ? 'ok'
+      : orgsReady
+        ? 'forbidden'
+        : 'pending';
 
   /** Makes `id` (and its org) the persisted fallback for URLs without `?team=`. */
   const rememberTeam = useCallback(
@@ -624,6 +644,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       selectedTeam,
       setSelectedTeamId,
       teamAccess,
+      orgAccess,
       isAdmin,
       activeClockEvent,
       clockReady,
@@ -648,6 +669,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       selectedTeam,
       setSelectedTeamId,
       teamAccess,
+      orgAccess,
       isAdmin,
       activeClockEvent,
       clockReady,

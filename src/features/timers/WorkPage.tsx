@@ -100,6 +100,18 @@ function getWeekStart(d: Date): Date {
   return monday;
 }
 
+/**
+ * A `YYYY-MM-DD` that is also a real calendar day. The shape alone isn't
+ * enough: `2026-99-99` parses to Invalid Date and `2026-02-31` silently
+ * rolls over into March, so the parsed date has to round-trip back to the
+ * string it came from.
+ */
+function isLocalDateStr(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime()) && toLocalDateStr(parsed) === value;
+}
+
 function addDays(d: Date, n: number): Date {
   const r = new Date(d);
   r.setDate(r.getDate() + n);
@@ -133,7 +145,7 @@ export const WorkPage: React.FC = () => {
   // day pushes, so Back returns to the previous one.
   const [dateParam, setDateParam] = useQueryParam('date', { mode: 'push' });
   const selectedDate =
-    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : toLocalDateStr(new Date());
+    dateParam && isLocalDateStr(dateParam) ? dateParam : toLocalDateStr(new Date());
   const setSelectedDate = useCallback(
     (date: string) => setDateParam(date === toLocalDateStr(new Date()) ? null : date),
     [setDateParam],

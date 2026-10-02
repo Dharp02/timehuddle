@@ -181,7 +181,7 @@ version whole and the work is a follow-up against the new shape.
 
 - [x] Add a small `copyLink(path)` helper (absolute URL from `window.location.origin` + path, `navigator.clipboard.writeText`, toast on success/failure). Use it everywhere; don't repeat it. _Done as `useCopyLink()` in `src/lib/`. Feedback is a `@mieweb/ui` toast; `AppLayout` mounts `ToastProvider` + the app's own `AppToasts` container._
 - [x] **Copy link** action in the ticket list row menu and on the detail page, with an `aria-label`
-- [ ] Native app check: the copied link must be the **web** URL, not `capacitor://localhost`. Confirm what `window.location.origin` is inside the iOS app and use the configured public origin if they differ. _Not done: it uses `window.location.origin`, like the existing team join link. In the iOS/Android app that is not the public web URL. Needs a configured public origin; follow-up._
+- [x] Native app check: the copied link must be the **web** URL, not `capacitor://localhost`. Confirm what `window.location.origin` is inside the iOS app and use the configured public origin if they differ. _Done: `absoluteAppUrl()` uses `window.location.origin` on the web and, on native, `VITE_PUBLIC_APP_URL` falling back to the backend host (which also serves the web app). The team join/QR link goes through the same helper._
 
 ### 3e. Ship it
 

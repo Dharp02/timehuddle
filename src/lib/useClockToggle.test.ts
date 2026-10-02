@@ -61,6 +61,7 @@ function setupTeam(
     selectedTeam: null,
     setSelectedTeamId: vi.fn(),
     teamAccess: 'ok',
+    orgAccess: 'ok',
     isAdmin: false,
     activeClockEvent: (opts.activeClockEvent ?? null) as any,
     clockReady: true,

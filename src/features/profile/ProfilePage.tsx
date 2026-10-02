@@ -77,6 +77,10 @@ import { TodayStatusCard } from '../timers/TodayStatusCard';
 
 type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
+/** The tabs `?tab=` may name; anything else is treated as absent. */
+const PROFILE_TABS = ['feed', 'work', 'activity'] as const;
+type ProfileTab = (typeof PROFILE_TABS)[number];
+
 export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) => {
   const { user: sessionUser } = useSession();
   const { navigate } = useRouter();
@@ -96,7 +100,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   // Active tab — `?tab=` (Feed when absent). Switching pushes, so Back
   // returns to the previous tab and a notification's `?tab=work` is just a link.
   const [tabParam, setTabParam] = useQueryParam('tab', { mode: 'push' });
-  const activeTab = tabParam ?? 'feed';
+  // A stale or hand-edited `?tab=` falls back to Feed rather than rendering
+  // a Tabs with no matching content.
+  const activeTab = PROFILE_TABS.includes(tabParam as ProfileTab) ? tabParam! : 'feed';
   const setActiveTab = (tab: string) => setTabParam(tab === 'feed' ? null : tab);
 
   useEffect(() => {

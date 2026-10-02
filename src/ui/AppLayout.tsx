@@ -137,7 +137,7 @@ interface ForegroundNotif {
 
 const AppLayoutContent: React.FC = () => {
   const { refetch: refetchSession } = useSession();
-  const { refetchTeams, refetchClock, teamAccess } = useTeam();
+  const { refetchTeams, refetchClock, teamAccess, orgAccess } = useTeam();
 
   useBrand();
 
@@ -306,14 +306,16 @@ const AppLayoutContent: React.FC = () => {
 
   // A linked team the user isn't in replaces the page — never shows another team.
   const teamForbidden = teamAccess === 'forbidden';
+  const orgForbidden = orgAccess === 'forbidden';
+  const scopeForbidden = teamForbidden || orgForbidden;
 
   // Rendered in the body by <PageTitle />. Null on profile and ticket detail
   // (both already lead with a more specific heading of their own), and on the
   // no-access state, which has its own.
-  const pageTitle = teamForbidden ? null : (route?.title ?? null);
+  const pageTitle = scopeForbidden ? null : (route?.title ?? null);
 
   const isTicketsRoute =
-    !teamForbidden &&
+    !scopeForbidden &&
     !profileUserId &&
     !profileUsername &&
     !ticketDetailId &&
@@ -430,8 +432,11 @@ const AppLayoutContent: React.FC = () => {
                             <TicketsPage />
                           </div>
                         </PageTitleContext.Provider>
-                        {teamForbidden ? (
-                          <NoAccessState kind="forbidden" resource="team" />
+                        {scopeForbidden ? (
+                          <NoAccessState
+                            kind="forbidden"
+                            resource={teamForbidden ? 'team' : 'org'}
+                          />
                         ) : profileUserId ? (
                           <ProfilePage key={profileUserId} userId={profileUserId} />
                         ) : profileUsername ? (

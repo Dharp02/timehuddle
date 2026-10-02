@@ -52,6 +52,13 @@ const RETIRED_ROUTES: Record<string, string> = {
   '/app/media': '/app/dashboard',
 };
 
+/** Keys from `replacement` win; everything else the original link carried is kept. */
+function mergeQuery(original: string, replacement: string): string {
+  const params = new URLSearchParams(original);
+  for (const [key, value] of new URLSearchParams(replacement)) params.set(key, value);
+  return params.toString();
+}
+
 /**
  * Maps a URL onto where it actually lives now: `/app` and `/` mean the
  * dashboard, and a RETIRED_ROUTES path is rewritten to its replacement.
@@ -59,13 +66,24 @@ const RETIRED_ROUTES: Record<string, string> = {
  */
 export function resolveUrl(url: string): string {
   const [path, query = ''] = url.split('?');
-  if (path === '/app' || path === '/') return '/app/dashboard';
+
+  // The scope (`?team=`, `?org=`) an old link carried has to survive the
+  // rewrite, so the replacement's own params are merged over it rather than
+  // replacing it wholesale.
+  const rewriteTo = (target: string) => {
+    const [targetPath, targetQuery = ''] = target.split('?');
+    const merged = mergeQuery(query, targetQuery);
+    return merged ? `${targetPath}?${merged}` : targetPath;
+  };
+
+  if (path === '/app' || path === '/') return rewriteTo('/app/dashboard');
   // Old notification URLs sent the team timesheet to the Teams page; it now
   // lives on the Dashboard's Team tab.
   if (path === '/app/teams' && new URLSearchParams(query).get('tab') === 'timesheet') {
-    return `/app/dashboard?${query}`;
+    return rewriteTo('/app/dashboard');
   }
-  return RETIRED_ROUTES[path] ?? url;
+  const retired = RETIRED_ROUTES[path];
+  return retired ? rewriteTo(retired) : url;
 }
 
 function splitUrl(url: string): { pathname: string; search: string } {
@@ -136,7 +154,12 @@ export function matchPath(pattern: string, pathname: string): Record<string, str
   for (let i = 0; i < patternParts.length; i++) {
     const part = patternParts[i];
     if (part.startsWith(':')) {
-      params[part.slice(1)] = decodeURIComponent(pathParts[i]);
+      try {
+        params[part.slice(1)] = decodeURIComponent(pathParts[i]);
+      } catch {
+        // A broken %-escape is a link to nothing, not a reason to take the app down.
+        return null;
+      }
     } else if (part !== pathParts[i]) {
       return null;
     }
