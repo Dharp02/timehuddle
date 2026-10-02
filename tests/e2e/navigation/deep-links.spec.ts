@@ -286,3 +286,48 @@ test.describe('Deep links: dashboard', () => {
     expect(param(page, 'team')).toBe(teamId);
   });
 });
+
+test.describe('Deep links: other pages', () => {
+  test.setTimeout(60000);
+
+  const param = (page: Page, key: string) => new URL(page.url()).searchParams.get(key);
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+  });
+
+  test('Work keeps the selected week in ?date=', async ({ page }) => {
+    await page.goto('/app/work');
+    await page.getByRole('button', { name: /previous week/i }).click();
+    await expect.poll(() => param(page, 'date')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const date = param(page, 'date');
+
+    await page.reload();
+    expect(param(page, 'date')).toBe(date);
+    await page.goBack();
+    await expect.poll(() => param(page, 'date')).toBeNull();
+  });
+
+  test('a profile that does not exist shows not found', async ({ page }) => {
+    await page.goto('/app/profile/nobody-by-this-name-618');
+    await expect(noAccessHeading(page, /person doesn.t exist/)).toBeVisible();
+  });
+});
+
+test.describe('Deep links: signing in', () => {
+  test.setTimeout(60000);
+
+  test('a signed-out visitor returns to the link after signing in', async ({ page }) => {
+    const teamId = await getTeamIdByCode('TEST01');
+    const target = `/app/tickets?team=${teamId}&q=return-to`;
+    await page.goto(target);
+
+    await page.fill('input[type="email"]', TEST_USERS.owner1.email);
+    await page.fill('input[type="password"]', TEST_USERS.owner1.password);
+    await page.click('button:has-text("Sign in")');
+
+    await expect(page).toHaveURL(/\/app\/tickets\?/, { timeout: 30000 });
+    expect(new URL(page.url()).searchParams.get('q')).toBe('return-to');
+    expect(new URL(page.url()).searchParams.get('team')).toBe(teamId);
+  });
+});

@@ -70,7 +70,7 @@ import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
-import { useRouter } from '../../ui/router';
+import { useQueryParam, useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -129,8 +129,15 @@ export const WorkPage: React.FC = () => {
   // optimistic update made by startTimerForEntry.
   const skipNextClockInFetchRef = useRef(false);
 
-  // Selected day (local YYYY-MM-DD)
-  const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
+  // Selected day (local YYYY-MM-DD) — `?date=`, today when absent. Picking a
+  // day pushes, so Back returns to the previous one.
+  const [dateParam, setDateParam] = useQueryParam('date', { mode: 'push' });
+  const selectedDate =
+    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : toLocalDateStr(new Date());
+  const setSelectedDate = useCallback(
+    (date: string) => setDateParam(date === toLocalDateStr(new Date()) ? null : date),
+    [setDateParam],
+  );
 
   // Whether the selected day is today (updates reactively at midnight via currentTime)
   const isToday = selectedDate === toLocalDateStr(new Date(currentTime));
@@ -564,16 +571,16 @@ export const WorkPage: React.FC = () => {
   const handlePrevWeek = useCallback(() => {
     const base = new Date(selectedDate + 'T00:00:00');
     setSelectedDate(toLocalDateStr(addDays(base, -7)));
-  }, [selectedDate]);
+  }, [selectedDate, setSelectedDate]);
 
   const handleNextWeek = useCallback(() => {
     const base = new Date(selectedDate + 'T00:00:00');
     setSelectedDate(toLocalDateStr(addDays(base, 7)));
-  }, [selectedDate]);
+  }, [selectedDate, setSelectedDate]);
 
   const handleGoToToday = useCallback(() => {
     setSelectedDate(toLocalDateStr(new Date()));
-  }, []);
+  }, [setSelectedDate]);
 
   const handleOpenEdit = useCallback((de: DayEntry) => {
     const total = entryTotalSeconds(de.sessions, Date.now());

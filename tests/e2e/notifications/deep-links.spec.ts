@@ -176,12 +176,14 @@ test.describe('Notification deep links', () => {
 
     await tapNotification(page, profileUrl);
     await expect(workTab).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });
-    await expect.poll(() => new URL(page.url()).search, { timeout: 10000 }).toBe('');
+    // The tab is part of the link now, so a reload keeps it.
+    expect(new URL(page.url()).searchParams.get('tab')).toBe('work');
 
-    // Switching by hand leaves the URL untouched, so a repeat tap pushes the
-    // same query string again — it must still be acted on.
+    // Switching by hand writes the URL too, so a repeat tap is a real change
+    // and is acted on.
     await feedTab.click();
     await expect(feedTab).toHaveAttribute('aria-selected', 'true');
+    expect(new URL(page.url()).searchParams.has('tab')).toBe(false);
 
     await tapNotification(page, profileUrl);
     await expect(workTab).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });

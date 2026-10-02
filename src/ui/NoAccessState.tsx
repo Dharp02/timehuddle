@@ -15,7 +15,7 @@ import React from 'react';
 import { useRouter } from './router';
 
 export type NoAccessKind = 'forbidden' | 'not-found';
-export type NoAccessResource = 'team' | 'ticket';
+export type NoAccessResource = 'team' | 'ticket' | 'profile';
 
 /** All user-facing copy, kept together for translation. */
 export const NO_ACCESS_COPY: Record<
@@ -33,6 +33,10 @@ export const NO_ACCESS_COPY: Record<
       description:
         'It belongs to a team you aren’t a member of. Ask one of its admins for an invite, then open the link again.',
     },
+    profile: {
+      title: 'This profile isn’t available to you',
+      description: 'You can only view profiles of people who share a team with you.',
+    },
   },
   'not-found': {
     team: {
@@ -42,6 +46,10 @@ export const NO_ACCESS_COPY: Record<
     ticket: {
       title: 'This ticket doesn’t exist or was deleted',
       description: 'Check that the link is complete, or look for the ticket in Tickets.',
+    },
+    profile: {
+      title: 'This person doesn’t exist',
+      description: 'The profile may have been removed, or the username may have changed.',
     },
   },
   goToDashboard: 'Go to dashboard',

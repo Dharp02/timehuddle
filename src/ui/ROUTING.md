@@ -43,6 +43,24 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 
 **Never** call `window.history.*` or parse `window.location.search` in a page. Go through these helpers, so `RouterProvider` re-renders the page on every change, Back included.
 
+## Params by Page
+
+| Page                            | Params                                                                          |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| Teams `/app/teams/:teamId`      | the team is in the path; `/app/teams` redirects to the selected team            |
+| Tickets `/app/tickets`          | `q`, `status`, `priority`, `assignee` (`unassigned`), `tab=closed`, `teams=all` |
+| Ticket `/app/tickets/:ticketId` | none — copy it with **Copy Link**                                               |
+| Dashboard                       | `tab=me\|team`, `view=timesheet`, `member`, `request`                           |
+| Huddle                          | `conversation`, `q`; `post` resolves to the `conversation` holding it           |
+| Work                            | `date=YYYY-MM-DD` (today when absent)                                           |
+| Profile                         | `tab` (Feed when absent)                                                        |
+| Org Members                     | `q`                                                                             |
+| Org Usage                       | `period`, `usageOrg` — not `org`, which is the app-wide scope                   |
+
+Search boxes use `useSearchParam(name)`: the page filters as you type and the URL follows once typing pauses.
+
+A signed-out visitor who opens an `/app/...` link signs in and comes back to it ([`lib/returnTo.ts`](../lib/returnTo.ts)).
+
 ## Legacy Links That Must Keep Working
 
 Notification payloads and bookmarks already in the wild use these. They are read as aliases and normalised to the new name the next time the URL is written.

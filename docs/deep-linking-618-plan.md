@@ -224,23 +224,23 @@ File: [`src/pages/Huddle.tsx`](../src/pages/Huddle.tsx)
 
 Each row uses `useQueryParam`, follows the `replace`/`navigate` rule, and ignores invalid values.
 
-- [ ] **Work** ([`src/features/timers/WorkPage.tsx`](../src/features/timers/WorkPage.tsx)): `selectedDate` ↔ `?date=YYYY-MM-DD` (`navigate` when changing the day)
-- [ ] **Profile** ([`src/features/profile/ProfilePage.tsx`](../src/features/profile/ProfilePage.tsx)): `?tab=` is already read. Make tab changes **write** it (`navigate`).
-- [ ] **Org Members** ([`src/features/org/OrganizationMembersPage.tsx`](../src/features/org/OrganizationMembersPage.tsx)): `memberSearch` ↔ `?q=` (`replace`, debounced)
-- [ ] **Org Usage** ([`src/features/usage/OrgUsagePage.tsx`](../src/features/usage/OrgUsagePage.tsx)): `periodDays` ↔ `?period=`, org ↔ `?org=` (from `TeamContext`)
-- [ ] **Activity Log**: any active filters → query params
-- [ ] **Notifications, Settings, Release Notes, Clock**: look for tabs or sections. Add a param **only** where one exists, and list what you checked in the PR description even if nothing changed.
-- [ ] Org / profile not found or forbidden → `<NoAccessState>`
+- [x] **Work** ([`src/features/timers/WorkPage.tsx`](../src/features/timers/WorkPage.tsx)): `selectedDate` ↔ `?date=YYYY-MM-DD` (`navigate` when changing the day)
+- [x] **Profile** ([`src/features/profile/ProfilePage.tsx`](../src/features/profile/ProfilePage.tsx)): `?tab=` is already read. Make tab changes **write** it (`navigate`).
+- [x] **Org Members** ([`src/features/org/OrganizationMembersPage.tsx`](../src/features/org/OrganizationMembersPage.tsx)): `memberSearch` ↔ `?q=` (`replace`, debounced)
+- [x] **Org Usage** ([`src/features/usage/OrgUsagePage.tsx`](../src/features/usage/OrgUsagePage.tsx)): `periodDays` ↔ `?period=`, org ↔ `?org=` (from `TeamContext`) _Done as `?period=` and `?usageOrg=`, not `?org=`: `?org=` is the app-wide org scope, and this picker has an "All organizations" choice._
+- [x] **Activity Log**: any active filters → query params _Nothing to do: it has no filters._
+- [x] **Notifications, Settings, Release Notes, Clock**: look for tabs or sections. Add a param **only** where one exists, and list what you checked in the PR description even if nothing changed. _Checked: none of the four has tabs, filters or sections._
+- [x] Org / profile not found or forbidden → `<NoAccessState>` _Profile: its 403/404 checks never fired (wormhole sends every Meteor.Error as HTTP 500), so a missing profile showed an empty page; it now uses `classifyLoadError` + `NoAccessState`. Org pages already gate on the user's org roles._
 
 ### 5b. Return to the original URL after sign-in
 
 File: [`src/main.tsx`](../src/main.tsx). The `if (!user)` block does `window.history.replaceState(null, '', '/')` before showing `<LoginForm />`, which loses the link.
 
-- [ ] Before rewriting to `/`, save `pathname + search` in `sessionStorage` (e.g. `auth:returnTo`), only if it starts with `/app/`. The `/^\/app(\/|$)/` check used for native deep links in the same file is the right guard; reuse it, don't copy it.
-- [ ] After sign-in succeeds (password **and** OAuth paths), `replace` to the saved URL once, then delete the key
-- [ ] Don't keep `/app/*` when the user signed **out** on purpose (logout from `/app/teams` should still land on `/` and must not return there next time). Clear the key on explicit logout.
-- [ ] Check this doesn't break the native `pendingDeepLinkPath` flow in `AppLayout.tsx`. If both do the same job, use one mechanism.
-- [ ] E2E: signed-out user opens `/app/tickets/<id>?team=X` → signs in → lands on that ticket
+- [x] Before rewriting to `/`, save `pathname + search` in `sessionStorage` (e.g. `auth:returnTo`), only if it starts with `/app/`. The `/^\/app(\/|$)/` check used for native deep links in the same file is the right guard; reuse it, don't copy it. _Done in `src/lib/returnTo.ts`._
+- [x] After sign-in succeeds (password **and** OAuth paths), `replace` to the saved URL once, then delete the key _Restored on the first signed-in render in `main.tsx`, before `RouterProvider` reads the URL, so password, OAuth and dev sign-in all go through it._
+- [x] Don't keep `/app/*` when the user signed **out** on purpose (logout from `/app/teams` should still land on `/` and must not return there next time). Clear the key on explicit logout.
+- [x] Check this doesn't break the native `pendingDeepLinkPath` flow in `AppLayout.tsx`. If both do the same job, use one mechanism. _They don't overlap: `pendingDeepLinkPath` carries `timehuddle://open/...` links on native, `returnTo` carries web URLs. Both kept._
+- [x] E2E: signed-out user opens `/app/tickets/<id>?team=X` → signs in → lands on that ticket
 
 ### 5c. Release note
 
