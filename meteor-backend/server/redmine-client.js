@@ -18,6 +18,7 @@
  * itself, so no update or delete helper exists for them. Issues are never
  * deleted from TimeHuddle either.
  */
+import { createRateLimiter } from './rate-limit';
 import { activityIssueRefs } from './redmine-atom';
 
 /**
@@ -158,6 +159,22 @@ const DEFAULT_TIMEOUT_MS = 8000;
  */
 const LIST_TIMEOUT_MS = 30_000;
 
+/**
+ * The ceiling on what one user may send to Redmine, counted here because every
+ * request passes through `redmineRequest`. The per-method limits (see
+ * `enforceRedmineLimit`) are the ones a person meets; this one is the backstop
+ * for every path that reaches Redmine without being a `redmine.*` method — a
+ * timer start, an attachment list — so no caller has to remember to meter itself.
+ * Ten a second is past the sum of those per-method limits, and bounds a loop.
+ */
+const OUTBOUND_LIMIT_PER_MINUTE = 600;
+const outboundLimiter = createRateLimiter({ limit: OUTBOUND_LIMIT_PER_MINUTE, windowMs: 60 * 1000 });
+
+/** Whether `err` is the outbound budget refusing a request before it was sent. */
+export function isRedmineBudgetExhausted(err) {
+  return err?.budgetExhausted === true;
+}
+
 /** Whether `err` is our own request timeout (what `AbortSignal.timeout` throws). */
 export function isRedmineTimeout(err) {
   return err?.name === 'TimeoutError';
@@ -177,6 +194,13 @@ async function redmineRequest(
   if (!account?.baseUrl) throw new Error('No Redmine base URL is configured');
   const refusal = redmineUrlRefusal(account.baseUrl);
   if (refusal) throw new Error(refusal);
+  // An account always names its owner (`findRedmineAccount`, `redmine.connect`);
+  // one that somehow does not shares a single budget rather than escaping it.
+  if (!outboundLimiter.check(account.userId ?? 'unowned').allowed) {
+    const err = new Error('Redmine request budget exhausted');
+    err.budgetExhausted = true;
+    throw err;
+  }
 
   const startedAt = Date.now();
   let res;

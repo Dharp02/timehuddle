@@ -50,4 +50,10 @@ describe('Redmine issue method limits', () => {
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(TOO_MANY);
   });
+
+  it('counts the project list against that same budget', async () => {
+    const res = await wormhole('redmine.projects.list', {}, jwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(TOO_MANY);
+  });
 });

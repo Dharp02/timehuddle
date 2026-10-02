@@ -20,10 +20,12 @@ const registry = new Set();
  *
  * `get(userId, subKey, fetchFn)` returns the fresh cached value or awaits
  * `fetchFn()`. Only successful fetches are stored, so a transient failure is
- * retried on the next call.
+ * retried on the next call. Callers that miss while a fetch for the same key is
+ * under way wait for that one, so a burst on a cold cache is one request.
  */
 export function createUserTtlCache(ttlMs) {
   const entries = new Map();
+  const inFlight = new Map();
   // Bumped by `bust`, so a fetch that was already in flight for the previous
   // account cannot store its answer after the user re-linked.
   const generations = new Map();
@@ -34,18 +36,30 @@ export function createUserTtlCache(ttlMs) {
       const hit = entries.get(key);
       if (hit && hit.expiresAt > Date.now()) return hit.value;
 
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+
       const generation = generations.get(userId) ?? 0;
-      const value = await fetchFn();
-      if ((generations.get(userId) ?? 0) === generation) {
-        entries.set(key, { value, expiresAt: Date.now() + ttlMs });
-      }
-      return value;
+      const fetching = Promise.resolve(fetchFn())
+        .then((value) => {
+          if ((generations.get(userId) ?? 0) === generation) {
+            entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+          }
+          return value;
+        })
+        .finally(() => {
+          if (inFlight.get(key) === fetching) inFlight.delete(key);
+        });
+      inFlight.set(key, fetching);
+      return fetching;
     },
     bust(userId) {
       generations.set(userId, (generations.get(userId) ?? 0) + 1);
       const prefix = `${userId}|`;
-      for (const key of entries.keys()) {
-        if (key.startsWith(prefix)) entries.delete(key);
+      for (const map of [entries, inFlight]) {
+        for (const key of map.keys()) {
+          if (key.startsWith(prefix)) map.delete(key);
+        }
       }
     },
   };

@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import {
   getCurrentUser,
+  isRedmineBudgetExhausted,
   isRedmineTimeout,
   linkedRedmineBaseUrl,
   listAssignedIssues,
@@ -128,5 +129,33 @@ describe('request routing', () => {
     vi.stubGlobal('fetch', vi.fn());
     await expect(getCurrentUser({ apiKey: 'key', baseUrl: null })).rejects.toThrow(/base URL/);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Every request is counted against its account's owner inside `redmineRequest`,
+ * so a path that reaches Redmine without a per-method limit is still bounded.
+ */
+describe('the outbound budget', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ user: { id: 1 } }), { status: 200 })),
+    );
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('refuses a user past 600 requests in a minute, before sending', async () => {
+    const owned = { ...account, userId: 'budget-user' };
+    for (let call = 0; call < 600; call += 1) await getCurrentUser(owned);
+
+    const refused = await getCurrentUser(owned).catch((err) => err);
+    expect(isRedmineBudgetExhausted(refused)).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(600);
+  });
+
+  it('leaves another user\u2019s budget alone', async () => {
+    await expect(getCurrentUser({ ...account, userId: 'other-user' })).resolves.toEqual({ id: 1 });
   });
 });

@@ -19,6 +19,7 @@ import {
   createTimeEntry,
   getCurrentUser,
   getTimeEntry,
+  isRedmineBudgetExhausted,
   isRedmineTimeout,
   listIssuesByIds,
   customRedmineUrlAllowed,
@@ -28,7 +29,11 @@ import {
   redmineUrlRefusal,
 } from './redmine-client';
 import { encryptSecret, envKey } from './redmine-crypto';
-import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
+import {
+  findRedmineAccount,
+  requireRedmineAccount,
+  tooManyRedmineRequests,
+} from './redmine-account';
 import { toStatus } from './redmine-status';
 import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
@@ -46,14 +51,9 @@ import { redmineTicketDaysFor } from './timer-core';
  */
 export function enforceRedmineLimit(limiter, userId) {
   const { allowed, retryAfterMs } = limiter.check(userId);
-  if (!allowed) {
-    throw new Meteor.Error(
-      'too-many-requests',
-      'Too many Redmine requests. Try again in a moment.',
-      { timeToReset: retryAfterMs },
-    );
-  }
+  if (!allowed) throw tooManyRedmineRequests(retryAfterMs);
 }
+
 
 /**
  * What one user may ask of the account, activity and push methods below. Each
@@ -73,6 +73,7 @@ const accountLimiter = createRateLimiter({ limit: 60, windowMs: 60 * 1000 });
  * `redmineRequest`, which knows what must stay out of the log.
  */
 export function toRedmineMeteorError(err) {
+  if (isRedmineBudgetExhausted(err)) return tooManyRedmineRequests();
   if (err?.status === 401 || err?.status === 403) {
     return new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
   }
@@ -396,7 +397,7 @@ Meteor.methods({
 
     let user;
     try {
-      user = await getCurrentUser({ apiKey: key, baseUrl });
+      user = await getCurrentUser({ userId, apiKey: key, baseUrl });
     } catch (err) {
       if (err?.status === 401 || err?.status === 403) {
         throw new Meteor.Error('invalid-key', 'That API key was rejected by Redmine.');

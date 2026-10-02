@@ -14,8 +14,9 @@ import { getCurrentUser, linkedRedmineBaseUrl } from './redmine-client';
 import { decryptStoredSecret, encryptSecret, envKey } from './redmine-crypto';
 
 /**
- * The caller's Redmine account — `{ apiKey, baseUrl }`, the decrypted personal
- * key and the instance that issued it — or null when they have not linked one.
+ * The caller's Redmine account — `{ userId, apiKey, baseUrl }`, the decrypted
+ * personal key, the instance that issued it, and whose it is (what the outbound
+ * budget in redmine-client.js counts against) — or null when they have not linked one.
  * Null is an ordinary state, not an error: the caller decides whether "not
  * connected" is fatal (starting a timer) or just means "nothing to resolve"
  * (rendering a timesheet).
@@ -38,7 +39,7 @@ export async function findRedmineAccount(userId) {
     ).catch((error) => console.error('[redmine] failed to re-encrypt a rotated API key:', error));
   }
 
-  return { apiKey: secret, baseUrl: linkedRedmineBaseUrl(link.baseUrl) };
+  return { userId, apiKey: secret, baseUrl: linkedRedmineBaseUrl(link.baseUrl) };
 }
 
 /**
@@ -50,6 +51,19 @@ export async function requireRedmineAccount(userId) {
   const account = await findRedmineAccount(userId);
   if (!account) throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
   return account;
+}
+
+/**
+ * The refusal for a caller past a Redmine limit — a method's own
+ * (`enforceRedmineLimit`) or the outbound budget in redmine-client.js. Shared for
+ * the same reason as `not-connected` above.
+ */
+export function tooManyRedmineRequests(retryAfterMs) {
+  return new Meteor.Error(
+    'too-many-requests',
+    'Too many Redmine requests. Try again in a moment.',
+    retryAfterMs == null ? undefined : { timeToReset: retryAfterMs },
+  );
 }
 
 /** The caller's own Redmine user id, per user, for an hour. See `redmineUserIdFor`. */

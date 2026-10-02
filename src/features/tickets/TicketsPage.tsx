@@ -30,10 +30,12 @@ import {
   TabsTrigger,
   Text,
   Textarea,
+  useToast,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  ApiError,
   myBoardApi,
   redmineApi,
   teamApi,
@@ -101,6 +103,7 @@ export const TicketsPage: React.FC = () => {
   const userId = user?.id ?? null;
   const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
   const { navigate, pathname } = useRouter();
+  const toast = useToast();
 
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
@@ -608,30 +611,43 @@ export const TicketsPage: React.FC = () => {
   const handleMoveToBoard = useCallback(() => {
     const keys = [...ticketsView.selectedKeys];
     const refs = keys.map(ticketRefOf);
-    void myBoardApi.addMany(refs).then(() => {
-      setBoardKeys((prev) => new Set([...prev, ...keys]));
-      ticketsView.clearSelection();
-    });
-  }, [ticketsView]);
+    void myBoardApi
+      .addMany(refs)
+      .then(() => {
+        setBoardKeys((prev) => new Set([...prev, ...keys]));
+        ticketsView.clearSelection();
+      })
+      // A full board is refused with the server's own explanation.
+      .catch((err) =>
+        toast.error(
+          err instanceof ApiError && err.code === 'board-full'
+            ? err.message
+            : removalText.boardAddFailed,
+        ),
+      );
+  }, [ticketsView, toast]);
 
   const handleRemoveFromBoard = useCallback(() => {
     const keys = [...boardView.selectedKeys];
     const refs = keys.map(ticketRefOf);
-    void myBoardApi.removeMany(refs).then(() => {
-      setBoardKeys((prev) => {
-        const next = new Set(prev);
-        for (const key of keys) next.delete(key);
-        return next;
-      });
-      boardView.clearSelection();
-      // A Redmine issue on the board is a table row for that reason alone
-      // (`board`), so the table may lose it too.
-      if (refs.some((ref) => ref.sourceId === 'redmine')) {
-        invalidateRedmineCache();
-        void refetch();
-      }
-    });
-  }, [boardView, refetch]);
+    void myBoardApi.removeMany(refs).then(
+      () => {
+        setBoardKeys((prev) => {
+          const next = new Set(prev);
+          for (const key of keys) next.delete(key);
+          return next;
+        });
+        boardView.clearSelection();
+        // A Redmine issue on the board is a table row for that reason alone
+        // (`board`), so the table may lose it too.
+        if (refs.some((ref) => ref.sourceId === 'redmine')) {
+          invalidateRedmineCache();
+          void refetch();
+        }
+      },
+      () => toast.error(removalText.boardRemoveFailed),
+    );
+  }, [boardView, refetch, toast]);
 
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';

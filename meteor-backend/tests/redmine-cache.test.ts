@@ -26,6 +26,14 @@ describe('createUserTtlCache', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
+  it('shares one fetch between callers that miss together', async () => {
+    const cache = createUserTtlCache(60_000);
+    const fetchFn = vi.fn(async () => ['a']);
+    const results = await Promise.all([1, 2, 3].map(() => cache.get('u1', 'k', fetchFn)));
+    expect(results).toEqual([['a'], ['a'], ['a']]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   it('does not cache a failed fetch', async () => {
     const cache = createUserTtlCache(60_000);
     await expect(

@@ -19,9 +19,14 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 
 import { RedmineLinks, Tickets, Teams, isValidId } from './collections';
-import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
+import {
+  findRedmineAccount,
+  requireRedmineAccount,
+  tooManyRedmineRequests,
+} from './redmine-account';
 import {
   getIssue,
+  isRedmineBudgetExhausted,
   linkedRedmineBaseUrl,
   listIssuesByIds,
   optionalRedmineBaseUrl,
@@ -95,6 +100,7 @@ export async function resolveTicketRef(userId, source, ticketId) {
     try {
       issue = await getIssue(account, ticketId);
     } catch (err) {
+      if (isRedmineBudgetExhausted(err)) throw tooManyRedmineRequests();
       if (err?.status === 401) throw new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
       throw new Meteor.Error('unreachable', 'Could not reach Redmine.');
     }

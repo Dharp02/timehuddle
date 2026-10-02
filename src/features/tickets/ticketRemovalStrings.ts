@@ -27,6 +27,8 @@ export const removalText = {
     `${count} ${plural(count, 'ticket', 'tickets')} on your board ${plural(count, 'is', 'are')} no longer available.`,
   boardNotLoaded: (count: number) =>
     `${count} ${plural(count, 'ticket', 'tickets')} on your board couldn't be loaded right now.`,
+  boardAddFailed: "Couldn't add to My Board. Please try again.",
+  boardRemoveFailed: "Couldn't remove from My Board. Please try again.",
   removeUnavailable: 'Remove them',
   removeUnavailableFailed: "Couldn't remove them. Please try again.",
   removeUnavailableLabel: (count: number) =>

@@ -143,10 +143,11 @@ async function loadJournals(userId, account, raw) {
 const issueReadLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
 
 /**
- * The writes and the form lookup are tighter than the read: nothing but a person
- * submitting a form calls them, and each is several Redmine calls (create: 2,
+ * The writes and the form lookups are tighter than the read: nothing but a person
+ * using the form calls them, and each is several Redmine calls (create: 2,
  * update: 3, form options: 3). Form options are cached per project, so a loop
- * over project ids would walk straight past that cache without a limit.
+ * over project ids would walk straight past that cache without a limit. The
+ * project list shares the form-options budget.
  */
 const issueCreateLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
 const issueUpdateLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
@@ -179,6 +180,7 @@ Meteor.methods({
   /** Projects the caller's key can see, for the create form. */
   async 'redmine.projects.list'() {
     const { userId } = await requireIdentity(this);
+    enforceRedmineLimit(formOptionsLimiter, userId);
     const account = await requireAccount(userId);
 
     try {
