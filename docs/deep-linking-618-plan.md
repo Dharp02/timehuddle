@@ -65,40 +65,40 @@ graph LR
 
 ### 1a. Document the scheme
 
-- [ ] Create `src/ui/ROUTING.md` with the three rules: **path = resource**, **`?team=` / `?org=` / `?enterprise=` = scope**, **other query params = view state**
-- [ ] Include the `replace` vs `navigate` rule (table above) with one example of each
-- [ ] Include the list of **legacy aliases** that must keep working: `?teamId=` → `?team=`, `?postId=` → `?post=`, `?memberId=` → `?member=`, `?requestId=` → `?request=`, `?tab=timesheet`, and everything in `RETIRED_ROUTES`
-- [ ] Add a Mermaid diagram (you can copy the one above) with named nodes, not `A`/`B`/`C`
-- [ ] Link `ROUTING.md` from the "Routing" bullet in `CLAUDE.md`
+- [x] Create `src/ui/ROUTING.md` with the three rules: **path = resource**, **`?team=` / `?org=` / `?enterprise=` = scope**, **other query params = view state**
+- [x] Include the `replace` vs `navigate` rule (table above) with one example of each
+- [x] Include the list of **legacy aliases** that must keep working: `?teamId=` → `?team=`, `?postId=` → `?post=`, `?memberId=` → `?member=`, `?requestId=` → `?request=`, `?tab=timesheet`, and everything in `RETIRED_ROUTES`
+- [x] Add a Mermaid diagram (you can copy the one above) with named nodes, not `A`/`B`/`C`
+- [x] Link `ROUTING.md` from the "Routing" bullet in `CLAUDE.md`
 
 ### 1b. Query-param helpers
 
-- [ ] In `src/ui/router.ts`, add `useQueryParams()`. It returns the parsed `URLSearchParams` from `search`, plus `setParams(patch, { history: 'replace' | 'push' })`. Setting a value to `null` or `''` removes the key. Other keys are kept.
-- [ ] Add `useQueryParam(name)`, which returns `[value, setValue]` on top of `useQueryParams`
-- [ ] `setParams` builds the URL from the **current** `pathname` and calls `replace` or `navigate` from `RouterContext`. Never call `window.history` directly.
-- [ ] Unit tests in `src/ui/router.test.ts`: read, set, remove, keep the other keys, `replace` vs `push`
+- [x] In `src/ui/router.ts`, add `useQueryParams()`. It returns the parsed `URLSearchParams` from `search`, plus `setParams(patch, { history: 'replace' | 'push' })`. Setting a value to `null` or `''` removes the key. Other keys are kept.
+- [x] Add `useQueryParam(name)`, which returns `[value, setValue]` on top of `useQueryParams`
+- [x] `setParams` builds the URL from the **current** `pathname` and calls `replace` or `navigate` from `RouterContext`. Never call `window.history` directly.
+- [x] Unit tests in `src/ui/router.test.ts`: read, set, remove, keep the other keys, `replace` vs `push`
 
 ### 1c. Path-param matcher
 
-- [ ] Add `matchPath(pattern, pathname)` to `src/ui/router.ts`, e.g. `matchPath('/app/tickets/:ticketId', '/app/tickets/abc')` → `{ ticketId: 'abc' }`, or `null`
-- [ ] Unit tests: match, no match, trailing slash, extra segments → `null`
-- [ ] Swap the `startsWith` / `slice` code in `AppLayout.tsx` (the `profileSegment` and `ticketDetailId` blocks, and `match()`) for `matchPath`. **Behaviour must not change.** `tests/e2e/teams/profile-routing.spec.ts` must still pass.
+- [x] Add `matchPath(pattern, pathname)` to `src/ui/router.ts`, e.g. `matchPath('/app/tickets/:ticketId', '/app/tickets/abc')` → `{ ticketId: 'abc' }`, or `null`
+- [x] Unit tests: match, no match, trailing slash, extra segments → `null`
+- [x] Swap the `startsWith` / `slice` code in `AppLayout.tsx` (the `profileSegment` and `ticketDetailId` blocks, and `match()`) for `matchPath`. **Behaviour must not change.** `tests/e2e/teams/profile-routing.spec.ts` must still pass.
 
 ### 1d. `TeamContext` ↔ URL sync
 
 File: [`src/lib/TeamContext.tsx`](../src/lib/TeamContext.tsx) (the restore effect around the `deepLinkTeamId` line, and `setSelectedTeamId` / `setSelectedOrgId` / `setSelectedEnterpriseId`)
 
-- [ ] On restore, read `?team=` first, then the legacy `?teamId=`, then `localStorage`. Do the same for `?org=` and `?enterprise=`.
-- [ ] If the URL used `?teamId=`, rewrite it to `?team=` with `replace` (no history entry)
-- [ ] When the selection changes (switcher, or a team picked automatically), write `?team=` (and `?org=` where it applies) with `replace`, keeping the other params. Keep the `localStorage` write; it's still the fallback.
-- [ ] When the URL's `?team=` changes (Back/Forward, or a link click), update `selectedTeamId`. Watch `search` from `useRouter()`.
-- [ ] **Don't** fall back to another team when `?team=X` isn't in the user's teams. Leave a flag such as `teamAccess: 'ok' | 'forbidden'` on the context for Milestone 2. Until then, log a `console.warn`.
-- [ ] Sidebar / internal links keep `?team=`: give the sidebar a `withScope(path)` helper (in `router.ts`) that adds the current `team`, rather than editing every link by hand
-- [ ] Unit tests (`src/lib/TeamContext.test.tsx`): URL beats storage; `teamId` alias gets normalised; switching writes the URL; a `popstate` changes the selection; an unknown team doesn't pick another team
+- [x] On restore, read `?team=` first, then the legacy `?teamId=`, then `localStorage`. Do the same for `?org=` and `?enterprise=`. _Done differently: `TeamContext` derives the team from the URL on every render (`selectedTeamId = ?team= ?? stored`) instead of restoring once. `?enterprise=` is left out: no page links to an enterprise view yet._
+- [x] If the URL used `?teamId=`, rewrite it to `?team=` with `replace` (no history entry)
+- [x] When the selection changes (switcher, or a team picked automatically), write `?team=` (and `?org=` where it applies) with `replace`, keeping the other params. Keep the `localStorage` write; it's still the fallback. _Done: `RouterProvider` now sits above `TeamProvider`, so `TeamContext` reads and writes the URL itself._
+- [x] When the URL's `?team=` changes (Back/Forward, or a link click), update `selectedTeamId`. Watch `search` from `useRouter()`.
+- [x] **Don't** fall back to another team when `?team=X` isn't in the user's teams. Leave a flag such as `teamAccess: 'ok' | 'forbidden'` on the context for Milestone 2. Until then, log a `console.warn`. _Done: `teamAccess: 'ok' | 'pending' | 'forbidden'`; no `console.warn` needed._
+- [x] Sidebar / internal links keep `?team=`: give the sidebar a `withScope(path)` helper (in `router.ts`) that adds the current `team`, rather than editing every link by hand _Done differently: no `withScope` helper. `TeamContext` stamps the selected team onto any team-scoped URL that lacks one, so links need no changes. A team opened from a link becomes the remembered team too._
+- [x] Unit tests (`src/lib/TeamContext.test.tsx`): URL beats storage; `teamId` alias gets normalised; switching writes the URL; a `popstate` changes the selection; an unknown team doesn't pick another team
 
 ### 1e. Ship it
 
-- [ ] `npm run lint && npm run typecheck && npm run format && npm run test:unit` pass
+- [x] `npm run lint && npm run typecheck && npm run format && npm run test:unit` pass
 - [ ] Manual check: switch team → URL shows `?team=`; reload → same team; open the URL in a private window with the same user → same team
 - [ ] Old notification link `/app/dashboard?tab=timesheet&teamId=X&memberId=Y` still lands on the right team and member
 - [ ] PR title: `refs #618: URL conventions, router helpers and ?team= sync`

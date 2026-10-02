@@ -6,9 +6,9 @@
  *   • AppHeader   — sticky top bar with the org/team switcher and user menu
  *   • <main>      — scrollable content area, led by <PageTitle />
  *
- * RouterContext is the single source of truth for pathname so any descendant
- * can read the current route or navigate without prop-drilling or an external
- * router library.
+ * RouterProvider (./router) is the single source of truth for the URL so any
+ * descendant — TeamContext included — can read the current route or navigate
+ * without prop-drilling or an external router library.
  *
  * SidebarContext owns expand/collapse + mobile drawer state.
  */
@@ -49,7 +49,7 @@ import { BottomNav } from './BottomNav';
 import { CommandPalette } from './CommandPalette';
 import { PageTitleContext } from './pageTitle';
 import { PullToRefresh } from './PullToRefresh';
-import { RouterContext } from './router';
+import { matchPath, RouterProvider, useRouter } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
 
@@ -88,27 +88,9 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/org/usage': { title: 'Usage', component: OrgUsagePage },
 };
 
-function match(pathname: string): RouteConfig | null {
-  if (pathname.startsWith('/app/profile/')) return null;
-  if (pathname.startsWith('/app/tickets/')) return null;
+function match(pathname: string): RouteConfig {
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
-
-/**
- * Routes that no longer exist, and where their traffic goes now. Without this
- * an old bookmark or push notification would fall through `match()` onto the
- * dashboard's default view, silently losing what the link was pointing at.
- *
- *   /app/timesheet → the personal timesheet, now Dashboard → Me → Timesheet
- *   /app/messages, /app/media → withdrawn for MVP; no replacement surface, so
- *     old bookmarks and already-delivered push notifications land on Dashboard
- *     rather than silently rendering it under the wrong URL.
- */
-const RETIRED_ROUTES: Record<string, string> = {
-  '/app/timesheet': '/app/dashboard?view=timesheet',
-  '/app/messages': '/app/dashboard',
-  '/app/media': '/app/dashboard',
-};
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -153,59 +135,7 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  // Maps a URL onto where it actually lives now: `/app` and `/` mean the
-  // dashboard, and a RETIRED_ROUTES path is rewritten to its replacement.
-  // Everything else passes through untouched, query string intact.
-  const resolveUrl = (url: string) => {
-    const path = url.split('?')[0];
-    if (path === '/app' || path === '/') return '/app/dashboard';
-    return RETIRED_ROUTES[path] ?? url;
-  };
-
-  const [pathname, setPathname] = useState(() => {
-    if (typeof window === 'undefined') return '/app/dashboard';
-    const current = window.location.pathname + window.location.search;
-    const resolved = resolveUrl(current);
-    if (resolved !== current) window.history.replaceState(null, '', resolved);
-    return resolved.split('?')[0];
-  });
-  // Tracked separately from `pathname` so a deep link that only changes the query
-  // (e.g. re-tapping a notification for the same profile with a different `?tab=`)
-  // still triggers a re-render — setPathname alone is a no-op when the path is unchanged.
-  const [search, setSearch] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.location.search;
-  });
-
-  const navigate = useCallback((path: string) => {
-    const target = resolveUrl(path);
-    window.history.pushState(null, '', target);
-    const [targetPath, targetSearch = ''] = target.split('?');
-    setPathname(targetPath);
-    setSearch(targetSearch ? `?${targetSearch}` : '');
-    window.dispatchEvent(new CustomEvent('timehuddle:navigate', { detail: { path: target } }));
-  }, []);
-
-  const replace = useCallback((path: string) => {
-    const target = resolveUrl(path);
-    window.history.replaceState(null, '', target);
-    const [targetPath, targetSearch = ''] = target.split('?');
-    setPathname(targetPath);
-    setSearch(targetSearch ? `?${targetSearch}` : '');
-  }, []);
-
-  useEffect(() => {
-    const onPop = () => {
-      const current = window.location.pathname + window.location.search;
-      const resolved = resolveUrl(current);
-      if (resolved !== current) window.history.replaceState(null, '', resolved);
-      const [resolvedPath, resolvedSearch = ''] = resolved.split('?');
-      setPathname(resolvedPath);
-      setSearch(resolvedSearch ? `?${resolvedSearch}` : '');
-    };
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  const { pathname, navigate } = useRouter();
 
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -334,19 +264,14 @@ const AppLayoutContent: React.FC = () => {
   //   collections, so plain userIds like those on huddle posts/tickets don't
   //   match the hex regex and would otherwise be misread as a username below).
   // /app/profile/:username — anything else (falls through from the ID check)
-  const profileSegment = pathname.startsWith('/app/profile/')
-    ? pathname.slice('/app/profile/'.length)
-    : null;
+  const profileSegment = matchPath('/app/profile/:idOrUsername', pathname)?.idOrUsername ?? null;
   const profileUserId =
     profileSegment && /^[a-f0-9]{24}$|^\d+$|^[A-Za-z0-9]{17}$/.test(profileSegment)
       ? profileSegment
       : null;
   const profileUsername = profileSegment && !profileUserId ? profileSegment : null;
 
-  const ticketDetailId =
-    !profileSegment && pathname.startsWith('/app/tickets/')
-      ? pathname.slice('/app/tickets/'.length)
-      : null;
+  const ticketDetailId = matchPath('/app/tickets/:ticketId', pathname)?.ticketId ?? null;
 
   const route = profileUserId || profileUsername || ticketDetailId ? null : match(pathname);
 
@@ -397,108 +322,103 @@ const AppLayoutContent: React.FC = () => {
   }, []);
 
   return (
-    <RouterContext.Provider value={{ pathname, search, navigate, replace }}>
-      <PageTitleContext.Provider value={pageTitle}>
-        <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
-          <CommandPalette />
-          <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
-          <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-          <ShiftReminderProvider>
-            <AppFeedbackContext.Provider
-              value={{
-                openReportIssue: () => setReportIssueOpen(true),
-                openFeedback: () => setFeedbackOpen(true),
-              }}
+    <PageTitleContext.Provider value={pageTitle}>
+      <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
+        <CommandPalette />
+        <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+        <ShiftReminderProvider>
+          <AppFeedbackContext.Provider
+            value={{
+              openReportIssue: () => setReportIssueOpen(true),
+              openFeedback: () => setFeedbackOpen(true),
+            }}
+          >
+            <SidebarContext.Provider
+              value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
             >
-              <SidebarContext.Provider
-                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
-              >
-                <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-                  {/* Mobile backdrop */}
-                  {isMobileOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
-                        onClick={closeMobile}
-                        aria-hidden
-                      />,
-                      document.body,
-                    )}
+              <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+                {/* Mobile backdrop */}
+                {isMobileOpen &&
+                  createPortal(
+                    <div
+                      className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
+                      onClick={closeMobile}
+                      aria-hidden
+                    />,
+                    document.body,
+                  )}
 
-                  {/* Foreground push notification banner (native iOS/Android) */}
-                  {foregroundNotif &&
-                    createPortal(
-                      <div
-                        onClick={() => {
-                          handleNotificationData(foregroundNotif.data);
-                          console.log(
-                            '[Banner] tapped, data:',
-                            JSON.stringify(foregroundNotif.data),
-                          );
-                          setForegroundNotif(null);
-                          if (dismissTimer.current) clearTimeout(dismissTimer.current);
-                        }}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
+                {/* Foreground push notification banner (native iOS/Android) */}
+                {foregroundNotif &&
+                  createPortal(
+                    <div
+                      onClick={() => {
+                        handleNotificationData(foregroundNotif.data);
+                        console.log('[Banner] tapped, data:', JSON.stringify(foregroundNotif.data));
+                        setForegroundNotif(null);
+                        if (dismissTimer.current) clearTimeout(dismissTimer.current);
+                      }}
+                      className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
                                    bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
                                    shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
                                    border border-white/10"
-                        role="alert"
-                      >
-                        <span className="font-semibold text-sm leading-tight">
-                          {foregroundNotif.title}
-                        </span>
-                        <span className="text-xs text-neutral-300 leading-snug">
-                          {foregroundNotif.body}
-                        </span>
-                      </div>,
-                      document.body,
-                    )}
+                      role="alert"
+                    >
+                      <span className="font-semibold text-sm leading-tight">
+                        {foregroundNotif.title}
+                      </span>
+                      <span className="text-xs text-neutral-300 leading-snug">
+                        {foregroundNotif.body}
+                      </span>
+                    </div>,
+                    document.body,
+                  )}
 
-                  <Sidebar />
+                <Sidebar />
 
-                  {/* Content column */}
-                  <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                    <AppHeader />
-                    <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
-                      <PullToRefresh>
-                        {/* TicketsPage stays mounted to preserve its state, and
+                {/* Content column */}
+                <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                  <AppHeader />
+                  <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
+                    <PullToRefresh>
+                      {/* TicketsPage stays mounted to preserve its state, and
                             is only hidden when another route is showing. It must
                             not render a page title while hidden — it isn't the
                             page — so the title is withheld from that instance. */}
-                        <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
-                          <div
-                            className={
-                              isTicketsRoute
-                                ? 'h-full w-full flex flex-col'
-                                : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
-                            }
-                          >
-                            <TicketsPage />
-                          </div>
-                        </PageTitleContext.Provider>
-                        {profileUserId ? (
-                          <ProfilePage key={profileUserId} userId={profileUserId} />
-                        ) : profileUsername ? (
-                          <ProfilePage key={profileUsername} username={profileUsername} />
-                        ) : ticketDetailId ? (
-                          <TicketDetailPage ticketId={ticketDetailId} />
-                        ) : (
-                          route &&
-                          route.component !== TicketsPage &&
-                          React.createElement(route.component)
-                        )}
-                      </PullToRefresh>
-                    </main>
-                  </div>
-
-                  <BottomNav />
+                      <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
+                        <div
+                          className={
+                            isTicketsRoute
+                              ? 'h-full w-full flex flex-col'
+                              : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                          }
+                        >
+                          <TicketsPage />
+                        </div>
+                      </PageTitleContext.Provider>
+                      {profileUserId ? (
+                        <ProfilePage key={profileUserId} userId={profileUserId} />
+                      ) : profileUsername ? (
+                        <ProfilePage key={profileUsername} username={profileUsername} />
+                      ) : ticketDetailId ? (
+                        <TicketDetailPage ticketId={ticketDetailId} />
+                      ) : (
+                        route &&
+                        route.component !== TicketsPage &&
+                        React.createElement(route.component)
+                      )}
+                    </PullToRefresh>
+                  </main>
                 </div>
-              </SidebarContext.Provider>
-            </AppFeedbackContext.Provider>
-          </ShiftReminderProvider>
-        </RefreshProvider>
-      </PageTitleContext.Provider>
-    </RouterContext.Provider>
+
+                <BottomNav />
+              </div>
+            </SidebarContext.Provider>
+          </AppFeedbackContext.Provider>
+        </ShiftReminderProvider>
+      </RefreshProvider>
+    </PageTitleContext.Provider>
   );
 };
 
@@ -506,8 +426,10 @@ const AppLayoutContent: React.FC = () => {
 
 export const AppLayout: React.FC = () => {
   return (
-    <TeamProvider>
-      <AppLayoutContent />
-    </TeamProvider>
+    <RouterProvider>
+      <TeamProvider>
+        <AppLayoutContent />
+      </TeamProvider>
+    </RouterProvider>
   );
 };

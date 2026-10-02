@@ -7,7 +7,9 @@
  *   • teams            — all teams the user belongs to (REST)
  *   • teamsReady       — true once the first fetch completes
  *   • refetchTeams     — callable after mutations to refresh the list
- *   • selectedTeamId   — persisted in localStorage
+ *   • selectedTeamId   — the URL's ?team= when present, else the last pick
+ *                        persisted in localStorage (see src/ui/ROUTING.md)
+ *   • teamAccess       — 'forbidden' when ?team= names a team the user isn't in
  *   • activeClockEvent — the user's current open clock event (REST)
  *   • clockReady       — true once the first clock fetch completes
  *   • refetchClock     — callable after clock mutations to refresh
@@ -34,10 +36,30 @@ import {
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
 import { useSession } from './useSession';
+import { useQueryParams, useRouter, type QueryPatch } from '../ui/router';
 
 const TEAM_KEY = 'app:selectedTeamId';
 const ORG_KEY = 'app:selectedOrgId';
 const ENTERPRISE_KEY = 'app:selectedEnterpriseId';
+
+/**
+ * Paths whose resource already names its own scope (a ticket belongs to one
+ * team, a profile to no team), so the selected team is not stamped onto them.
+ */
+const RESOURCE_PATH = /^\/app\/(tickets|profile)\/[^/]+/;
+
+/** Whether the selected team belongs in this path's `?team=`. */
+export function carriesTeamScope(pathname: string): boolean {
+  return pathname.startsWith('/app/') && !RESOURCE_PATH.test(pathname);
+}
+
+/**
+ * `ok` — no team in the URL, or the user is a member of it.
+ * `pending` — the URL names a team and the team list hasn't loaded yet.
+ * `forbidden` — the URL names a team the user doesn't belong to (or that
+ *   doesn't exist). Pages must show a no-access state, never another team.
+ */
+export type TeamAccess = 'ok' | 'pending' | 'forbidden';
 
 function getUserTeamKey(userId: string): string {
   return `${TEAM_KEY}:${userId}`;
@@ -83,6 +105,7 @@ export interface TeamContextValue {
   selectedTeamId: string | null;
   selectedTeam: Team | null;
   setSelectedTeamId: (id: string) => void;
+  teamAccess: TeamAccess;
   isAdmin: boolean;
   activeClockEvent: ClockEvent | null;
   clockReady: boolean;
@@ -107,6 +130,7 @@ const TeamCtx = createContext<TeamContextValue>({
   selectedTeamId: null,
   selectedTeam: null,
   setSelectedTeamId: () => {},
+  teamAccess: 'ok',
   isAdmin: false,
   activeClockEvent: null,
   clockReady: false,
@@ -268,9 +292,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // ── Selected team ───────────────────────────────────────────────────────────
 
-  const [selectedTeamId, _setSelectedTeamId] = useState<string | null>(null);
+  // The last pick, persisted per user. Only a fallback: the URL wins.
+  const [storedTeamId, setStoredTeamId] = useState<string | null>(null);
   const [selectedEnterpriseId, _setSelectedEnterpriseId] = useState<string | null>(null);
-  const [selectedOrgId, _setSelectedOrgId] = useState<string | null>(null);
+  const [storedOrgId, setStoredOrgId] = useState<string | null>(null);
 
   // Which user's persisted selection has been read back into state. The
   // "pick first available" effects below must not run before this matches
@@ -281,27 +306,16 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!userId) {
-      _setSelectedTeamId(null);
-      _setSelectedOrgId(null);
+      setStoredTeamId(null);
+      setStoredOrgId(null);
       setRestoredForUser(null);
       return;
     }
 
-    // A `?teamId=` deep link (dashboard/teams notification links) takes
-    // priority over the persisted selection. Seeding it here — before teams
-    // finish loading — matters because the "pick first available" effect
-    // below runs on the same commit as any descendant page's own deep-link
-    // effect once `scopedTeams` first populates; whichever sets
-    // `selectedTeamId` last wins. Reading the URL directly here means this
-    // provider's own state already reflects the deep link, so once the team
-    // list arrives `hasSelected` is true and "pick first available" never
-    // fires — no race with DashboardPage/TeamsPage's own effects.
-    const deepLinkTeamId = new URLSearchParams(window.location.search).get('teamId');
-
     // Backward compatibility: fall back to the legacy global key once.
     const scoped = localStorage.getItem(getUserTeamKey(userId));
     const legacy = localStorage.getItem(TEAM_KEY);
-    _setSelectedTeamId(deepLinkTeamId ?? scoped ?? legacy);
+    setStoredTeamId(scoped ?? legacy);
 
     const scopedEnterprise = localStorage.getItem(getUserEnterpriseKey(userId));
     const legacyEnterprise = localStorage.getItem(ENTERPRISE_KEY);
@@ -309,19 +323,62 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const scopedOrg = localStorage.getItem(getUserOrgKey(userId));
     const legacyOrg = localStorage.getItem(ORG_KEY);
-    _setSelectedOrgId(scopedOrg ?? legacyOrg);
+    setStoredOrgId(scopedOrg ?? legacyOrg);
 
     setRestoredForUser(userId);
   }, [userId]);
 
-  const setSelectedTeamId = useCallback(
+  // ── Scope from the URL ──────────────────────────────────────────────────────
+  // `?team=` (legacy alias `?teamId=`) and `?org=` override the stored pick.
+  // A URL team also implies its org, so a link into another org's team opens
+  // in that org without the page having to switch it.
+
+  const { pathname } = useRouter();
+  const { params, setParams } = useQueryParams();
+  const urlTeamId = params.get('team') || params.get('teamId') || null;
+  const urlOrgId = params.get('org') || null;
+  const teamsLoaded = teamsReady && teams.length > 0;
+  const urlTeam = urlTeamId ? (teams.find((t) => t.id === urlTeamId) ?? null) : null;
+
+  const selectedTeamId = urlTeamId ?? storedTeamId;
+  const selectedOrgId = urlTeam?.orgId ?? urlOrgId ?? storedOrgId;
+  const teamAccess: TeamAccess =
+    !urlTeamId || urlTeam ? 'ok' : teamsLoaded ? 'forbidden' : 'pending';
+
+  /** Makes `id` (and its org) the persisted fallback for URLs without `?team=`. */
+  const rememberTeam = useCallback(
     (id: string) => {
-      _setSelectedTeamId(id);
+      setStoredTeamId(id);
+      const orgId = teams.find((t) => t.id === id)?.orgId;
+      if (orgId) setStoredOrgId(orgId);
       if (!userId || typeof window === 'undefined') return;
       localStorage.setItem(getUserTeamKey(userId), id);
+      if (orgId) localStorage.setItem(getUserOrgKey(userId), orgId);
     },
-    [userId],
+    [teams, userId],
   );
+
+  const setSelectedTeamId = useCallback(
+    (id: string) => {
+      rememberTeam(id);
+      // A URL that names the scope must follow the pick, or the URL would keep
+      // overriding it. An `?org=` that no longer matches the team is dropped.
+      if (urlTeamId || urlOrgId || carriesTeamScope(pathname)) {
+        const patch: QueryPatch = { team: id, teamId: null };
+        const orgId = teams.find((t) => t.id === id)?.orgId;
+        if (urlOrgId && orgId !== urlOrgId) patch.org = null;
+        setParams(patch);
+      }
+    },
+    [rememberTeam, teams, urlTeamId, urlOrgId, pathname, setParams],
+  );
+
+  // A team opened from a link becomes the remembered one too, so following a
+  // sidebar link (which carries no `?team=`) stays on it.
+  useEffect(() => {
+    if (!urlTeam || restoredForUser !== userId || urlTeam.id === storedTeamId) return;
+    rememberTeam(urlTeam.id);
+  }, [urlTeam, restoredForUser, userId, storedTeamId, rememberTeam]);
 
   const setSelectedEnterpriseId = useCallback(
     (id: string) => {
@@ -334,11 +391,17 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setSelectedOrgId = useCallback(
     (id: string) => {
-      _setSelectedOrgId(id);
-      if (!userId || typeof window === 'undefined') return;
-      localStorage.setItem(getUserOrgKey(userId), id);
+      setStoredOrgId(id);
+      if (userId && typeof window !== 'undefined') {
+        localStorage.setItem(getUserOrgKey(userId), id);
+      }
+      // The URL's team belongs to the old org, so it goes; the "pick first
+      // available" effect then selects a team in the new org.
+      if (urlTeamId || urlOrgId) {
+        setParams({ team: null, teamId: null, org: urlOrgId ? id : null });
+      }
     },
-    [userId],
+    [userId, urlTeamId, urlOrgId, setParams],
   );
 
   useEffect(() => {
@@ -365,6 +428,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (!userId || restoredForUser !== userId || organizations.length === 0) return;
+    // An org named by the URL is never silently swapped for another.
+    if (urlTeamId || urlOrgId) return;
 
     const hasSelectedOrg = selectedOrgId
       ? organizations.some((org) => org.id === selectedOrgId)
@@ -372,11 +437,22 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!hasSelectedOrg) {
       setSelectedOrgId(organizations[0].id);
     }
-  }, [organizations, selectedOrgId, setSelectedOrgId, userId, restoredForUser]);
+  }, [
+    organizations,
+    selectedOrgId,
+    setSelectedOrgId,
+    userId,
+    restoredForUser,
+    urlTeamId,
+    urlOrgId,
+  ]);
 
   // Ensure selected team belongs to the current user; otherwise pick first available.
+  // A team named by the URL is never replaced: if the user can't see it,
+  // `teamAccess` says so and the page shows a no-access state instead.
   useEffect(() => {
     if (!userId || restoredForUser !== userId || scopedTeams.length === 0) return;
+    if (urlTeamId) return;
 
     const hasSelected = selectedTeamId
       ? scopedTeams.some((team) => team.id === selectedTeamId)
@@ -385,12 +461,23 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!hasSelected) {
       setSelectedTeamId(scopedTeams[0].id);
     }
-  }, [selectedTeamId, scopedTeams, setSelectedTeamId, userId, restoredForUser]);
+  }, [selectedTeamId, scopedTeams, setSelectedTeamId, userId, restoredForUser, urlTeamId]);
 
   const selectedTeam = useMemo(
     () => scopedTeams.find((t) => t.id === selectedTeamId) ?? null,
     [scopedTeams, selectedTeamId],
   );
+
+  // Stamp the selected team onto team-scoped URLs that lack it (sidebar links,
+  // notifications, a bare /app/dashboard) and normalise `?teamId=` to `?team=`,
+  // so every link copied from the address bar reopens the same team.
+  useEffect(() => {
+    // Only a team that's in scope: right after an org switch the stored team
+    // still belongs to the old org until "pick first available" replaces it.
+    if (!selectedTeam || !carriesTeamScope(pathname)) return;
+    if (params.get('team') === selectedTeam.id && !params.has('teamId')) return;
+    setParams({ team: selectedTeam.id, teamId: null });
+  }, [selectedTeam, pathname, params, setParams]);
 
   const isAdmin = useMemo(() => {
     if (!userId || !selectedTeam) return false;
@@ -500,6 +587,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       selectedTeamId,
       selectedTeam,
       setSelectedTeamId,
+      teamAccess,
       isAdmin,
       activeClockEvent,
       clockReady,
@@ -523,6 +611,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       selectedTeamId,
       selectedTeam,
       setSelectedTeamId,
+      teamAccess,
       isAdmin,
       activeClockEvent,
       clockReady,
