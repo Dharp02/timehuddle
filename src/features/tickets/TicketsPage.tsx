@@ -68,7 +68,7 @@ import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useCopyLink } from '../../lib/useCopyLink';
-import { useQueryParams, useRouter, type QueryPatch } from '../../ui/router';
+import { useQueryParams, useRouter, useSearchParam, type QueryPatch } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
 import { UserAvatar } from '../../ui/UserAvatar';
@@ -850,25 +850,8 @@ export const TicketsPage: React.FC = () => {
   const onTicketsPage = pathname === '/app/tickets';
   const filterParams = onTicketsPage ? params : NO_PARAMS;
 
-  // Search filters as you type; the URL follows once typing pauses, so it
-  // doesn't re-render the address bar on every key.
-  const queryParam = filterParams.get('q') ?? '';
-  const [searchQuery, setSearchQuery] = useState(queryParam);
-  const writtenQueryRef = useRef(queryParam);
-  useEffect(() => {
-    // Back/Forward, a reload or a shared link — not the echo of our own write.
-    if (queryParam === writtenQueryRef.current) return;
-    writtenQueryRef.current = queryParam;
-    setSearchQuery(queryParam);
-  }, [queryParam]);
-  useEffect(() => {
-    if (!onTicketsPage || searchQuery === writtenQueryRef.current) return;
-    const timer = window.setTimeout(() => {
-      writtenQueryRef.current = searchQuery;
-      setParams({ q: searchQuery });
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [onTicketsPage, searchQuery, setParams]);
+  // Filters as you type; the URL follows once typing pauses.
+  const [searchQuery, setSearchQuery] = useSearchParam('q', { enabled: onTicketsPage });
 
   // The team filter is the app's team scope (`?team=`), plus "All teams".
   const teamFilter = filterParams.get('teams') === 'all' ? null : selectedTeamId;

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -8,6 +8,7 @@ import {
   RouterProvider,
   useQueryParam,
   useRouter,
+  useSearchParam,
   withQuery,
 } from './router';
 
@@ -151,5 +152,46 @@ describe('useQueryParam', () => {
   it('rewrites a retired route on load', () => {
     renderAt('/app/timesheet');
     expect(url()).toBe('/app/dashboard?view=timesheet');
+  });
+});
+
+describe('useSearchParam', () => {
+  let search: { draft: string; setDraft: (v: string) => void };
+  function SearchProbe() {
+    const [draft, setDraft] = useSearchParam('q', { delayMs: 20 });
+    search = { draft, setDraft };
+    return null;
+  }
+  const renderSearchAt = (url: string) => {
+    window.history.replaceState(null, '', url);
+    render(
+      <RouterProvider>
+        <SearchProbe />
+      </RouterProvider>,
+    );
+  };
+  afterEach(cleanup);
+
+  it('starts from the URL', () => {
+    renderSearchAt('/app/tickets?q=bug');
+    expect(search.draft).toBe('bug');
+  });
+
+  it('updates the draft at once and the URL once typing pauses', async () => {
+    renderSearchAt('/app/tickets?team=t1');
+    act(() => search.setDraft('b'));
+    act(() => search.setDraft('bu'));
+    expect(search.draft).toBe('bu');
+    expect(window.location.search).toBe('?team=t1');
+    await waitFor(() => expect(window.location.search).toBe('?team=t1&q=bu'));
+  });
+
+  it('follows a change from outside (Back/Forward)', async () => {
+    renderSearchAt('/app/tickets?q=bug');
+    act(() => {
+      window.history.replaceState(null, '', '/app/tickets?q=crash');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(search.draft).toBe('crash');
   });
 });

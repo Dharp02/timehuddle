@@ -156,7 +156,7 @@ const AppLayoutContent: React.FC = () => {
           }),
         );
       } else if (data.type === 'huddle-comment' || data.type === 'huddle-mention') {
-        // data.url carries ?postId=... so Huddle can scroll to and highlight it.
+        // data.url carries ?postId=... so Huddle opens the conversation holding it.
         navigate(data.url || '/app/huddle');
       } else if (data.type === 'team-join-request') {
         // Navigate to notifications page where user can approve/decline

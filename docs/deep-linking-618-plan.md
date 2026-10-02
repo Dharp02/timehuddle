@@ -190,30 +190,30 @@ File: [`src/features/tickets/TicketsPage.tsx`](../src/features/tickets/TicketsPa
 
 File: [`src/features/dashboard/DashboardPage.tsx`](../src/features/dashboard/DashboardPage.tsx) (the `app:dashboardTab` `localStorage` state and the deep-link effect that ends with `replace('/app/dashboard')`)
 
-- [ ] `?tab=me|team` from the URL (switching tab → `navigate`). If there's no `?tab=`, fall back to `localStorage` `app:dashboardTab`, as today.
-- [ ] `?view=overview|timesheet` from the URL (`navigate`)
-- [ ] `?member=` (alias `?memberId=`) and `?request=` (alias `?requestId=`) read from the URL and **kept there**, not stripped
-- [ ] Legacy `?tab=timesheet` → normalise with `replace` to `?tab=team&view=timesheet`
-- [ ] Remove the cross-org `teamId` switching here. `TeamContext` owns team selection now (Milestone 1). If cross-org switching isn't covered there yet, move it into `TeamContext`; don't keep two copies.
-- [ ] Delete the `replace('/app/dashboard')` that strips params
-- [ ] Keep the "don't reopen an approval already dealt with" behaviour (`clearFocusRequest`): clearing it should now remove `?request=` with `replace`
+- [x] `?tab=me|team` from the URL (switching tab → `navigate`). If there's no `?tab=`, fall back to `localStorage` `app:dashboardTab`, as today.
+- [x] `?view=overview|timesheet` from the URL (`navigate`)
+- [x] `?member=` (alias `?memberId=`) and `?request=` (alias `?requestId=`) read from the URL and **kept there**, not stripped _`AdminTimesheetPanel` now takes the member as a controlled prop (`memberId` / `onMemberChange`) instead of seeding internal state, so the old per-tap "request id" bookkeeping is gone. Choosing a member replaces; switching tab or view pushes._
+- [x] Legacy `?tab=timesheet` → normalise with `replace` to `?tab=team&view=timesheet`
+- [x] Remove the cross-org `teamId` switching here. `TeamContext` owns team selection now (Milestone 1). If cross-org switching isn't covered there yet, move it into `TeamContext`; don't keep two copies. _Done: `TeamContext` derives the org from the URL team, so Dashboard and Huddle need no cross-org code._
+- [x] Delete the `replace('/app/dashboard')` that strips params
+- [x] Keep the "don't reopen an approval already dealt with" behaviour (`clearFocusRequest`): clearing it should now remove `?request=` with `replace`
 
 ### 4b. Huddle
 
 File: [`src/pages/Huddle.tsx`](../src/pages/Huddle.tsx)
 
-- [ ] `?conversation=<id>` drives `activeConversationId` (opening a conversation → `navigate`, so Back closes it)
-- [ ] `?post=<id>` (alias `?postId=`) scrolls to and highlights the post; the param stays in the URL
-- [ ] Search/filter params, if Huddle has them, use `replace`
-- [ ] Conversation the user can't see → `<NoAccessState resource="conversation" />`
-- [ ] Update the producer: `goToPost` in `DashboardPage.tsx` and the push-notification handler in `AppLayout.tsx` should build `?post=` (the old `?postId=` still works via the alias)
+- [x] `?conversation=<id>` drives `activeConversationId` (opening a conversation → `navigate`, so Back closes it) _Conversation ids start with their grouping (`session:…`), so a linked conversation brings its Thread by with it without overwriting the reader's saved choice._
+- [x] `?post=<id>` (alias `?postId=`) scrolls to and highlights the post; the param stays in the URL _Done differently: once found, a post link becomes `?conversation=<id>` (replace). Keeping both would snap back to the post's conversation whenever the reader opened another._
+- [x] Search/filter params, if Huddle has them, use `replace` _`?q=`, through the new shared `useSearchParam` hook (Tickets and Org Members use it too)._
+- [x] Conversation the user can't see → `<NoAccessState resource="conversation" />` _An unknown or foreign conversation id falls back to the first conversation, as SuperChatInbox already did. Conversations belong to a team, so the team no-access gate covers the "can't see" case._
+- [x] Update the producer: `goToPost` in `DashboardPage.tsx` and the push-notification handler in `AppLayout.tsx` should build `?post=` (the old `?postId=` still works via the alias) _Frontend producer (`goToPost`) updated. Backend notification URLs still send `?postId=`/`?teamId=`, which keep working as aliases._
 
 ### 4c. Ship it
 
-- [ ] E2E: Dashboard team tab + timesheet view → reload → same; Back from timesheet → overview
-- [ ] E2E: open a Huddle conversation → reload → same conversation; `?postId=` from an old notification still scrolls to the post
-- [ ] Existing specs in `tests/e2e/dashboard/` and `tests/e2e/huddle/` still pass
-- [ ] Lint, typecheck, format, unit tests pass
+- [x] E2E: Dashboard team tab + timesheet view → reload → same; Back from timesheet → overview
+- [x] E2E: open a Huddle conversation → reload → same conversation; `?postId=` from an old notification still scrolls to the post
+- [x] Existing specs in `tests/e2e/dashboard/` and `tests/e2e/huddle/` still pass
+- [x] Lint, typecheck, format, unit tests pass
 - [ ] PR title: `refs #618: deep-linkable dashboard and huddle`
 
 ---

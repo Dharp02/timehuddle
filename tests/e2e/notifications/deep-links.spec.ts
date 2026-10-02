@@ -59,7 +59,7 @@ async function openHuddleFeed(page: Page): Promise<void> {
 const openedPost = (page: Page, text: string) => inboxMessage(page, text).first();
 
 test.describe('Notification deep links', () => {
-  test('a post link opens its conversation and clears the consumed query', async ({ page }) => {
+  test('a post link opens its conversation and becomes a conversation link', async ({ page }) => {
     test.setTimeout(90000);
     await loginAs(page, TEST_USERS.owner1);
     const teamId = await selectSharedTestTeam(page);
@@ -74,9 +74,18 @@ test.describe('Notification deep links', () => {
     await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${teamId}`);
 
     await expect(openedPost(page, text)).toBeVisible({ timeout: 15000 });
-    // Left in place, a stale ?postId= makes the next identical tap a no-op.
-    // The team stays: it's the page's scope, not part of the consumed link.
-    await expect.poll(() => new URL(page.url()).search, { timeout: 10000 }).toBe(`?team=${teamId}`);
+    // The post resolves to the conversation holding it: that's the durable
+    // link. Left in place, a stale ?postId= would make the next identical tap
+    // a no-op.
+    const params = () => new URL(page.url()).searchParams;
+    await expect.poll(() => params().get('conversation'), { timeout: 10000 }).toMatch(/^session:/);
+    expect(params().get('team')).toBe(teamId);
+    expect(params().has('postId')).toBe(false);
+    expect(params().has('teamId')).toBe(false);
+
+    // …and survives a reload.
+    await page.reload();
+    await expect(openedPost(page, text)).toBeVisible({ timeout: 20000 });
   });
 
   test('a second post link is honoured while already on the feed', async ({ page }) => {

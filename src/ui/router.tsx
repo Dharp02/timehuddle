@@ -5,7 +5,15 @@
  * without creating circular dependencies with AppLayout. The URL scheme these
  * helpers implement is documented in ./ROUTING.md.
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 export interface RouterCtx {
   pathname: string;
@@ -210,4 +218,41 @@ export function useQueryParam(
   );
 
   return [value, setValue];
+}
+
+/**
+ * A search box backed by a query param. Returns `[draft, setDraft]` for the
+ * input: the page filters on `draft` as the user types, and the URL follows
+ * (with `replace`) once typing pauses, so the address bar isn't rewritten on
+ * every key. Back/Forward, a reload or a shared link update the draft.
+ *
+ * `enabled: false` reads as empty and never writes — for a page that stays
+ * mounted behind other routes, where the URL's `?q=` isn't its own.
+ */
+export function useSearchParam(
+  name: string,
+  { enabled = true, delayMs = 300 }: { enabled?: boolean; delayMs?: number } = {},
+): [string, (value: string) => void] {
+  const { params, setParams } = useQueryParams();
+  const urlValue = enabled ? (params.get(name) ?? '') : '';
+  const [draft, setDraft] = useState(urlValue);
+  const writtenRef = useRef(urlValue);
+
+  useEffect(() => {
+    // A change from outside — not the echo of our own write.
+    if (urlValue === writtenRef.current) return;
+    writtenRef.current = urlValue;
+    setDraft(urlValue);
+  }, [urlValue]);
+
+  useEffect(() => {
+    if (!enabled || draft === writtenRef.current) return;
+    const timer = window.setTimeout(() => {
+      writtenRef.current = draft;
+      setParams({ [name]: draft });
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [enabled, draft, name, delayMs, setParams]);
+
+  return [draft, setDraft];
 }

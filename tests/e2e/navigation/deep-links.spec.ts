@@ -9,7 +9,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
 
-import { getTeamIdByCode } from '../fixtures/team';
+import { getTeamIdByCode, selectSharedTestTeam } from '../fixtures/team';
 import { createTicket, deleteTicket } from '../tickets/helpers';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
@@ -245,5 +245,44 @@ test.describe('Deep links: tickets list', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(ticketUrl);
 
     await deleteTicket(page, copyTitle);
+  });
+});
+
+test.describe('Deep links: dashboard', () => {
+  test.setTimeout(90000);
+
+  const param = (page: Page, key: string) => new URL(page.url()).searchParams.get(key);
+
+  test('tab and view live in the URL and survive reload and Back', async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    await selectSharedTestTeam(page);
+    await page.goto('/app/dashboard');
+
+    await page.getByRole('tab', { name: 'Team', exact: true }).click();
+    await expect.poll(() => param(page, 'tab')).toBe('team');
+    await page.getByRole('tab', { name: 'Timesheet', exact: true }).click();
+    await expect.poll(() => param(page, 'view')).toBe('timesheet');
+
+    await page.reload();
+    await expect(page.getByRole('tab', { name: 'Timesheet', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(page.getByRole('tab', { name: 'Team', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    await page.goBack();
+    await expect.poll(() => param(page, 'view')).toBeNull();
+  });
+
+  test('a legacy timesheet notification link is normalised', async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await getTeamIdByCode('TEST01');
+    await page.goto(`/app/dashboard?tab=timesheet&teamId=${teamId}`);
+    await expect.poll(() => param(page, 'view')).toBe('timesheet');
+    expect(param(page, 'tab')).toBe('team');
+    expect(param(page, 'team')).toBe(teamId);
   });
 });
