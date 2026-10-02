@@ -250,8 +250,8 @@ File: [`src/main.tsx`](../src/main.tsx). The `if (!user)` block does `window.his
 
 ### 5d. Ship it
 
-- [ ] `npm run test:all`, `npm run lint && npm run typecheck`, `npm run format` all pass
-- [ ] Smoke test at `http://localhost:3000` (checklist below)
+- [x] `npm run test:all`, `npm run lint && npm run typecheck`, `npm run format` all pass _2026-10-02: 262 unit tests; 207 e2e passed, 7 flaky (all but one the known sign-in bounce; the other was a real return-to bug, fixed in `d91ab8b5`), 4 skipped._
+- [x] Smoke test at `http://localhost:3000` (checklist below) _Done through Playwright (the MCP browser was busy in another session); see `tests/e2e/navigation/deep-links.spec.ts`._
 - [ ] PR title: `fix #618: deep-link remaining pages and return to link after sign-in` (this PR closes the issue)
 
 ---
@@ -260,16 +260,28 @@ File: [`src/main.tsx`](../src/main.tsx). The `if (!user)` block does `window.his
 
 Do every row on the web **and** once in the iOS/Android app.
 
-- [ ] Reload on every page keeps team, tab, filters, date and open item
-- [ ] Copy URL → paste in a new browser profile signed in as the same user → identical view
-- [ ] `?team=X` beats the remembered team; switching teams updates the URL
-- [ ] Back/Forward step through tabs and opened items; typing in a search box adds **no** history entries
-- [ ] Old links still work: `?teamId=`, `?tab=timesheet`, `?postId=`, `/app/timesheet`, `/app/messages`, `/app/media`
-- [ ] Link to a team/ticket/org/conversation you can't access → "You don't have access", never someone else's data
-- [ ] Forbidden and not-found look different
-- [ ] Signed-out deep link → sign in → back on the link
-- [ ] No `window.history.replaceState` / `new URLSearchParams(window.location.search)` left in page components. Search with `grep -rnE "history\.replaceState|URLSearchParams\(window" src/features src/pages`; anything left should be in `router.ts`, `main.tsx` auth/OAuth handling, or `LoginForm.tsx`.
+- [x] Reload on every page keeps team, tab, filters, date and open item
+- [x] Copy URL → paste in a new browser profile signed in as the same user → identical view
+- [x] `?team=X` beats the remembered team; switching teams updates the URL
+- [x] Back/Forward step through tabs and opened items; typing in a search box adds **no** history entries
+- [x] Old links still work: `?teamId=`, `?tab=timesheet`, `?postId=`, `/app/timesheet`, `/app/messages`, `/app/media`
+- [x] Link to a team/ticket/org/conversation you can't access → "You don't have access", never someone else's data
+- [x] Forbidden and not-found look different
+- [x] Signed-out deep link → sign in → back on the link
+- [x] No `window.history.replaceState` / `new URLSearchParams(window.location.search)` left in page components. Search with `grep -rnE "history\.replaceState|URLSearchParams\(window" src/features src/pages`; anything left should be in `router.ts`, `main.tsx` auth/OAuth handling, or `LoginForm.tsx`. _Only `InboxPage` remains: the public `/inbox` page, rendered outside the app shell with no router._
 - [ ] Every acceptance-criteria box on issue #618 is ticked
+
+## Status and Follow-Ups (2026-10-02)
+
+All five milestones are implemented on `feat/618-deep-linking`, one commit or more per milestone, instead of one PR each. Not done yet:
+
+- [ ] **Native app pass.** Every row of the smoke test above on iOS/Android. Not run.
+- [ ] **Copy Link on native** uses `window.location.origin`, which inside the app isn't the public web URL. Same limitation as the existing team join link. Needs a configured public origin.
+- [ ] **Release note version.** Added to `1.0.4.md` because `package.json` is still 1.0.4. Bump to 1.0.5 if it should show as New to people who already read 1.0.4.
+- [ ] **Pending-team requests.** While the team list loads, a page linked to a team the user isn't in can fire one request (e.g. `clock.teamStatus`) before the no-access state replaces it. The server refuses it; it's only log noise.
+- [ ] **Backend notification URLs** still emit `?teamId=`, `?postId=`, `?memberId=`, `?requestId=`. They keep working as aliases; switching them to the new names is optional.
+- [ ] **`tickets.get` permission check** uses team membership; a dead duplicate that used the CASL `read` rule was removed. Confirm membership is the intended rule.
+- [ ] Tick the acceptance criteria on issue #618 once reviewed.
 
 ## Out of Scope
 
