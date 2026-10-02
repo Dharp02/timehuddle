@@ -106,6 +106,7 @@ export const MAX_PINS_PER_USER = 500;
  *   that would undo every removal at once.
  *
  * @param {{issueId: number, state: string, updatedAt: Date, dismissedAt?: Date, assignedToMeAtDismissal?: boolean}[]} rows
+ * @param {{assignedIssueIds?: number[], assignedKnown?: boolean, now?: number}} [options]
  */
 export function partitionIssuePrefs(
   rows,
