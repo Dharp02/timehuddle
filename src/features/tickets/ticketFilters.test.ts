@@ -145,6 +145,16 @@ describe('applyFilters', () => {
       expect(applyFilters([mention], EMPTY_FILTERS, '@ada')).toEqual([]);
       expect(applyFilters([mention], EMPTY_FILTERS, 'ada')).toEqual([mention]);
     });
+
+    it('does not match inside the raw id of an unresolved assignee', () => {
+      const unresolved = make({
+        key: 'huddle:6',
+        id: '6',
+        assignees: [{ id: 'k7adaq2', name: 'k7adaq2' }],
+      });
+      expect(applyFilters([unresolved], EMPTY_FILTERS, '@ada')).toEqual([]);
+      expect(applyFilters([unresolved], EMPTY_FILTERS, '@')).toEqual([unresolved]);
+    });
   });
 
   describe('the #ref search prefix', () => {

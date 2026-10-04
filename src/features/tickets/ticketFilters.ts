@@ -147,7 +147,12 @@ export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
 
   if (q.startsWith('@')) {
     const name = q.slice(1).trim();
-    return ticket.assignees.some((assignee) => assignee.name.toLowerCase().includes(name));
+    if (!name) return ticket.assignees.length > 0;
+    // An unresolved Huddle assignee carries its raw id as the name — a name
+    // search must not match characters inside that id.
+    return ticket.assignees.some(
+      (assignee) => assignee.name !== assignee.id && assignee.name.toLowerCase().includes(name),
+    );
   }
   if (q.startsWith('#')) return ticket.ref.toLowerCase().startsWith(q);
 
