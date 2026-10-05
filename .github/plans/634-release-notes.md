@@ -130,9 +130,9 @@ Apply the new template to the notes already on the page.
 
 - [x] `npm run lint && npm run typecheck && npm run format`, all clean
 - [ ] `npm run test:all` passes (tell the reviewer if e2e can't run locally). `test:unit` passes, 359/359. The e2e half is deferred to a later run.
-- [ ] Before/after screenshots of `/release-notes` in the PR description
-- [ ] PR title: `docs(release-notes): tag releases and link PRs and screens (#634)`
-- [ ] PR body says `Closes #634`. Don't close the issue until Milestone 5 is done.
+- [ ] Before/after screenshots of `/release-notes` in the PR description (`gh` can't upload images; paste them in the web editor)
+- [x] PR title: `docs(release-notes): tag releases and link PRs and screens (#634)`. Opened as **draft** [#645](https://github.com/mieweb/timehuddle/pull/645) until e2e has run.
+- [x] PR body says `Part of #634`, not `Closes`, so merging doesn't close the issue before Milestone 5 is done.
 
 ## Milestone 5: Tag and Release Past Versions
 
