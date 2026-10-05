@@ -352,7 +352,11 @@ const core = createPulseVaultCore({
   },
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete called', JSON.stringify(ctx));
-    if (ctx.kind === 'video') startWebReady(ctx.artifactId);
+    // Only a video fills its reservation: its captions, manifest and thumbnail
+    // are separate artifacts, and one sent under the video's id must not be
+    // attached as the video (or use up the reservation the video needs).
+    if (ctx.kind !== 'video') return;
+    startWebReady(ctx.artifactId);
     const reservation = await takeReservation(ctx.artifactId);
     if (!reservation) {
       console.log('[pulsevault][hook] onUploadComplete: NO reservation context for', ctx.artifactId);
@@ -547,13 +551,14 @@ Wormhole.use({
         const meta = decodeUploadMetadata(req.headers['upload-metadata']);
         const artifactId = meta.artifactId ?? meta.videoid ?? meta.projectid;
         if (!artifactId) return;
+        let storedKind;
         try {
           // Only act for callers holding a valid capability token for this
           // artifactId — otherwise an unauthenticated POST could delete
           // someone else's in-progress upload.
           // Authorize cleanup against the existing artifact's stored relation;
           // request metadata is attacker-controlled.
-          const storedKind = await storage.getKind(artifactId);
+          storedKind = await storage.getKind(artifactId);
           if (!storedKind) return;
           const storedRelatedTo = await storage.getRelatedTo(artifactId);
           await verifyUploadToken(req, {
@@ -587,7 +592,8 @@ Wormhole.use({
             if (removed) console.log('[pulsevault] cleared stale unfinished upload for retry:', artifactId);
             return;
           }
-          const reservation = await takeReservation(artifactId);
+          // Only a video fills its reservation (see onUploadComplete).
+          const reservation = storedKind === 'video' ? await takeReservation(artifactId) : null;
           if (reservation) {
             console.log('[pulsevault] finalizing orphaned ready upload:', artifactId);
             startWebReady(artifactId);
