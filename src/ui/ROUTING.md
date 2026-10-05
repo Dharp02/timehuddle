@@ -74,6 +74,12 @@ Notification payloads and bookmarks already in the wild use these. They are read
 | `?requestId=`                                   | `?request=`                                    |
 | `/app/timesheet`, `/app/messages`, `/app/media` | `RETIRED_ROUTES` in [`router.tsx`](router.tsx) |
 
+## Paths That Don't Resolve
+
+A path with no entry in `ROUTES` and no dynamic match renders the not-found state, under the URL that was asked for. It is **not** swapped for the dashboard: a mistyped or stale link that quietly showed a different page left the URL and the content disagreeing, so copying it, reloading it or switching a tab on it all carried the dead path along. Retired paths are rewritten in `resolveUrl` before the route table sees them, so they redirect as before.
+
+Repeated slashes are collapsed first (`//app/timesheet` → `/app/timesheet`). Besides missing the route table, a leading `//` is a protocol-relative URL that makes `history.pushState` throw a cross-origin `SecurityError`.
+
 ## How a URL Becomes a Page
 
 ```mermaid

@@ -93,9 +93,11 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/org/usage': { title: 'Usage', component: OrgUsagePage },
 };
 
-function match(pathname: string): RouteConfig {
+/** Null when nothing matches — the caller shows not-found rather than a page
+ *  the URL didn't ask for. */
+function match(pathname: string): RouteConfig | null {
   if (matchPath('/app/teams/:teamId', pathname)) return ROUTES['/app/teams'];
-  return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
+  return ROUTES[pathname] ?? null;
 }
 
 // ─── Context ─────────────────────────────────────────────────────────────────
@@ -289,8 +291,11 @@ const AppLayoutContent: React.FC = () => {
       ? pathname.slice('/app/tickets/'.length)
       : null;
 
-  const route =
-    profileUserId || profileUsername || ticketDetailId || redmineIssueId ? null : match(pathname);
+  const isDynamicRoute = Boolean(
+    profileUserId || profileUsername || ticketDetailId || redmineIssueId,
+  );
+  const route = isDynamicRoute ? null : match(pathname);
+  const pathNotFound = !isDynamicRoute && !route;
 
   // Shown in the browser tab. Covers the dynamic routes too, which have no
   // registry entry.
@@ -301,7 +306,9 @@ const AppLayoutContent: React.FC = () => {
         ? 'Ticket'
         : redmineIssueId
           ? 'Issue'
-          : (route?.title ?? 'App');
+          : pathNotFound
+            ? 'Page not found'
+            : (route?.title ?? 'App');
   useClockDocumentTitle(documentTitle);
 
   // A linked team the user isn't in replaces the page — never shows another team.
@@ -445,6 +452,8 @@ const AppLayoutContent: React.FC = () => {
                           <TicketDetailPage ticketId={ticketDetailId} />
                         ) : redmineIssueId ? (
                           <RedmineIssueDetailPage issueId={redmineIssueId} />
+                        ) : pathNotFound ? (
+                          <NoAccessState kind="not-found" resource="page" />
                         ) : (
                           route &&
                           route.component !== TicketsPage &&

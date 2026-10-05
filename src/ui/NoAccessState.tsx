@@ -15,13 +15,21 @@ import React from 'react';
 import { useRouter } from './router';
 
 export type NoAccessKind = 'forbidden' | 'not-found';
-export type NoAccessResource = 'team' | 'org' | 'ticket' | 'profile' | 'conversation';
+export type NoAccessResource = 'team' | 'org' | 'ticket' | 'profile' | 'conversation' | 'page';
+/** `page` is only ever missing, never withheld: there are no admin-only routes. */
+export type ForbiddenResource = Exclude<NoAccessResource, 'page'>;
+
+interface NoAccessCopy {
+  title: string;
+  description: string;
+}
 
 /** All user-facing copy, kept together for translation. */
-export const NO_ACCESS_COPY: Record<
-  NoAccessKind,
-  Record<NoAccessResource, { title: string; description: string }>
-> & { goToDashboard: string } = {
+export const NO_ACCESS_COPY: {
+  forbidden: Record<ForbiddenResource, NoAccessCopy>;
+  'not-found': Record<NoAccessResource, NoAccessCopy>;
+  goToDashboard: string;
+} = {
   forbidden: {
     team: {
       title: 'You don’t have access to this team',
@@ -70,18 +78,26 @@ export const NO_ACCESS_COPY: Record<
       description:
         'Its posts may have been deleted, or it may belong to another team or Thread by option. Pick a conversation from the list to carry on.',
     },
+    page: {
+      title: 'This page doesn’t exist',
+      description:
+        'The address may be mistyped, or the page may have moved. Check the link, or start again from the dashboard.',
+    },
   },
   goToDashboard: 'Go to dashboard',
 };
 
-interface NoAccessStateProps {
-  kind: NoAccessKind;
-  resource: NoAccessResource;
-}
+type NoAccessStateProps =
+  | { kind: 'forbidden'; resource: ForbiddenResource }
+  | { kind: 'not-found'; resource: NoAccessResource };
 
-export const NoAccessState: React.FC<NoAccessStateProps> = ({ kind, resource }) => {
+export const NoAccessState: React.FC<NoAccessStateProps> = (props) => {
+  const { kind } = props;
   const { navigate } = useRouter();
-  const { title, description } = NO_ACCESS_COPY[kind][resource];
+  const { title, description } =
+    props.kind === 'forbidden'
+      ? NO_ACCESS_COPY.forbidden[props.resource]
+      : NO_ACCESS_COPY['not-found'][props.resource];
 
   return (
     <section className="no-access-state" role="status" aria-live="polite" data-kind={kind}>

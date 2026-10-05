@@ -60,12 +60,23 @@ function mergeQuery(original: string, replacement: string): string {
 }
 
 /**
+ * Collapses repeated slashes. A hand-typed or concatenated `//app/timesheet`
+ * is a different path to `/app/timesheet`, so it misses RETIRED_ROUTES and the
+ * route table; worse, `history.pushState('//app/…')` reads the leading `//` as
+ * a protocol-relative URL and throws a cross-origin SecurityError.
+ */
+function normalizePath(path: string): string {
+  return path.replace(/\/{2,}/g, '/');
+}
+
+/**
  * Maps a URL onto where it actually lives now: `/app` and `/` mean the
  * dashboard, and a RETIRED_ROUTES path is rewritten to its replacement.
- * Everything else passes through untouched, query string intact.
+ * Everything else passes through with only its path normalised, query intact.
  */
 export function resolveUrl(url: string): string {
-  const [path, query = ''] = url.split('?');
+  const [rawPath, query = ''] = url.split('?');
+  const path = normalizePath(rawPath);
 
   // The scope (`?team=`, `?org=`) an old link carried has to survive the
   // rewrite, so the replacement's own params are merged over it rather than
@@ -83,7 +94,8 @@ export function resolveUrl(url: string): string {
     return rewriteTo('/app/dashboard');
   }
   const retired = RETIRED_ROUTES[path];
-  return retired ? rewriteTo(retired) : url;
+  if (retired) return rewriteTo(retired);
+  return query ? `${path}?${query}` : path;
 }
 
 function splitUrl(url: string): { pathname: string; search: string } {

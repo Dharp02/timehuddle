@@ -64,6 +64,11 @@ describe('resolveUrl', () => {
   it('lets the replacement win on a shared key', () => {
     expect(resolveUrl('/app/timesheet?view=team')).toBe('/app/dashboard?view=timesheet');
   });
+
+  it('collapses repeated slashes so a retired route still resolves', () => {
+    expect(resolveUrl('//app/timesheet')).toBe('/app/dashboard?view=timesheet');
+    expect(resolveUrl('//app//tickets?status=open')).toBe('/app/tickets?status=open');
+  });
 });
 
 describe('isActivePath', () => {

@@ -117,7 +117,7 @@ File: [`src/lib/TeamContext.tsx`](../src/lib/TeamContext.tsx) (the restore effec
 ### 2b. `<NoAccessState>` component
 
 - [x] Create `src/ui/NoAccessState.tsx`, built from `@mieweb/ui` components (check [`.github/instructions/mieweb-ui.instructions.md`](../.github/instructions/mieweb-ui.instructions.md) for the right empty-state/Card/Button). **No raw `<button>`/`<div>` styling** where the library has a component.
-- [x] Props: `kind: 'forbidden' | 'not-found'`, `resource: 'team' | 'ticket' | 'profile' | 'org' | 'conversation'`, optional `name`, optional `onRequestJoin` _Done differently: `resource` is `'team' | 'ticket'` for now; later milestones add the rest as they use it. No `name` or `onRequestJoin` (see below)._
+- [x] Props: `kind: 'forbidden' | 'not-found'`, `resource: 'team' | 'ticket' | 'profile' | 'org' | 'conversation'`, optional `name`, optional `onRequestJoin` _Done except `name` and `onRequestJoin` (see below)._
 - [x] Actions: **Go to dashboard** (always); **Request to join** only when `onRequestJoin` is passed (join requests exist in `meteor-backend/server/team-join-requests.js`) _Request to join is left out: joining needs the team's private code, and a link only carries the id._
 - [x] Wrap the message in `role="status"` / `aria-live="polite"`; the heading should be a real heading element
 - [x] Put all copy in one exported object (e.g. `NO_ACCESS_COPY`) in the same file, with nothing hard-coded inline in JSX
@@ -238,7 +238,7 @@ Each row uses `useQueryParam`, follows the `replace`/`navigate` rule, and ignore
 - [x] **Org Usage** ([`src/features/usage/OrgUsagePage.tsx`](../src/features/usage/OrgUsagePage.tsx)): `periodDays` ↔ `?period=`, org ↔ `?org=` (from `TeamContext`) _Done as `?period=` and `?usageOrg=`, not `?org=`: `?org=` is the app-wide org scope, and this picker has an "All organizations" choice._
 - [x] **Activity Log**: any active filters → query params _Nothing to do: it has no filters._
 - [x] **Notifications, Settings, Release Notes, Clock**: look for tabs or sections. Add a param **only** where one exists, and list what you checked in the PR description even if nothing changed. _Checked: none of the four has tabs, filters or sections._
-- [x] Org / profile not found or forbidden → `<NoAccessState>` _Profile: its 403/404 checks never fired (wormhole sends every Meteor.Error as HTTP 500), so a missing profile showed an empty page; it now uses `classifyLoadError` + `NoAccessState`. Org pages already gate on the user's org roles._
+- [x] Org / profile not found or forbidden → `<NoAccessState>` _Profile: its 403/404 checks never fired (wormhole sends every Meteor.Error as HTTP 500), so a missing profile showed an empty page; it now uses `classifyLoadError` + `NoAccessState`. `users.get` / `users.getByUsername` also had to start enforcing access — they returned any existing user with an empty `sharedTeams`, so the forbidden branch was unreachable. The rule is: your own profile, a team-mate's, or someone in an org you own/admin (the org chart links to those). Shared org membership alone is not enough — every account is auto-joined to one default org. A foreign `?org=` gets the same treatment through `useTeam().orgAccess`._
 
 ### 5b. Return to the original URL after sign-in
 

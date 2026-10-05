@@ -4,7 +4,7 @@
  */
 import { faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button } from '@mieweb/ui';
+import { Button, ButtonGroup } from '@mieweb/ui';
 import React from 'react';
 
 import { useRouter } from '../../../ui/router';
@@ -12,7 +12,7 @@ import { useRouter } from '../../../ui/router';
 export const BackToTicketsButton: React.FC<{ actions?: React.ReactNode }> = ({ actions }) => {
   const { navigate } = useRouter();
   return (
-    <div className="ticket-detail-back mb-4 flex items-center justify-between gap-2">
+    <ButtonGroup split className="ticket-detail-back mb-4 w-full">
       <Button
         variant="secondary"
         size="sm"
@@ -24,6 +24,6 @@ export const BackToTicketsButton: React.FC<{ actions?: React.ReactNode }> = ({ a
         TICKETS
       </Button>
       {actions}
-    </div>
+    </ButtonGroup>
   );
 };

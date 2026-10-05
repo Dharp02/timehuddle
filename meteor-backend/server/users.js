@@ -65,6 +65,48 @@ async function resolveTeamMemberships(userId) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Whether `viewerId` runs an organization `targetUserId` belongs to. Shared
+ * membership alone can't grant this: every account is auto-joined to one
+ * default org, so "same org" would mean "everyone".
+ */
+async function adminsAnOrgOf(viewerId, targetUserId) {
+  const db = rawDb();
+  const memberships = await db
+    .collection('org_members')
+    .find({ userId: { $in: [viewerId, targetUserId] } })
+    .toArray();
+  const runs = new Set(
+    memberships
+      .filter((m) => m.userId === viewerId && (m.role === 'owner' || m.role === 'admin'))
+      .map((m) => m.orgId),
+  );
+  return memberships.some((m) => m.userId === targetUserId && runs.has(m.orgId));
+}
+
+/**
+ * The non-personal teams both users are in — and the gate on reading a
+ * profile at all. A profile is visible to the person it belongs to, to their
+ * team-mates, and to someone who runs an organization they're in (the org
+ * chart links to it). Anyone else gets `forbidden`, which the client turns
+ * into a no-access page; without this every user id in the URL would resolve
+ * for everyone.
+ */
+async function requireSharedTeams(viewerId, targetUserId) {
+  if (viewerId === targetUserId) return [];
+  const docs = await Teams.rawCollection()
+    .find({ members: { $all: [viewerId, targetUserId] }, isPersonal: { $ne: true } })
+    .toArray();
+  if (docs.length === 0 && !(await adminsAnOrgOf(viewerId, targetUserId))) {
+    throw new Meteor.Error('forbidden', 'You do not share a team with this user');
+  }
+  return docs.map((t) => ({
+    id: t._id.toHexString ? t._id.toHexString() : String(t._id),
+    name: t.name,
+    isAdmin: t.admins.includes(viewerId),
+  }));
+}
+
 async function toPublicUser(u, profileMap) {
   if (!u) return null;
   const userId = u._id.toHexString ? u._id.toHexString() : String(u._id);
@@ -92,17 +134,7 @@ Meteor.methods({
     const user = await findUserById(targetUserId);
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
-    const sharedTeamDocs = userId !== targetUserId
-      ? await Teams.rawCollection().find({
-          members: { $all: [userId, targetUserId] },
-          isPersonal: { $ne: true },
-        }).toArray()
-      : [];
-    const sharedTeams = sharedTeamDocs.map((t) => ({
-      id: t._id.toHexString ? t._id.toHexString() : String(t._id),
-      name: t.name,
-      isAdmin: t.admins.includes(userId),
-    }));
+    const sharedTeams = await requireSharedTeams(userId, targetUserId);
 
     return { user: { ...(await toPublicUser(user)), sharedTeams } };
   },
@@ -116,18 +148,7 @@ Meteor.methods({
     const user = await rawDb().collection('users').findOne({ username: username.toLowerCase() });
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
-    const targetId = String(user._id);
-    const sharedTeamDocs = userId !== targetId
-      ? await Teams.rawCollection().find({
-          members: { $all: [userId, targetId] },
-          isPersonal: { $ne: true },
-        }).toArray()
-      : [];
-    const sharedTeams = sharedTeamDocs.map((t) => ({
-      id: t._id.toHexString ? t._id.toHexString() : String(t._id),
-      name: t.name,
-      isAdmin: t.admins.includes(userId),
-    }));
+    const sharedTeams = await requireSharedTeams(userId, String(user._id));
 
     return { user: { ...(await toPublicUser(user)), sharedTeams } };
   },

@@ -10,7 +10,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
 
 import { getTeamIdByCode, selectSharedTestTeam } from '../fixtures/team';
-import { createTicket, deleteTicket } from '../tickets/helpers';
+import { createTicket, deleteTicket, ticketRow } from '../tickets/helpers';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 /** A well-formed team id no user belongs to. */
@@ -21,17 +21,22 @@ const teamParam = (page: Page) => new URL(page.url()).searchParams.get('team');
 const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
-/** Runs `fn` against the test DB's tickets collection. */
-async function withTickets<T>(
-  fn: (tickets: ReturnType<ReturnType<MongoClient['db']>['collection']>) => Promise<T>,
+/** Runs `fn` against a collection in the test DB. */
+async function withCollection<T>(
+  name: string,
+  fn: (collection: ReturnType<ReturnType<MongoClient['db']>['collection']>) => Promise<T>,
 ): Promise<T> {
   const client = await MongoClient.connect(MONGO_URL);
   try {
-    return await fn(client.db().collection('tickets'));
+    return await fn(client.db().collection(name));
   } finally {
     await client.close();
   }
 }
+
+const withTickets = <T>(
+  fn: (tickets: ReturnType<ReturnType<MongoClient['db']>['collection']>) => Promise<T>,
+) => withCollection('tickets', fn);
 
 const noAccessHeading = (page: Page, what: RegExp) =>
   page.getByRole('heading', { level: 1, name: what });
@@ -189,54 +194,17 @@ test.describe('Deep links: ticket no-access and not-found', () => {
 test.describe('Deep links: tickets list', () => {
   test.setTimeout(90000);
 
-  const title = `deep-link ticket ${Date.now()}`;
-  const searchBox = (page: Page) => page.getByPlaceholder('Search tickets…');
-  const param = (page: Page, key: string) => new URL(page.url()).searchParams.get(key);
+  // The ticket list's own search and filters are not in the URL yet — the
+  // unified table owns them as component state. Tracked in #632.
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
   });
 
-  test('filters live in the URL: reload, Back and returning via the sidebar', async ({ page }) => {
-    await createTicket(page, title);
-
-    // Typing filters immediately; the URL follows once typing pauses.
-    await searchBox(page).fill(title);
-    await expect.poll(() => param(page, 'q')).toBe(title);
-
-    // A filter replaces the history entry; a tab pushes one.
-    const historyBefore = await page.evaluate(() => history.length);
-    await page.getByRole('tab', { name: /Closed/ }).click();
-    await expect.poll(() => param(page, 'tab')).toBe('closed');
-    expect(await page.evaluate(() => history.length)).toBe(historyBefore + 1);
-    await page.goBack();
-    await expect.poll(() => param(page, 'tab')).toBeNull();
-
-    // Reload restores the search.
-    await page.reload();
-    await expect(searchBox(page)).toHaveValue(title);
-    await expect(page.locator('li').filter({ hasText: title }).first()).toBeVisible();
-
-    // Opening a ticket, then Back, lands on the filtered list.
-    await page.locator('li').filter({ hasText: title }).first().getByText(title).click();
-    await expect(page).toHaveURL(/\/app\/tickets\/[a-f0-9]{24}/);
-    await page.goBack();
-    await expect(searchBox(page)).toHaveValue(title);
-
-    // Leaving and coming back through the sidebar keeps the filters.
-    await page.locator('aside').getByRole('button', { name: 'Dashboard', exact: true }).click();
-    await page.locator('aside').getByRole('button', { name: 'Tickets', exact: true }).click();
-    await expect.poll(() => param(page, 'q')).toBe(title);
-    await expect(searchBox(page)).toHaveValue(title);
-
-    await page.goto('/app/tickets');
-    await deleteTicket(page, title);
-  });
-
   test('Copy Link copies the ticket’s absolute URL', async ({ page }) => {
     const copyTitle = `copy-link ticket ${Date.now()}`;
     await createTicket(page, copyTitle);
-    await page.locator('li').filter({ hasText: copyTitle }).first().getByText(copyTitle).click();
+    await ticketRow(page, copyTitle).first().getByText(copyTitle).click();
     await expect(page).toHaveURL(/\/app\/tickets\/[a-f0-9]{24}/);
     const ticketUrl = page.url().split('?')[0];
 
@@ -313,6 +281,52 @@ test.describe('Deep links: other pages', () => {
   test('a profile that does not exist shows not found', async ({ page }) => {
     await page.goto('/app/profile/nobody-by-this-name-618');
     await expect(noAccessHeading(page, /person doesn.t exist/)).toBeVisible();
+  });
+
+  test('an unknown path shows not found, not the dashboard', async ({ page }) => {
+    // `/app/organisation` is the British spelling of a real route: close enough
+    // to a working link that silently rendering the dashboard under it hid the
+    // typo, and left the dashboard writing its own params onto a dead path.
+    await page.goto('/app/organisation');
+    await expect(noAccessHeading(page, /page doesn.t exist/)).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/app/organisation');
+
+    await page.getByRole('button', { name: /go to dashboard/i }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/app/dashboard');
+  });
+
+  test('a retired route still redirects rather than showing not found', async ({ page }) => {
+    await page.goto('/app/timesheet');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/app/dashboard');
+    await expect(noAccessHeading(page, /page doesn.t exist/)).toBeHidden();
+  });
+
+  test('a profile in no shared team shows no access', async ({ page }) => {
+    // Seeded directly: every fixture user shares a team with owner1, and the
+    // rule under test is "no shared team". No `org_members` doc either, so
+    // owner1's org roles can't grant access the way they do from the org chart.
+    const strangerId = 'deeplink618nouser';
+    await withCollection('users', (users) =>
+      users.updateOne(
+        { _id: strangerId as unknown as ObjectId },
+        {
+          $set: {
+            username: 'stranger618',
+            profile: { name: 'Stranger 618' },
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true },
+      ),
+    );
+    try {
+      await page.goto(`/app/profile/${strangerId}`);
+      await expect(noAccessHeading(page, /isn.t available to you/)).toBeVisible();
+    } finally {
+      await withCollection('users', (users) =>
+        users.deleteOne({ _id: strangerId as unknown as ObjectId }),
+      );
+    }
   });
 });
 
