@@ -183,6 +183,8 @@ When the bump to `1.0.7` merges, ship `1.0.6`:
    ```
    It lists every PR in the tag range. Expect it to differ from the note's own
    list, which covers what the note describes.
+   GitHub reads `release.yml` from the **tagged commit**, so a tag on a commit
+   older than that file gets GitHub's default list, Dependabot PRs included.
 5. Publish it. **The title is the note's `title:`**, word for word:
    ```bash
    gh release create 1.0.6 --title "<title from the note>" --notes-file body.md

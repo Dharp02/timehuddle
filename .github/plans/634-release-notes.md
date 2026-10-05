@@ -76,11 +76,12 @@ You change nothing in this milestone. You learn the tools you will use in the re
 **Generate release notes** (the button in the issue's first photo) builds the PR list for us. Configure it so it groups PRs and leaves out Dependabot noise.
 
 - [x] Create [`.github/release.yml`](../release.yml): one category, Dependabot excluded (44 of the PRs GitHub lists for 1.0.5 today are Dependabot bumps)
-- [ ] Once the branch is pushed, check the config takes effect (it is read from the target branch). The `grep` must print `0`:
+- [x] Once the branch is pushed, check the config takes effect. With a tag name that doesn't exist yet, GitHub's output begins `<!-- Release notes generated using configuration in .github/release.yml at docs/634-release-notes-process -->` and has no Dependabot lines:
   ```bash
   gh api -X POST repos/mieweb/timehuddle/releases/generate-notes \
-    -f tag_name=1.0.5 -f target_commitish=docs/634-release-notes-process -q .body | grep -c dependabot
+    -f tag_name=0.0.0-dryrun -f target_commitish=docs/634-release-notes-process -q .body
   ```
+  That range holds only #631, so the Dependabot exclusion isn't proven over a range that contains Dependabot PRs. For an **existing** tag, GitHub reads `release.yml` from the tagged commit. Re-check when 1.0.6 is tagged after this merges. The 1.0.2–1.0.4 tags sit on commits older than the file, so their generated lists will include Dependabot (the README says so).
 - [x] Commit: `chore(release): configure generated release notes`
 
 ## Milestone 2: Write the Process Down
