@@ -1,6 +1,6 @@
 # Routing and URL Scheme
 
-The URL is the source of truth for **where the user is and what they are looking at**. Copying the address bar, reloading, opening a new tab or pressing Back must land on the same view. Issue [#618](https://github.com/mieweb/timehuddle/issues/618) tracks the rollout; [`docs/deep-linking-618-plan.md`](../../docs/deep-linking-618-plan.md) shows which pages are done.
+The URL is the source of truth for **where the user is and what they are looking at**. Copying the address bar, reloading, opening a new tab or pressing Back must land on the same view. Issue [#618](https://github.com/mieweb/timehuddle/issues/618) tracks the rollout; the params table below is the current state of it.
 
 There is no router library. [`router.tsx`](router.tsx) provides `RouterProvider` and the helpers below, and [`AppLayout.tsx`](AppLayout.tsx) maps paths to pages.
 
