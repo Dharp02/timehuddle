@@ -115,6 +115,13 @@ export const DashboardPage: React.FC = () => {
   );
   // Personal workspaces hide the Me/Team toggle — both views would be identical.
   const tab = isPersonalWorkspace ? 'me' : (urlTab ?? storedTab());
+  // A remembered Team tab has to reach the URL too, or the address bar would
+  // say nothing while Team is on screen and the link would open Me for anyone
+  // else. Replace, not push: restoring a preference isn't a place to go back to.
+  useEffect(() => {
+    if (isPersonalWorkspace || urlTab || tab !== 'team') return;
+    setParams({ tab: 'team' });
+  }, [isPersonalWorkspace, urlTab, tab, setParams]);
   // The admin timesheet (member picker, everyone's entries) belongs to the Team
   // tab only. Me → Timesheet is always the signed-in user's own timesheet.
   const showAdminTimesheet = canViewTimesheet && tab === 'team';

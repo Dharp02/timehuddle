@@ -207,12 +207,15 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     };
   }, [selectedMemberId, fetchData]);
 
-  // Refetch when member or non-custom preset changes
+  // Refetch when the member, the preset or the team changes. The team matters
+  // because the effect above clears the data on a switch, and a member in both
+  // teams leaves `selectedMemberId` untouched — without this the panel would
+  // stay blank.
   useEffect(() => {
     if (selectedMemberId && preset !== 'custom') {
       void fetchData();
     }
-  }, [selectedMemberId, preset]);
+  }, [selectedMemberId, preset, selectedTeamId]);
 
   // Filter sessions to selected team only
   const filteredSessions = useMemo(() => {
