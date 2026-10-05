@@ -551,7 +551,9 @@ Wormhole.use({
           // Only act for callers holding a valid capability token for this
           // artifactId — otherwise an unauthenticated POST could delete
           // someone else's in-progress upload.
-          await verifyUploadToken(req, { artifactId, phase: 'create' });
+          // A thumbnail, manifest or captions file carries its video's token,
+          // so the check needs what it's related to, as the core's does.
+          await verifyUploadToken(req, { artifactId, phase: 'create', kind: meta.kind, relatedTo: meta.relatedTo });
         } catch {
           return; // core.handler will reject it with the proper 401/403
         }
