@@ -31,6 +31,7 @@ import {
   createMp4Sniffer,
   issueCapabilityToken,
   createCapabilityAuthorize,
+  ensureWebReady,
 } from '@mieweb/pulsevault/core';
 import { rawDb } from './collections.js';
 import { requireIdentity, resolveToken } from './auth-bridge.js';
@@ -295,13 +296,21 @@ const core = createPulseVaultCore({
   // prefix before calling the handler — per the package's Meteor integration docs.
   stripBasePath: false,
   maxUploadSize: 500 * 1024 * 1024, // 500 MB
-  // Pulse Cam and the web fallback both upload one pre-recorded MP4 per
-  // session rather than per-clip "beats".
-  uploadUnit: 'merged',
-  // Derived from VIDEO_CONTENT_TYPES so the accepted extensions can't drift
+  // Uploads a client abandoned, and the captions, manifest or thumbnail of a
+  // video that never finished, are removed after a day: well above the
+  // capability token's lifetime, past which no upload can continue anyway.
+  retention: { abandonedAfterSeconds: 24 * 60 * 60 },
+  // A pulse uploads a .pulse beat manifest, .vtt captions and a .jpg
+  // thumbnail alongside its video, so every kind is accepted. Video is
+  // derived from VIDEO_CONTENT_TYPES so the accepted extensions can't drift
   // from the ones we know how to serve. Without an extension listed here the
   // tus create POST 400s before any bytes move.
-  allowedExtensions: { video: Object.keys(VIDEO_CONTENT_TYPES), captions: ['.vtt', '.srt'] },
+  allowedExtensions: {
+    video: Object.keys(VIDEO_CONTENT_TYPES),
+    project: ['.pulse', '.zip'],
+    captions: ['.vtt', '.srt'],
+    thumbnail: ['.jpg', '.jpeg', '.png'],
+  },
   authorize: async (request, ctx) => {
     console.log('[pulsevault][hook] authorize called', {
       phase: ctx.phase,
@@ -343,6 +352,12 @@ const core = createPulseVaultCore({
   },
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete called', JSON.stringify(ctx));
+    // After Pulse gets its response: a transcode shouldn't hold up the final PATCH.
+    if (ctx.kind === 'video') {
+      makeWebReady(ctx.artifactId).catch((err) =>
+        console.warn('[pulsevault] web-ready failed, keeping original:', ctx.artifactId, err.message),
+      );
+    }
     const reservation = await takeReservation(ctx.artifactId);
     if (!reservation) {
       console.log('[pulsevault][hook] onUploadComplete: NO reservation context for', ctx.artifactId);
@@ -353,6 +368,25 @@ const core = createPulseVaultCore({
     notifySseClients(ctx.artifactId, ctx);
   },
 });
+
+/**
+ * Web-playability backstop: phones routinely upload MP4s with the moov atom at
+ * the end (a stall before frame one) or HEVC video (undecodable in Firefox and
+ * most Chrome). A lossless faststart remux, or a one-time H.264 transcode for
+ * a hostile codec. Atomic (tmp + rename) and fail-open: without ffmpeg on PATH
+ * it logs and keeps the original bytes. One at a time: a transcode is CPU-bound.
+ */
+let webReadyQueue = Promise.resolve();
+function makeWebReady(artifactId) {
+  const run = webReadyQueue.then(async () => {
+    const localPath = await storage.getLocalPath(artifactId);
+    if (!localPath) return;
+    const result = await ensureWebReady(localPath, { logger: console });
+    if (result.action !== 'none') console.log('[pulsevault] web-ready', artifactId, result);
+  });
+  webReadyQueue = run.catch(() => {});
+  return run;
+}
 
 /** Decode a TUS Upload-Metadata header into a plain object (values are base64). */
 function decodeUploadMetadata(raw) {
@@ -491,9 +525,10 @@ Wormhole.use({
         console.warn('[pulsevault] request stream aborted:', err.code || err.message);
       });
 
-      // A retried TUS create (POST) whose earlier attempt never finished (e.g.
-      // the request stream aborted with ECONNRESET) leaves a stale "uploading"
-      // sidecar behind. pulsevault's reserveUpload uses exclusive file create,
+      // A retried TUS create (POST) whose earlier attempt never finished (the
+      // app killed or the stream aborted mid-upload, so no TUS DELETE was
+      // sent; a DELETE removes the artifact since PulseVault 0.4) leaves a
+      // stale "uploading" sidecar behind. pulsevault's reserveUpload uses exclusive file create,
       // so every retry with the same artifactId would 409 forever. If the
       // artifact isn't `ready` (resolve() returns null), remove the stale state
       // so the retry can succeed. If it IS `ready` but still has an unconsumed

@@ -99,7 +99,7 @@ test.describe('PulseVault — API contract', () => {
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body).toHaveProperty('protocolVersion');
-    expect(body).toHaveProperty('uploadUnit', 'merged');
+    expect(body).not.toHaveProperty('uploadUnit');
   });
 
   test('POST /api/pulsevault_reserve requires auth', async ({ request }) => {
@@ -340,8 +340,8 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(qr).toBeVisible();
   });
 
-  // The deep-link protocol itself (v=1, artifactId, server, token,
-  // uploadUnit) is asserted at the unit level in PulseUploadButton.test.ts —
+  // The deep-link protocol itself (v=1, artifactId, server, token) is
+  // asserted at the unit level in PulseUploadButton.test.ts —
   // qrcode.react renders to a plain <svg> with no way to read back the
   // encoded value, so this e2e test only covers what the browser can
   // actually observe: reserve() succeeding and the modal reflecting it.

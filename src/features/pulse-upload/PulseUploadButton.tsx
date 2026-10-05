@@ -31,8 +31,8 @@ export function pulseServerBase(): string {
 /**
  * Build the pulsecam:// deep link entirely client-side. Mirrors
  * @mieweb/pulsevault's `buildUploadLink` protocol (PROTOCOL.md): `v=1`,
- * `artifactId`, `server`, `token` (the capability token authorizing the
- * upload), and `uploadUnit=merged` (one pre-recorded file per session).
+ * `artifactId`, `server`, and `token` (the capability token authorizing the
+ * upload).
  */
 export function buildUploadDeepLink(videoid: string, uploadToken: string): string {
   return `pulsecam://?${uploadParams(videoid, uploadToken).toString()}`;
@@ -56,7 +56,6 @@ function uploadParams(videoid: string, uploadToken: string): URLSearchParams {
     artifactId: videoid,
     server: pulseServerBase(),
     token: uploadToken,
-    uploadUnit: 'merged',
   });
 }
 
