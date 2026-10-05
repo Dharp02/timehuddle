@@ -74,7 +74,7 @@ export const pulsevaultOpenApiSpec = {
                   type: 'object',
                   properties: {
                     protocolVersion: { type: 'integer' },
-                    protocolRevision: { type: 'string', example: '2.2' },
+                    protocolRevision: { type: 'string', example: '2.3' },
                     minSupportedVersion: { type: 'integer' },
                     maxSupportedVersion: { type: 'integer' },
                     kinds: { type: 'array', items: { type: 'string' } },
@@ -212,11 +212,73 @@ export const pulsevaultOpenApiSpec = {
         },
       },
       delete: {
-        summary: 'Delete a finished artifact',
+        summary: 'Delete an artifact',
+        description:
+          'Refused once the video has landed (`lockWhenReady`): a finished artifact, or a file ' +
+          'related to a finished video, answers 403 whatever token is presented.',
         operationId: 'pulsevault_artifact_delete',
         tags: ['pulsevault'],
         parameters: [ARTIFACT_ID_PARAM, AUTH_HEADER_PARAM],
-        responses: { 204: { description: 'Artifact deleted' } },
+        responses: {
+          204: { description: 'Artifact deleted' },
+          403: { description: 'The artifact is finished, or belongs to a finished video.' },
+        },
+      },
+    },
+    '/artifacts/{artifactId}/status': {
+      get: {
+        summary: 'Where an upload is',
+        description:
+          '`unknown`, `uploading` (with `bytesReceived` against `size`), `processing` while the ' +
+          'video is made web-playable, or `ready`, plus `acknowledged` (the attach ran) and the ' +
+          'recorded `outcome` (protocol 2.3, PROTOCOL.md §6.5). Authorized by the pairing token. Never cached.',
+        operationId: 'pulsevault_artifact_status',
+        tags: ['pulsevault'],
+        parameters: [
+          ARTIFACT_ID_PARAM,
+          AUTH_HEADER_PARAM,
+          { name: 'token', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: {
+            description: 'The upload\'s state.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['artifactId', 'state'],
+                  properties: {
+                    artifactId: { type: 'string', format: 'uuid' },
+                    state: { type: 'string', enum: ['unknown', 'uploading', 'processing', 'ready'] },
+                    kind: { type: 'string', enum: ['video', 'project', 'captions', 'thumbnail'] },
+                    relatedTo: { type: 'string', format: 'uuid' },
+                    name: { type: 'string' },
+                    bytesReceived: { type: 'number' },
+                    size: { type: 'number' },
+                    acknowledged: { type: 'boolean' },
+                    outcome: { description: 'What the attach recorded: `{ state: "done" | "kept", note?, reason? }`.' },
+                  },
+                },
+              },
+            },
+          },
+          403: { description: 'The token does not name this artifact.' },
+        },
+      },
+    },
+    '/artifacts/{artifactId}/poster': {
+      get: {
+        summary: "Serve a video's poster frame",
+        description:
+          'The finished thumbnail the Pulse app uploaded `relatedTo` the video, served like the ' +
+          'artifact route (public here, as playback is). 404 until it has landed. Revalidated on every request.',
+        operationId: 'pulsevault_artifact_poster',
+        tags: ['pulsevault'],
+        parameters: [ARTIFACT_ID_PARAM],
+        responses: {
+          200: { description: 'The poster image.', content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } } } },
+          404: { description: 'The video has no finished poster frame.' },
+        },
       },
     },
   },

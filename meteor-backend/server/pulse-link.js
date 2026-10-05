@@ -275,9 +275,13 @@ WebApp.connectHandlers.use('/pulse/open', async (req, res) => {
   // guessed link still produces a convincing "Opening Pulse Cam…" page — the
   // upload would fail later, but only after the user has recorded a clip.
   try {
+    // Checked as a read of the video's status: the token must name this
+    // artifact. (`create` would also apply the shape of a pulse, which needs
+    // the upload's kind — there is no upload here.)
     await verifyUploadToken(req, {
       artifactId: link.artifactId,
-      phase: 'create',
+      kind: 'video',
+      phase: 'status',
       token: link.token,
     });
   } catch {

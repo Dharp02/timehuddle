@@ -144,9 +144,9 @@ async function mediaItemsFor(request: APIRequestContext, token: string, videoid:
 }
 
 /**
- * Age an unfinished upload's files on the backend's disk, so the stale-upload
- * cleanup treats it as abandoned (it waits for 5 idle minutes). Needs the
- * backend's `VIDEOS_DIR`; the tests that use it skip without one.
+ * Age an unfinished upload's files on the backend's disk, so PulseVault treats
+ * it as abandoned (`reclaim` waits for 5 idle minutes). Needs the backend's
+ * `VIDEOS_DIR`; the tests that use it skip without one.
  */
 const BACKEND_VIDEOS_DIR = process.env.VIDEOS_DIR;
 function abandon(artifactId: string): void {
