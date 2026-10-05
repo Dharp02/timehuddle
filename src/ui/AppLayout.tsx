@@ -286,9 +286,11 @@ const AppLayoutContent: React.FC = () => {
     : null;
   const redmineIssueId = redmineIssueMatch ? Number(redmineIssueMatch[1]) : null;
 
+  // Exact, so `/app/tickets/abc/extra` is an unknown path rather than a ticket
+  // id with the extra segments swallowed into it.
   const ticketDetailId =
-    !profileSegment && !redmineIssueMatch && pathname.startsWith('/app/tickets/')
-      ? pathname.slice('/app/tickets/'.length)
+    !profileSegment && !redmineIssueMatch
+      ? (matchPath('/app/tickets/:ticketId', pathname)?.ticketId ?? null)
       : null;
 
   const isDynamicRoute = Boolean(

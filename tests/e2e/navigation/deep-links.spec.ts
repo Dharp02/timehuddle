@@ -295,6 +295,13 @@ test.describe('Deep links: other pages', () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe('/app/dashboard');
   });
 
+  test('extra segments under /app/tickets are an unknown path, not a ticket id', async ({
+    page,
+  }) => {
+    await page.goto('/app/tickets/abc/extra');
+    await expect(noAccessHeading(page, /page doesn.t exist/)).toBeVisible();
+  });
+
   test('a retired route still redirects rather than showing not found', async ({ page }) => {
     await page.goto('/app/timesheet');
     await expect.poll(() => new URL(page.url()).pathname).toBe('/app/dashboard');
