@@ -84,7 +84,7 @@ You change nothing in this milestone. You learn the tools you will use in the re
 
 Update [`release-notes/README.md`](../../release-notes/README.md). Do not start a second document.
 
-- [ ] Add a **"Shipping a release"** section after "Adding a note" with these numbered steps:
+- [x] Add a **"Shipping a release"** section after "Adding a note" with these numbered steps:
   1. Merge the version bump PR (`package.json` + `release-notes/<version>.md`)
   2. Find the merge commit: `git log origin/main --first-parent -1 --format=%H`
   3. Tag it and push the tag:
@@ -94,12 +94,12 @@ Update [`release-notes/README.md`](../../release-notes/README.md). Do not start 
      ```
   4. Create the Release: `gh release create 1.0.6 --title "<title from the note>" --notes-file <file>`, or use the web form at `/releases/new`. **Title = the note's `title:`.**
   5. Body = the note's text + **Generate release notes** PR list + screenshots and videos from those PRs (see step 4 of the template below)
-- [ ] Add a **"Collecting screens from PRs"** section:
+- [x] Add a **"Collecting screens from PRs"** section:
   - List the PRs in a release: `gh pr list --repo mieweb/timehuddle --state merged --search "merged:<prev-date>..<this-date>" --json number,title,url`
-  - Find the media in one PR: `gh pr view <n> --repo mieweb/timehuddle --json body -q .body | grep -oE 'https://github.com/user-attachments/assets/[a-z0-9-]+'`
+  - Find the media in one PR (description **and** comments, screenshots **and** YouTube links). The exact command is in the README.
   - **GitHub Release**: paste the `user-attachments` URL as is. GitHub shows images **and** videos inline.
   - **In-app note**: images must be **downloaded, cropped, compressed and committed** to `assets/<version>/` (the existing size rules apply). **Videos are never committed.** Link to the PR that shows the video, or to a YouTube upload if there is one.
-- [ ] Update the **Template** with a closing section:
+- [x] Update the **Template** with a closing section:
   ```markdown
   ## Pull requests in this release
 
@@ -107,9 +107,10 @@ Update [`release-notes/README.md`](../../release-notes/README.md). Do not start 
   - Tickets search by person and reference ([#631](https://github.com/mieweb/timehuddle/pull/631))
   ```
   Leave out Dependabot and pure-refactor PRs. Readers are users, so describe each PR in plain words, not by its commit-style title.
-- [ ] Update the README's Mermaid diagram with the Tag → Release step
-- [ ] Remove the stale `notes.test.ts` mention in the comments at the top of [`parse.ts`](../../src/features/release-notes/parse.ts) and in `notes.ts` (the file does not exist), or ask the reviewer whether they want the test written instead
-- [ ] Commit: `docs(release-notes): document tagging, GitHub Releases, PR links and screens`
+- [x] Update the README's Mermaid diagram with the Tag → Release step
+- [x] Correct the stale `notes.test.ts` / `npm test` claims in the comments of [`parse.ts`](../../src/features/release-notes/parse.ts) and [`notes.ts`](../../src/features/release-notes/notes.ts). The test file does not exist, and nothing reads the collected errors.
+- [x] Correct the README's claim that a bare YouTube URL is embedded. `@timehuddle/youtube` only looks up titles, and notes render with `remark-gfm`, so the URL shows as a link. Media also live in PR **comments**, not just descriptions, so the README's command reads both.
+- [x] Commit: `docs(release-notes): document tagging, GitHub Releases, PR links and screens`
 
 ## Milestone 3: Fill In Past Notes (In-App)
 
