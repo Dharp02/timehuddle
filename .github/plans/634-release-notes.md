@@ -29,9 +29,9 @@ Each version on `main` (confirmed from `package.json` history). **Tag on** = the
 | 1.0.2   | `f67081ab` (PR #494) | `98875e25` (PR #542)          | none                     |
 | 1.0.3   | `20d6a53b` (PR #546) | `2c2957bc` (PR #606)          | none                     |
 | 1.0.4   | `f0193ea5` (PR #605) | `41529d3b` (PR #628)          | none                     |
-| 1.0.5   | `2b007299` (PR #630) | `f0875600` (PR #631) for now¹ | `1.0.5` on `2b007299` ⚠️ |
+| 1.0.5   | `2b007299` (PR #630) | `ba086ece` (PR #629) for now¹ | `1.0.5` on `2b007299` ⚠️ |
 
-¹ 1.0.5 is still the current version, so its last commit isn't final until 1.0.6 bumps. The existing tag misses #631, which the note describes.
+¹ 1.0.5 is still the current version, so its last commit isn't final until 1.0.6 bumps. The existing tag misses #631 and #629, which the note describes.
 
 ```mermaid
 flowchart LR
@@ -145,9 +145,9 @@ Apply the new template to the notes already on the page.
   git tag -a 1.0.4 41529d3b -m "1.0.4 — Huddle's feed is now an inbox"
   git push origin 1.0.2 1.0.3 1.0.4
   ```
-- [ ] Move `1.0.5` forward to `f0875600` so it includes #631. Moving a published tag rewrites history for anyone who fetched it, so tell the team first. The GitHub Release follows the tag name.
+- [ ] Move `1.0.5` forward to `ba086ece` so it includes #631 and #629 (or to whatever is the last 1.0.5 commit when you run this). Moving a published tag rewrites history for anyone who fetched it, so tell the team first. The GitHub Release follows the tag name.
   ```bash
-  git tag -fa 1.0.5 f0875600 -m "1.0.5 — Your Redmine issues, inside TimeHuddle"
+  git tag -fa 1.0.5 ba086ece -m "1.0.5 — Your Redmine issues, inside TimeHuddle"
   git push --force origin 1.0.5
   ```
 - [ ] Create a GitHub Release for each, oldest first so `1.0.5` stays **Latest**. Title and body come from each note, as in the README's "Shipping a release" steps 3–5. Pass `--latest=false` for the older ones.
