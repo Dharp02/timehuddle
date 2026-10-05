@@ -116,18 +116,20 @@ Update [`release-notes/README.md`](../../release-notes/README.md). Do not start 
 
 Apply the new template to the notes already on the page.
 
-- [ ] For **each** of `1.0.2`, `1.0.3`, `1.0.4` and `1.0.5`:
-  - [ ] List the PRs merged between the previous version's ship commit and this one (table above):
+- [x] Move the Redmine and timer sections that 1.0.3.md picked up from `redmine-integration` into 1.0.5.md, where they shipped (merged into 1.0.5's matching sections, not repeated)
+- [x] For **each** of `1.0.2`, `1.0.3`, `1.0.4` and `1.0.5`:
+  - [x] List the PRs merged between the previous version's ship commit and this one (table above):
     ```bash
     git log <prev-sha>..<this-sha> --first-parent --merges --format='%s'
     ```
-  - [ ] Add a `## Pull requests in this release` section to the note
-  - [ ] Pull images from those PRs into `release-notes/assets/<version>/`, compressed (check each file with `ls -lh`)
-  - [ ] Add at most two or three images per note, placed next to the paragraph they illustrate, each with real alt text
-  - [ ] Link videos to their PR (or YouTube), never commit them
-- [ ] `npm run dev` and check **both** `/release-notes` and `/app/release-notes`: all four notes show, every image loads, every link opens the right PR
-- [ ] Check the page in dark mode and at phone width (images must not overflow)
-- [ ] Commit per version, e.g. `docs(release-notes): link PRs and screens in 1.0.4`
+    The commit range is only a starting point. A note describes what it describes, not exactly what is in its range: work kept being added under a version until the next bump, and `redmine-integration` wrote into 1.0.3.md but merged as 1.0.5. So build each list from **what the note's text covers**, including PRs that merged into feature branches (e.g. the Redmine sub-PRs into `redmine-integration`).
+  - [x] Add a `## Pull requests in this release` section to the note
+  - [x] Pull images from those PRs into `release-notes/assets/<version>/`, compressed (check each file with `ls -lh`)
+  - [x] Add at most two or three images per note, placed next to the paragraph they illustrate, each with real alt text
+  - [x] Link videos to their PR (or YouTube), never commit them
+- [x] `npm run dev` and check `/release-notes`: all four notes show, 3/3 images load, and all 33 linked PRs exist and are merged. `/app/release-notes` was not checked (no backend running). It renders the same `ReleaseNotesList` component.
+- [x] Check the page in dark mode and at phone width. Images fit. The public header's **Sign in** button already overflows at 390px; that's existing header layout, out of scope.
+- [x] Commit per version, e.g. `docs(release-notes): link PRs and screens in 1.0.4`
 
 ## Milestone 4: Open the PR
 
