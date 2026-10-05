@@ -7,7 +7,7 @@ Branch: `docs/634-release-notes-process` (cut from `main`)
 
 Every TimeHuddle version gets:
 
-1. A **git tag** (`1.0.5`, with no `v` prefix, which matches the existing tag) on the `main` commit that shipped it.
+1. A **git tag** (`1.0.5`, with no `v` prefix, which matches the existing tag) on the **last** `main` commit that shipped under that version (decided while doing Milestone 3: every push to `main` republishes under the current version, so a version keeps picking up changes until the next bump).
 2. A **GitHub Release** on that tag. Its title and text match the in-app note, and it adds the list of pull requests and their screenshots and videos.
 3. An **in-app note** (`release-notes/<version>.md`) that now also shows screenshots from the PRs and a short list of the PRs it covers.
 
@@ -22,25 +22,28 @@ The process in [`release-notes/README.md`](../../release-notes/README.md) is upd
   - Its **body** is missing the `@name` / `#ref` search bullet that was added to `1.0.5.md` after the release, in #631.
 - Nothing automated checks a note. A bad version, date or image path silently drops the note from the page. The only check is opening the page. (`parse.ts` mentions a `notes.test.ts`, but that file does not exist.)
 
-Where each version shipped on `main` (confirmed from `package.json` history):
+Each version on `main` (confirmed from `package.json` history). **Tag on** = the commit just before the next version's bump:
 
-| Version | Shipped in (merge on `main`) | Date       | Tag today  |
-| ------- | ---------------------------- | ---------- | ---------- |
-| 1.0.2   | `f67081ab` (PR #494)         | 2026-08-31 | none       |
-| 1.0.3   | `20d6a53b` (PR #546)         | 2026-09-20 | none       |
-| 1.0.4   | `f0193ea5` (PR #605)         | 2026-09-30 | none       |
-| 1.0.5   | `2b007299` (PR #630)         | 2026-10-02 | `1.0.5` ✅ |
+| Version | First shipped        | Tag on (last commit)          | Tag today                |
+| ------- | -------------------- | ----------------------------- | ------------------------ |
+| 1.0.2   | `f67081ab` (PR #494) | `98875e25` (PR #542)          | none                     |
+| 1.0.3   | `20d6a53b` (PR #546) | `2c2957bc` (PR #606)          | none                     |
+| 1.0.4   | `f0193ea5` (PR #605) | `41529d3b` (PR #628)          | none                     |
+| 1.0.5   | `2b007299` (PR #630) | `f0875600` (PR #631) for now¹ | `1.0.5` on `2b007299` ⚠️ |
+
+¹ 1.0.5 is still the current version, so its last commit isn't final until 1.0.6 bumps. The existing tag misses #631, which the note describes.
 
 ```mermaid
 flowchart LR
     Merge["PRs merge to main"] --> Bump["Version bump PR<br/>package.json + release-notes/x.y.z.md"]
-    Bump --> Tag["Tag x.y.z<br/>on the merge commit"]
+    Bump --> Next["Next bump merges"]
+    Next --> Tag["Tag x.y.z on the<br/>commit before it"]
     Tag --> Release["GitHub Release x.y.z<br/>note text + PR list + screens"]
     Bump --> App["In-app page<br/>/release-notes"]
 
     classDef git fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
     classDef user fill:#dcfce7,stroke:#16a34a,color:#14532d
-    class Merge,Bump,Tag git
+    class Merge,Bump,Next,Tag git
     class Release,App user
 ```
 
@@ -84,16 +87,7 @@ You change nothing in this milestone. You learn the tools you will use in the re
 
 Update [`release-notes/README.md`](../../release-notes/README.md). Do not start a second document.
 
-- [x] Add a **"Shipping a release"** section after "Adding a note" with these numbered steps:
-  1. Merge the version bump PR (`package.json` + `release-notes/<version>.md`)
-  2. Find the merge commit: `git log origin/main --first-parent -1 --format=%H`
-  3. Tag it and push the tag:
-     ```bash
-     git tag -a 1.0.6 <sha> -m "1.0.6 — <title from the note>"
-     git push origin 1.0.6
-     ```
-  4. Create the Release: `gh release create 1.0.6 --title "<title from the note>" --notes-file <file>`, or use the web form at `/releases/new`. **Title = the note's `title:`.**
-  5. Body = the note's text + **Generate release notes** PR list + screenshots and videos from those PRs (see step 4 of the template below)
+- [x] Add a **"Shipping a release"** section after "Adding a note": when version X+1's bump merges, tag X on the commit before it, write the Release body from X's note (with `user-attachments` URLs for images), optionally append GitHub's generated PR list, and publish with the note's title
 - [x] Add a **"Collecting screens from PRs"** section:
   - List the PRs in a release: `gh pr list --repo mieweb/timehuddle --state merged --search "merged:<prev-date>..<this-date>" --json number,title,url`
   - Find the media in one PR (description **and** comments, screenshots **and** YouTube links). The exact command is in the README.
@@ -143,20 +137,25 @@ Apply the new template to the notes already on the page.
 
 ⚠️ This milestone writes to the **real repo**. Get your reviewer's OK before you start it, and do it **after** the Milestone 4 PR has merged so the text matches what is on `main`.
 
-- [ ] Create the missing tags on the ship commits from the table:
+- [ ] Create the missing tags on the **Tag on** commits from the table:
   ```bash
-  git tag -a 1.0.2 f67081ab -m "1.0.2"
-  git tag -a 1.0.3 20d6a53b -m "1.0.3"
-  git tag -a 1.0.4 f0193ea5 -m "1.0.4"
+  git tag -a 1.0.2 98875e25 -m "1.0.2 — The app updates itself"
+  git tag -a 1.0.3 2c2957bc -m "1.0.3 — Time-change approvals, sharper notifications, faster attachments"
+  git tag -a 1.0.4 41529d3b -m "1.0.4 — Huddle's feed is now an inbox"
   git push origin 1.0.2 1.0.3 1.0.4
   ```
-- [ ] Create a GitHub Release for each, oldest first so `1.0.5` stays **Latest**. Use the title from each note and set "Previous tag" so Generate release notes covers the right range. Pass `--latest=false` for the older ones.
+- [ ] Move `1.0.5` forward to `f0875600` so it includes #631. Moving a published tag rewrites history for anyone who fetched it, so tell the team first. The GitHub Release follows the tag name.
+  ```bash
+  git tag -fa 1.0.5 f0875600 -m "1.0.5 — Your Redmine issues, inside TimeHuddle"
+  git push --force origin 1.0.5
+  ```
+- [ ] Create a GitHub Release for each, oldest first so `1.0.5` stays **Latest**. Title and body come from each note, as in the README's "Shipping a release" steps 3–5. Pass `--latest=false` for the older ones.
 - [ ] **Fix `1.0.5`**: `gh release edit 1.0.5 --title "Your Redmine issues, inside TimeHuddle" --notes-file <file>` with the current `1.0.5.md` body + PR list + screens
 - [ ] Open https://github.com/mieweb/timehuddle/releases and confirm: four releases, newest is Latest, titles match the in-app page, and images and videos play
 
 ## Definition of Done
 
-- [ ] Tags `1.0.2` to `1.0.5` exist on the commits that shipped them
+- [ ] Tags `1.0.2` to `1.0.5` exist, each on the last commit that shipped under it
 - [ ] A GitHub Release exists for each, titled to match its in-app note, with the PR list and screens
 - [ ] Each in-app note lists its PRs and shows screenshots where the change is visual
 - [ ] `release-notes/README.md` tells the next person how to tag, release and collect screens, and the next release (`1.0.6`) is shipped by following it with no extra help

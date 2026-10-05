@@ -151,45 +151,52 @@ would not load offline, and the build only resolves `assets/…` paths.
 
 ## Shipping a release
 
-Merging the version bump to `main` publishes the in-app note (see
-[`ota-publish.yml`](../.github/workflows/ota-publish.yml)). Tag that merge and
-give it a GitHub Release the same day, so the release page on GitHub and the
-page in the app say the same thing.
+Every push to `main` republishes the bundle under the current `package.json`
+version (see [`ota-publish.yml`](../.github/workflows/ota-publish.yml)), so a
+version keeps picking up changes until the next bump. A version's tag goes on
+the **last** commit that shipped under it, which is only known once the next
+version's bump merges. That is when you tag and release the version before it.
 
-1. Find the merge commit of the version bump PR:
+When the bump to `1.0.7` merges, ship `1.0.6`:
+
+1. Find the last `1.0.6` commit, the one just before the bump merge on `main`:
    ```bash
    git fetch origin
-   git log origin/main --first-parent -1 --format='%H %s'
+   git log origin/main --first-parent -2 --format='%h %s'   # bump merge, then the one to tag
+   git show <sha>:package.json | grep '"version"'          # must say 1.0.6
    ```
 2. Tag it and push the tag. Tags are the bare version, no `v` prefix:
    ```bash
    git tag -a 1.0.6 <sha> -m "1.0.6 — <title from the note>"
    git push origin 1.0.6
    ```
-3. Draft the PR list. This saves nothing; it returns the text GitHub's
-   **Generate release notes** button would produce, shaped by
-   [`.github/release.yml`](../.github/release.yml):
+3. Write the Release body in a scratch file: the note's body (everything below
+   the frontmatter, including its **Pull requests in this release** list), with
+   `user-attachments` URLs in place of `assets/…` paths so the images show on
+   GitHub, and any PR screenshots or videos that did not make it into the note.
+4. Optionally, append the full PR list as a footer. This saves nothing; it
+   returns the text GitHub's **Generate release notes** button would produce,
+   shaped by [`.github/release.yml`](../.github/release.yml):
    ```bash
    gh api -X POST repos/mieweb/timehuddle/releases/generate-notes \
      -f tag_name=1.0.6 -f previous_tag_name=1.0.5 -q .body
    ```
-4. Write the Release body in a scratch file: the note's body (everything below
-   the frontmatter), with the `user-attachments` URLs for screenshots and
-   videos in place of `assets/…` paths, then the generated PR list.
+   It lists every PR in the tag range. Expect it to differ from the note's own
+   list, which covers what the note describes.
 5. Publish it. **The title is the note's `title:`**, word for word:
    ```bash
    gh release create 1.0.6 --title "<title from the note>" --notes-file body.md
    ```
-   The web form at `/releases/new` works too. Pick the tag, paste the title and
-   body, and set **Previous tag** before pressing **Generate release notes**.
+   The web form at `/releases/new` works too. Pick the tag, then paste the
+   title and body.
 6. Open https://github.com/mieweb/timehuddle/releases and check that the new
    release is marked **Latest** and its images and videos play.
 
 Publishing a Release notifies everyone watching the repo. Do not publish one to
-try things out — step 3 drafts the PR list without publishing anything.
+try things out — step 4 drafts the PR list without publishing anything.
 
-If the note changes after the release ships, update the Release to match:
-`gh release edit 1.0.6 --notes-file body.md`.
+If a note is corrected after its release is published, update the Release to
+match: `gh release edit 1.0.6 --notes-file body.md`.
 
 ## How a note reaches the user
 
@@ -203,7 +210,7 @@ flowchart TD
     Seen -->|yes| New["Flagged 'New',<br/>counted in the menu badge"]
     Seen -->|no| Old["Listed as history"]
     New --> Mark["Visiting the page stores<br/>the newest version on the user"]
-    Author --> Tag["Tag 1.0.3 on the<br/>merge to main"]
+    Author --> Tag["Tag 1.0.3 on its last commit,<br/>once 1.0.4 is bumped"]
     Tag --> Release["GitHub Release 1.0.3<br/>note + PR list + screens"]
 
     classDef authoring fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
