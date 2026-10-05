@@ -74,11 +74,13 @@ export const pulsevaultOpenApiSpec = {
                   type: 'object',
                   properties: {
                     protocolVersion: { type: 'integer' },
+                    protocolRevision: { type: 'string', example: '2.2' },
                     minSupportedVersion: { type: 'integer' },
                     maxSupportedVersion: { type: 'integer' },
                     kinds: { type: 'array', items: { type: 'string' } },
                     allowedExtensions: { type: 'object' },
                     maxUploadSize: { type: 'integer', example: 524288000 },
+                    viewLinks: { type: 'boolean' },
                     checksum: {
                       type: 'object',
                       properties: { algorithms: { type: 'array', items: { type: 'string' } } },
