@@ -109,39 +109,31 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const activeTab = PROFILE_TABS.includes(tabParam as ProfileTab) ? tabParam! : 'feed';
   const setActiveTab = (tab: string) => setTabParam(tab === 'feed' ? null : tab);
 
-  useEffect(() => {
-    setIsReady(false);
+  // One loader for the first paint and for pull-to-refresh, so a refresh that
+  // fails lands on the same no-access or error state instead of emptying the
+  // page into an "Unknown user".
+  const loadProfile = React.useCallback(async () => {
     setUnavailable(null);
     setLoadError(false);
-    const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
-    fetch
-      .then((p) => {
-        setProfile(p);
-        setBackgroundUrl(p.backgroundUrl ?? null);
-      })
-      .catch((err) => {
-        // By Meteor.Error code: wormhole sends them all as HTTP 500.
-        const kind = classifyLoadError(err);
-        if (kind === 'error') setLoadError(true);
-        else setUnavailable(kind);
-        setProfile(null);
-      })
-      .finally(() => setIsReady(true));
-  }, [userId, username, reloadKey]);
+    try {
+      const p = await (userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!));
+      setProfile(p);
+      setBackgroundUrl(p.backgroundUrl ?? null);
+    } catch (err) {
+      // By Meteor.Error code: wormhole sends them all as HTTP 500.
+      const kind = classifyLoadError(err);
+      if (kind === 'error') setLoadError(true);
+      else setUnavailable(kind);
+      setProfile(null);
+    }
+  }, [userId, username]);
 
-  useRefresh(
-    React.useCallback(async () => {
-      const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
-      fetch
-        .then((p) => {
-          setProfile(p);
-          setBackgroundUrl(p.backgroundUrl ?? null);
-        })
-        .catch(() => {
-          setProfile(null);
-        });
-    }, [userId, username]),
-  );
+  useEffect(() => {
+    setIsReady(false);
+    void loadProfile().finally(() => setIsReady(true));
+  }, [loadProfile, reloadKey]);
+
+  useRefresh(loadProfile);
 
   if (!isReady) {
     return (

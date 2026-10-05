@@ -69,6 +69,13 @@ describe('resolveUrl', () => {
     expect(resolveUrl('//app/timesheet')).toBe('/app/dashboard?view=timesheet');
     expect(resolveUrl('//app//tickets?status=open')).toBe('/app/tickets?status=open');
   });
+
+  it('drops a trailing slash, which the route table would otherwise miss', () => {
+    expect(resolveUrl('/app/dashboard/')).toBe('/app/dashboard');
+    expect(resolveUrl('/app/')).toBe('/app/dashboard');
+    expect(resolveUrl('/app/tickets/?status=open')).toBe('/app/tickets?status=open');
+    expect(resolveUrl('/')).toBe('/app/dashboard');
+  });
 });
 
 describe('isActivePath', () => {

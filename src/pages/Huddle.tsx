@@ -143,7 +143,8 @@ export default function Huddle() {
     [setParams],
   );
   const { user } = useSession();
-  const { selectedTeamId, setSelectedTeamId, teams, allTeams, isAdmin, currentTime } = useTeam();
+  const { selectedTeamId, setSelectedTeamId, teams, allTeams, isAdmin, currentTime, teamsReady } =
+    useTeam();
 
   // Personal is a view, not a team selection: entering it leaves the selected
   // team and org alone, so the team picker stays put. It shows the caller's own
@@ -561,24 +562,55 @@ export default function Huddle() {
 
   // Switching team or view leaves the open conversation behind. Compared with
   // the previous value so a linked conversation survives the first render.
+  // Skipped until the teams are in: `scope` can only be trusted once
+  // `personalTeamId` is known, and the flip it makes on arrival is the app
+  // settling, not the reader moving.
   const scopeKey = `${selectedTeamId}|${scope}`;
   const scopeKeyRef = useRef(scopeKey);
   useEffect(() => {
+    if (!teamsReady) {
+      scopeKeyRef.current = scopeKey;
+      return;
+    }
     if (scopeKeyRef.current === scopeKey) return;
     scopeKeyRef.current = scopeKey;
     setParams({ conversation: null });
-  }, [scopeKey, setParams]);
+  }, [scopeKey, teamsReady, setParams]);
 
   const feedLoading = scope === 'me' ? myPostsLoading : loading;
   const feedError = scope === 'me' ? myPostsError : error;
 
   // The link points at a conversation we have, but the search box is hiding
-  // it — the link wins, so the search goes.
+  // it — the link wins, so the search goes. Once per link: after that the
+  // reader is searching for something else, and clearing every keystroke that
+  // filtered the open conversation out would make the box impossible to type in.
+  const searchClearedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!linkedConversation || !searchQuery.trim()) return;
+    if (!linkedConversation) {
+      searchClearedForRef.current = null;
+      return;
+    }
+    if (searchClearedForRef.current === linkedConversation.id) return;
+    if (!searchQuery.trim()) return;
     if (conversations.some((c) => c.id === linkedConversation.id)) return;
+    searchClearedForRef.current = linkedConversation.id;
     setSearchQuery('');
   }, [linkedConversation, conversations, searchQuery, setSearchQuery]);
+
+  // A conversation that was open and then went — its last post deleted, or the
+  // starter replaced by the first real one — is not a dead link. Drop back to
+  // the list instead of covering the inbox with not-found, which would leave
+  // nothing to pick from. A link that never resolved still gets not-found.
+  const everResolvedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (linkedConversation && conversationParam) {
+      everResolvedRef.current = conversationParam;
+      return;
+    }
+    if (!conversationParam || everResolvedRef.current !== conversationParam) return;
+    everResolvedRef.current = null;
+    setParams({ conversation: null });
+  }, [conversationParam, linkedConversation, setParams]);
 
   // Only once the posts are in, and not across a scope change, where the
   // effect above clears the param a render later.

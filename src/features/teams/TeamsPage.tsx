@@ -314,13 +314,17 @@ export const TeamsPage: React.FC = () => {
     try {
       await teamApi.deleteTeam(selectedTeamId);
       closeModal();
+      // The URL still names the team that just went. Left there, the no-access
+      // gate would strand the admin who deleted it on their own page; `/app/teams`
+      // redirects to whichever team they have left.
+      navigate('/app/teams');
       refetchTeams();
     } catch (e: any) {
       setFormError(e.message || 'Failed to delete');
     } finally {
       setDeleteLoading(false);
     }
-  }, [selectedTeamId, refetchTeams]);
+  }, [selectedTeamId, refetchTeams, navigate]);
 
   const handleInvite = useCallback(async () => {
     if (!formValue.trim() || !selectedTeamId || inviteLoading) return;

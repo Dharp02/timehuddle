@@ -12,8 +12,9 @@
  * account is auto-joined to one default org, so that would mean everyone.
  */
 import { Meteor } from 'meteor/meteor';
+import { ObjectId } from 'mongodb';
 
-import { Teams, rawDb } from './collections';
+import { Teams, rawDb, isValidId } from './collections';
 
 /** The non-personal teams both users are in. */
 export async function sharedTeamDocs(viewerId, targetUserId) {
@@ -50,11 +51,43 @@ export async function adminsAnOrgOf(viewerId, targetUserId) {
   return memberships.some((m) => m.userId === targetUserId && runs.has(m.orgId));
 }
 
+/**
+ * Whether `viewerId` owns or administers an enterprise above an organization
+ * `targetUserId` belongs to. Enterprise power is held on the enterprise doc,
+ * not as an `org_members` row, so the role check above can't see it — and the
+ * org chart these people can already open links straight to these profiles.
+ */
+export async function runsAnEnterpriseOver(viewerId, targetUserId) {
+  const db = rawDb();
+  const targetOrgIds = (
+    await db.collection('org_members').find({ userId: targetUserId }).toArray()
+  )
+    .map((m) => m.orgId)
+    .filter((id) => isValidId(id));
+  if (targetOrgIds.length === 0) return false;
+
+  const orgs = await db
+    .collection('organizations')
+    .find({ _id: { $in: targetOrgIds.map((id) => new ObjectId(id)) } }, { projection: { enterpriseId: 1 } })
+    .toArray();
+  const enterpriseIds = [
+    ...new Set(orgs.map((o) => o.enterpriseId).filter((id) => id && isValidId(id))),
+  ];
+  if (enterpriseIds.length === 0) return false;
+
+  const match = await db.collection('enterprises').findOne({
+    _id: { $in: enterpriseIds.map((id) => new ObjectId(id)) },
+    $or: [{ owners: viewerId }, { admins: viewerId }],
+  });
+  return !!match;
+}
+
 export async function canViewProfile(viewerId, targetUserId) {
   if (viewerId === targetUserId) return true;
   const shared = await sharedTeamDocs(viewerId, targetUserId);
   if (shared.length > 0) return true;
-  return adminsAnOrgOf(viewerId, targetUserId);
+  if (await adminsAnOrgOf(viewerId, targetUserId)) return true;
+  return runsAnEnterpriseOver(viewerId, targetUserId);
 }
 
 /** Throws `forbidden` unless `viewerId` may view `targetUserId`'s profile. */

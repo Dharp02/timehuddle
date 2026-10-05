@@ -50,18 +50,31 @@ const ORG_KEY = 'app:selectedOrgId';
 const ENTERPRISE_KEY = 'app:selectedEnterpriseId';
 
 /**
- * Paths whose resource already names its own scope (a ticket belongs to one
- * team, a profile to no team, a team page is the team), so `?team=` is
- * neither read from nor stamped onto them.
+ * The Teams page names its team in the path rather than in `?team=`. Resource
+ * paths generally (a ticket, a profile, a team page) already name their own
+ * scope, so they are absent from the allow-list below and never get stamped.
  */
-const RESOURCE_PATH = /^\/app\/(tickets|profile|teams)\/[^/]+/;
-
-/** The Teams page names its team in the path rather than in `?team=`. */
 const TEAM_PAGE = '/app/teams/:teamId';
+
+/**
+ * The pages whose content is actually scoped to the selected team. An
+ * allow-list, not "every `/app/` page": stamping `?team=` onto Settings or
+ * Release Notes put a team id — often a personal one — into links that have
+ * nothing to do with a team, and the recipient got a no-access page.
+ */
+const TEAM_SCOPED_PATHS = new Set([
+  '/app/activity',
+  '/app/clock',
+  '/app/dashboard',
+  '/app/huddle',
+  '/app/teams',
+  '/app/tickets',
+  '/app/work',
+]);
 
 /** Whether the selected team belongs in this path's `?team=`. */
 export function carriesTeamScope(pathname: string): boolean {
-  return pathname.startsWith('/app/') && !RESOURCE_PATH.test(pathname);
+  return TEAM_SCOPED_PATHS.has(pathname);
 }
 
 /**

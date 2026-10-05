@@ -60,13 +60,17 @@ function mergeQuery(original: string, replacement: string): string {
 }
 
 /**
- * Collapses repeated slashes. A hand-typed or concatenated `//app/timesheet`
- * is a different path to `/app/timesheet`, so it misses RETIRED_ROUTES and the
- * route table; worse, `history.pushState('//app/…')` reads the leading `//` as
- * a protocol-relative URL and throws a cross-origin SecurityError.
+ * Collapses repeated slashes and drops a trailing one. A hand-typed or
+ * concatenated `//app/timesheet` is a different path to `/app/timesheet`, so
+ * it misses RETIRED_ROUTES and the route table; worse,
+ * `history.pushState('//app/…')` reads the leading `//` as a protocol-relative
+ * URL and throws a cross-origin SecurityError. A trailing slash is the same
+ * page to a reader, and the route table is an exact lookup, so `/app/dashboard/`
+ * would otherwise be not-found.
  */
 function normalizePath(path: string): string {
-  return path.replace(/\/{2,}/g, '/');
+  const collapsed = path.replace(/\/{2,}/g, '/');
+  return collapsed.length > 1 ? collapsed.replace(/\/$/, '') : collapsed;
 }
 
 /**
