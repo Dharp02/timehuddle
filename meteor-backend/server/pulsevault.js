@@ -289,6 +289,29 @@ const storage = {
   },
 };
 
+/**
+ * A pulse is its reserved video plus files related to it: the video is
+ * uploaded under the reserved id itself, and its thumbnail, manifest and
+ * captions under ids of their own, `relatedTo` that video. PulseVault accepts
+ * any artifact whose `relatedTo` matches the token, so without this a video
+ * could be sent under any id (never attached, still converted, never removed),
+ * or a side file under the video's id (which then answers the real video 409).
+ */
+async function assertPulseShape(request, ctx) {
+  const refuse = (message) => {
+    throw Object.assign(new Error(message), { statusCode: 403 });
+  };
+  if (ctx.kind === 'video') {
+    if (ctx.relatedTo) refuse('A video is uploaded under its own reserved id.');
+    return;
+  }
+  if (!ctx.relatedTo || ctx.relatedTo === ctx.artifactId) {
+    refuse("A pulse's thumbnail, manifest or captions need their own id, related to the video.");
+  }
+  // The token must be the video's: not one this file's own id happens to match.
+  await verifyUploadToken(request, { ...ctx, artifactId: ctx.relatedTo, relatedTo: undefined });
+}
+
 const core = createPulseVaultCore({
   storage,
   basePath: '/pulsevault',
@@ -326,6 +349,7 @@ const core = createPulseVaultCore({
     }
     try {
       await verifyUploadToken(request, ctx);
+      if (ctx.phase === 'create') await assertPulseShape(request, ctx);
       console.log('[pulsevault][hook] authorize PASSED', ctx.phase, ctx.artifactId);
     } catch (err) {
       console.error('[pulsevault][hook] authorize REJECTED', ctx.phase, ctx.artifactId, {

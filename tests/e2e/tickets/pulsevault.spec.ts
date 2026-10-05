@@ -13,7 +13,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { MongoClient } from 'mongodb';
 import { expect, test, type Page, type APIRequestContext, type TestInfo } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from './helpers';
@@ -488,7 +487,7 @@ test.describe('PulseVault — a pulse uploads its related files with the video',
     await expect.poll(async () => (await mediaItemsFor(request, token, videoid)).length).toBe(1);
   });
 
-  test("a file sent under the video's own id isn't added as the video", async ({
+  test('each file must use the id it was given: the video its own, a related file another', async ({
     page,
     request,
   }) => {
@@ -496,28 +495,27 @@ test.describe('PulseVault — a pulse uploads its related files with the video',
     const token = await getSessionToken(page);
     const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
 
-    const sent = await uploadArtifact(request, uploadToken, {
+    // A thumbnail under the video's own id would take that id from the video.
+    const underVideoId = await uploadArtifact(request, uploadToken, {
       artifactId: videoid,
       filename: 'thumb.png',
       bytes: THUMBNAIL,
       kind: 'thumbnail',
     });
-    expect([sent.created, sent.finished]).toEqual([201, 204]);
+    expect(underVideoId.created).toBe(403);
 
-    expect(await mediaItemsFor(request, token, videoid)).toHaveLength(0);
-    // The reservation is still there for the video.
-    const mongo = await MongoClient.connect(
-      process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0',
-    );
-    try {
-      const reservation = await mongo
-        .db()
-        .collection('pulsevault_reservations')
-        .findOne({ _id: videoid as never });
-      expect(reservation).not.toBeNull();
-    } finally {
-      await mongo.close();
-    }
+    // A video under some other id would never be added anywhere.
+    const elsewhere = await uploadArtifact(request, uploadToken, {
+      artifactId: randomUUID(),
+      filename: 'video.mp4',
+      bytes: fs.readFileSync(TEST_MP4),
+      relatedTo: videoid,
+    });
+    expect(elsewhere.created).toBe(403);
+
+    // Neither took anything from the reservation: the real video still lands, once.
+    await uploadRealVideoViaApi(request, videoid, uploadToken);
+    await expect.poll(async () => (await mediaItemsFor(request, token, videoid)).length).toBe(1);
   });
 
   test('an abandoned thumbnail upload can be sent again', async ({ page, request }) => {
