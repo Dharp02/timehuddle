@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { isNewer, isValidVersion } from '@timehuddle/ota-version';
 import { Teams, rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
+import { adminsAnOrgOf, sharedTeamDocs } from './profile-access';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -66,49 +67,13 @@ async function resolveTeamMemberships(userId) {
 }
 
 /**
- * Whether `viewerId` runs an organization `targetUserId` belongs to. Shared
- * membership alone can't grant this: every account is auto-joined to one
- * default org, so "same org" would mean "everyone".
- */
-async function adminsAnOrgOf(viewerId, targetUserId) {
-  const db = rawDb();
-  const [memberships, viewer] = await Promise.all([
-    db
-      .collection('org_members')
-      .find({ userId: { $in: [viewerId, targetUserId] } })
-      .toArray(),
-    db.collection('users').findOne({ _id: String(viewerId) }, { projection: { blocked: 1 } }),
-  ]);
-  // `orgs.blockMember` keeps the org_members row and its role on purpose, so a
-  // blocked former admin still reads as owner/admin here. The block record on
-  // the user is the only thing that says otherwise.
-  const blockedOrgIds = new Set((viewer?.blocked ?? []).map((b) => b.orgId));
-  const runs = new Set(
-    memberships
-      .filter(
-        (m) =>
-          m.userId === viewerId &&
-          (m.role === 'owner' || m.role === 'admin') &&
-          !blockedOrgIds.has(m.orgId),
-      )
-      .map((m) => m.orgId),
-  );
-  return memberships.some((m) => m.userId === targetUserId && runs.has(m.orgId));
-}
-
-/**
- * The non-personal teams both users are in — and the gate on reading a
- * profile at all. A profile is visible to the person it belongs to, to their
- * team-mates, and to someone who runs an organization they're in (the org
- * chart links to it). Anyone else gets `forbidden`, which the client turns
- * into a no-access page; without this every user id in the URL would resolve
- * for everyone.
+ * The non-personal teams both users are in, after checking the caller may see
+ * the profile at all. The rule itself lives in `profile-access`, because the
+ * Feed and Activity tabs are separate methods that must agree with it.
  */
 async function requireSharedTeams(viewerId, targetUserId) {
   if (viewerId === targetUserId) return [];
-  const docs = await Teams.rawCollection()
-    .find({ members: { $all: [viewerId, targetUserId] }, isPersonal: { $ne: true } })
-    .toArray();
+  const docs = await sharedTeamDocs(viewerId, targetUserId);
   if (docs.length === 0 && !(await adminsAnOrgOf(viewerId, targetUserId))) {
     throw new Meteor.Error('forbidden', 'You do not share a team with this user');
   }

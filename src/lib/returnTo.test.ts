@@ -47,6 +47,22 @@ describe('returnTo', () => {
     expect(window.location.search).toBe('?join=CODE');
   });
 
+  it('survives switching between the login and signup tabs', () => {
+    window.history.replaceState(null, '', '/app/tickets/abc?team=t1');
+    rememberReturnTo();
+    // LoginForm puts its own toggle in the URL; it isn't a destination.
+    window.history.replaceState(null, '', '/?mode=signup');
+    expect(restoreReturnTo()).toBe(true);
+    expect(window.location.pathname + window.location.search).toBe('/app/tickets/abc?team=t1');
+  });
+
+  it('still yields to a destination param alongside the auth toggle', () => {
+    window.history.replaceState(null, '', '/app/tickets/abc');
+    rememberReturnTo();
+    window.history.replaceState(null, '', '/?mode=login&join=CODE');
+    expect(restoreReturnTo()).toBe(false);
+  });
+
   it('ignores pages outside the app', () => {
     window.history.replaceState(null, '', '/release-notes');
     rememberReturnTo();

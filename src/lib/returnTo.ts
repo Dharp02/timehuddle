@@ -50,7 +50,13 @@ export function restoreReturnTo(): boolean {
   }
   const { pathname, search } = window.location;
   if (!target || !isAppPath(target)) return false;
-  if (!SIGN_IN_LANDINGS.has(pathname) || search) return false;
+  if (!SIGN_IN_LANDINGS.has(pathname)) return false;
+  // `?mode=signup|login` is the login form's own toggle, not a destination —
+  // switching tabs before signing in mustn't throw the saved link away. An
+  // invite, join or OAuth param still wins.
+  const landingParams = new URLSearchParams(search);
+  landingParams.delete('mode');
+  if (landingParams.toString()) return false;
   window.history.replaceState(null, '', target);
   return true;
 }
