@@ -189,6 +189,13 @@ test.describe('Deep links: ticket no-access and not-found', () => {
     await page.goto('/app/tickets/not-a-ticket');
     await expect(noAccessHeading(page, /ticket doesn.t exist or was deleted/)).toBeVisible();
   });
+
+  test('an alphanumeric non-ObjectId ticket id shows not found', async ({ page }) => {
+    // Passed the old `isValidId` (which also allows legacy Meteor ids) and then
+    // threw inside `new Mongo.ObjectID(...)`, surfacing as a server error.
+    await page.goto('/app/tickets/abcdefgh');
+    await expect(noAccessHeading(page, /ticket doesn.t exist or was deleted/)).toBeVisible();
+  });
 });
 
 test.describe('Deep links: tickets list', () => {

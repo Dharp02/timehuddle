@@ -10,7 +10,7 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
-import { Tickets, Teams, isValidId, rawDb } from './collections';
+import { Tickets, Teams, isValidId, isObjectIdHex, rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership, requireTicketPermission } from './permissions';
 import { createNotification, userDisplayName } from './notify-core';
@@ -349,7 +349,7 @@ Meteor.methods({
     const userId = identity.userId;
 
     // A malformed id is a link to nothing, not a server error.
-    if (!isValidId(ticketId)) throw new Meteor.Error('not-found', 'Ticket not found');
+    if (!isObjectIdHex(ticketId)) throw new Meteor.Error('not-found', 'Ticket not found');
     const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
     if (!ticket) {
       throw new Meteor.Error('not-found', 'Ticket not found');

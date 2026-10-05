@@ -143,8 +143,18 @@ export const OrgUsagePage: React.FC = () => {
   // Select renders its placeholder for an empty value, so the all-orgs choice
   // carries a sentinel. The server takes a missing orgId to mean the same
   // thing, so the sentinel never leaves this file.
+  // Only the orgs the picker offers: `usage.orgUsage` refuses one the caller
+  // merely belongs to, and that refusal sets `denied`, which takes the whole
+  // page down. A link to one is a bad URL value, not a reason to lock the page.
+  const administeredOrgs = useMemo(
+    () =>
+      organizations.filter(
+        (organization) => organization.role === 'owner' || organization.role === 'admin',
+      ),
+    [organizations],
+  );
   const orgParam = params.get('usageOrg');
-  const orgId = orgParam && organizations.some((o) => o.id === orgParam) ? orgParam : ALL_ORGS;
+  const orgId = orgParam && administeredOrgs.some((o) => o.id === orgParam) ? orgParam : ALL_ORGS;
   const setOrgId = (next: string) => setParams({ usageOrg: next === ALL_ORGS ? null : next });
   const [report, setReport] = useState<OrgUsageReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -152,18 +162,16 @@ export const OrgUsagePage: React.FC = () => {
 
   // Built from TeamContext rather than the report, so the picker is populated
   // on first paint instead of after the first round trip.
-  const orgOptions = useMemo(() => {
-    const administered = organizations.filter(
-      (organization) => organization.role === 'owner' || organization.role === 'admin',
-    );
-    return [
-      { value: ALL_ORGS, label: `All organizations (${administered.length})` },
-      ...administered.map((organization) => ({
+  const orgOptions = useMemo(
+    () => [
+      { value: ALL_ORGS, label: `All organizations (${administeredOrgs.length})` },
+      ...administeredOrgs.map((organization) => ({
         value: organization.id,
         label: organization.name,
       })),
-    ];
-  }, [organizations]);
+    ],
+    [administeredOrgs],
+  );
 
   const loadReport = useCallback(async () => {
     if (!canAccess) return;

@@ -150,9 +150,20 @@ export default function Huddle() {
   // posts across every team, fetched separately (no per-team DDP subscription
   // applies across teams). Having the Personal team itself selected (e.g. from
   // the header switcher) lands in the same view.
-  const [showMe, setShowMe] = useState(false);
-  // A team change from anywhere (header switcher, org switch) leaves the Personal view.
-  useEffect(() => setShowMe(false), [selectedTeamId]);
+  //
+  // It lives in the URL because a Personal conversation can belong to any team:
+  // without `?view=me` a reloaded or shared link would fall back to the team
+  // feed, where a cross-team conversation reads as not found.
+  const showMe = params.get('view') === 'me';
+  // A team change from anywhere (header switcher, org switch) leaves the
+  // Personal view. Compared with the previous value so loading a `?view=me`
+  // link, which also settles the team, doesn't immediately clear it.
+  const personalScopeTeamRef = useRef(selectedTeamId);
+  useEffect(() => {
+    if (personalScopeTeamRef.current === selectedTeamId) return;
+    personalScopeTeamRef.current = selectedTeamId;
+    if (showMe) setParams({ view: null });
+  }, [selectedTeamId, showMe, setParams]);
   const personalTeamId = allTeams.find((t) => t.isPersonal)?.id ?? null;
   const scope: 'team' | 'me' =
     showMe || (selectedTeamId !== null && selectedTeamId === personalTeamId) ? 'me' : 'team';
@@ -196,10 +207,10 @@ export default function Huddle() {
     // DropdownItem doesn't close its menu on its own.
     setTeamMenuOpen(false);
     if (value === PERSONAL_VIEW) {
-      setShowMe(true);
+      setParams({ view: 'me' }, 'push');
       return;
     }
-    setShowMe(false);
+    setParams({ view: null }, 'push');
     setSelectedTeamId(value);
   };
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
@@ -585,6 +596,17 @@ export default function Huddle() {
     setParams({ conversation: match.id, post: null, postId: null, q: null });
   }, [postParam, targetPostLoaded, threadBy, allConversations, setParams]);
 
+  // A deleted post, or one from a team this link didn't carry, never resolves
+  // above — without this the inbox would quietly show its default conversation
+  // while the URL still named the post. Same timing guard as the conversation
+  // case, so a post still arriving over DDP isn't called missing.
+  const postUnavailable =
+    !!postParam &&
+    !targetPostLoaded &&
+    scopeKeyRef.current === scopeKey &&
+    !feedLoading &&
+    !feedError;
+
   // Posting from the inbox's chat input → huddle.createPost. Rejecting tells
   // SuperChat to put the typed text back, so only a failed upload or create
   // rejects; a slow refresh afterwards doesn't.
@@ -737,6 +759,10 @@ export default function Huddle() {
                 <NoAccessState kind="not-found" resource="conversation" />
               )}
 
+              {!conversationUnavailable && postUnavailable && (
+                <NoAccessState kind="not-found" resource="post" />
+              )}
+
               <ComposerError message={inboxError} onDismiss={() => setInboxError(null)} />
 
               {/* SuperChatInbox, grouped by the selected Thread by option.
@@ -744,68 +770,72 @@ export default function Huddle() {
                   Stays mounted through an empty search so the filters in its
                   list header don't vanish mid-typing, and with no posts at all
                   it opens the starter conversation (see `conversations`). */}
-              {!feedLoading && !feedError && !conversationUnavailable && user && (
-                <SuperChatInbox
-                  conversations={conversations}
-                  activeConversationId={activeConversation?.id}
-                  onConversationOpened={(conversation) => openConversation(conversation.id)}
-                  currentParticipantId={user.id}
-                  virtualized
-                  renderPlugins={renderPlugins}
-                  acceptedFileTypes={['image', 'video', 'pdf']}
-                  onMessageSent={(text, { mentions: sentMentions, attachments }) =>
-                    handleMessageSent(text, sentMentions, attachments)
-                  }
-                  onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
-                  composerProps={{
-                    // Input on its own row, labelled buttons underneath.
-                    layout: 'stacked',
-                    placeholder: 'Share an update…',
-                    maxFileSize: COMPOSER_MAX_FILE_BYTES,
-                    // A Pulse video or ticket is a post on its own.
-                    canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
-                    // Also busy while staged content is still settling: a send
-                    // rejected then would lose the picked files, which the
-                    // composer clears before `onSend` (gap 4.14).
-                    isSending: sending || pulsePending || ticketVideos.loading,
-                    mentionOptions: mentions.options,
-                    leadingSlot: (
-                      // ChatComposer's leadingSlot wrapper has no gap of its own.
-                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                        {/* Keyed by scope: it reads its pending reservation only on mount. */}
-                        <PulseAttachButton
-                          key={pulseScope}
-                          scope={pulseScope}
-                          onAttach={(media) =>
-                            setPulseVideos((prev) =>
-                              prev.some((m) => m.id === media.id) ? prev : [...prev, media],
-                            )
-                          }
-                          onPendingChange={setPulsePending}
-                        />
-                        {postingTeamId && (
-                          <TicketPicker
-                            teamId={postingTeamId}
-                            onSelect={setSelectedTicketId}
-                            selectedId={selectedTicketId}
+              {!feedLoading &&
+                !feedError &&
+                !conversationUnavailable &&
+                !postUnavailable &&
+                user && (
+                  <SuperChatInbox
+                    conversations={conversations}
+                    activeConversationId={activeConversation?.id}
+                    onConversationOpened={(conversation) => openConversation(conversation.id)}
+                    currentParticipantId={user.id}
+                    virtualized
+                    renderPlugins={renderPlugins}
+                    acceptedFileTypes={['image', 'video', 'pdf']}
+                    onMessageSent={(text, { mentions: sentMentions, attachments }) =>
+                      handleMessageSent(text, sentMentions, attachments)
+                    }
+                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
+                    composerProps={{
+                      // Input on its own row, labelled buttons underneath.
+                      layout: 'stacked',
+                      placeholder: 'Share an update…',
+                      maxFileSize: COMPOSER_MAX_FILE_BYTES,
+                      // A Pulse video or ticket is a post on its own.
+                      canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
+                      // Also busy while staged content is still settling: a send
+                      // rejected then would lose the picked files, which the
+                      // composer clears before `onSend` (gap 4.14).
+                      isSending: sending || pulsePending || ticketVideos.loading,
+                      mentionOptions: mentions.options,
+                      leadingSlot: (
+                        // ChatComposer's leadingSlot wrapper has no gap of its own.
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          {/* Keyed by scope: it reads its pending reservation only on mount. */}
+                          <PulseAttachButton
+                            key={pulseScope}
+                            scope={pulseScope}
+                            onAttach={(media) =>
+                              setPulseVideos((prev) =>
+                                prev.some((m) => m.id === media.id) ? prev : [...prev, media],
+                              )
+                            }
+                            onPendingChange={setPulsePending}
                           />
-                        )}
-                        <TicketVideoChips videos={ticketVideos.videos} />
-                        <ComposerChips
-                          selectedTicketId={selectedTicketId}
-                          onTicketRemove={() => setSelectedTicketId(undefined)}
-                          mentions={[]}
-                          onMentionRemove={() => {}}
-                          attachments={pulseVideos}
-                          onAttachmentRemove={removePulseVideo}
-                        />
-                      </div>
-                    ),
-                  }}
-                  // No outer border or rounding: the inbox sits on the page as the page.
-                  className={`h-full rounded-none border-0 ${styles.inbox}`}
-                />
-              )}
+                          {postingTeamId && (
+                            <TicketPicker
+                              teamId={postingTeamId}
+                              onSelect={setSelectedTicketId}
+                              selectedId={selectedTicketId}
+                            />
+                          )}
+                          <TicketVideoChips videos={ticketVideos.videos} />
+                          <ComposerChips
+                            selectedTicketId={selectedTicketId}
+                            onTicketRemove={() => setSelectedTicketId(undefined)}
+                            mentions={[]}
+                            onMentionRemove={() => {}}
+                            attachments={pulseVideos}
+                            onAttachmentRemove={removePulseVideo}
+                          />
+                        </div>
+                      ),
+                    }}
+                    // No outer border or rounding: the inbox sits on the page as the page.
+                    className={`h-full rounded-none border-0 ${styles.inbox}`}
+                  />
+                )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}
             </>
           )}

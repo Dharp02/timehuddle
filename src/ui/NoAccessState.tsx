@@ -15,9 +15,14 @@ import React from 'react';
 import { useRouter } from './router';
 
 export type NoAccessKind = 'forbidden' | 'not-found';
-export type NoAccessResource = 'team' | 'org' | 'ticket' | 'profile' | 'conversation' | 'page';
-/** `page` is only ever missing, never withheld: there are no admin-only routes. */
-export type ForbiddenResource = Exclude<NoAccessResource, 'page'>;
+export type NoAccessResource =
+  'team' | 'org' | 'ticket' | 'profile' | 'conversation' | 'post' | 'page';
+/**
+ * `page` and `post` are only ever missing, never withheld: there are no
+ * admin-only routes, and a post in a team the reader can't see is covered by
+ * the team gate before the post is ever looked up.
+ */
+export type ForbiddenResource = Exclude<NoAccessResource, 'page' | 'post'>;
 
 interface NoAccessCopy {
   title: string;
@@ -82,6 +87,11 @@ export const NO_ACCESS_COPY: {
       title: 'This page doesn’t exist',
       description:
         'The address may be mistyped, or the page may have moved. Check the link, or start again from the dashboard.',
+    },
+    post: {
+      title: 'This post isn’t here',
+      description:
+        'It may have been deleted, or it may belong to a team you aren’t in. Pick a conversation from the list to carry on.',
     },
   },
   goToDashboard: 'Go to dashboard',

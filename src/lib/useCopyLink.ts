@@ -21,9 +21,14 @@ export const COPY_LINK_COPY = {
  *
  * On the web that is simply where the app is being served from. Inside the
  * native shell it is not: `window.location.origin` there is the WebView's own
- * scheme (`capacitor://localhost`), which nobody else can open. Native uses the
- * configured public origin instead — `VITE_PUBLIC_APP_URL`, falling back to the
- * backend host, which is also what serves the web app.
+ * scheme (`capacitor://localhost`), which nobody else can open. Native uses
+ * `VITE_PUBLIC_APP_URL`, set by the OTA and TestFlight builds, which verify it
+ * reached the bundle.
+ *
+ * The backend host is only a last resort for a native build made without it
+ * (a local `cap run`). It is *not* where the web app lives — the frontend and
+ * backend deploy to separate hosts (`huddle` vs `timecore-prod`), so a link
+ * built from it won't open TimeHuddle.
  */
 export function publicAppOrigin(): string {
   if (!Capacitor.isNativePlatform()) return window.location.origin;

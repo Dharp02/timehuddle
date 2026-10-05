@@ -46,17 +46,17 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 
 ## Params by Page
 
-| Page                            | Params                                                                          |
-| ------------------------------- | ------------------------------------------------------------------------------- |
-| Teams `/app/teams/:teamId`      | the team is in the path; `/app/teams` redirects to the selected team            |
-| Tickets `/app/tickets`          | none yet — its search, filters and tab are component state (see #618 follow-up) |
-| Ticket `/app/tickets/:ticketId` | none — copy it with **Copy Link**                                               |
-| Dashboard                       | `tab=me\|team`, `view=timesheet`, `member`, `request`                           |
-| Huddle                          | `conversation`, `q`; `post` resolves to the `conversation` holding it           |
-| Work                            | `date=YYYY-MM-DD` (today when absent)                                           |
-| Profile                         | `tab` (Feed when absent)                                                        |
-| Org Members                     | `q`                                                                             |
-| Org Usage                       | `period`, `usageOrg` — not `org`, which is the app-wide scope                   |
+| Page                            | Params                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------- |
+| Teams `/app/teams/:teamId`      | the team is in the path; `/app/teams` redirects to the selected team                        |
+| Tickets `/app/tickets`          | none yet — its search, filters and tab are component state (see #618 follow-up)             |
+| Ticket `/app/tickets/:ticketId` | none — copy it with **Copy Link**                                                           |
+| Dashboard                       | `tab=me\|team`, `view=timesheet`, `member`, `request`                                       |
+| Huddle                          | `view=me` (Personal), `conversation`, `q`; `post` resolves to the `conversation` holding it |
+| Work                            | `date=YYYY-MM-DD` (today when absent)                                                       |
+| Profile                         | `tab` (Feed when absent)                                                                    |
+| Org Members                     | `q`                                                                                         |
+| Org Usage                       | `period`, `usageOrg` — not `org`, which is the app-wide scope                               |
 
 Search boxes use `useSearchParam(name)`: the page filters as you type and the URL follows once typing pauses.
 

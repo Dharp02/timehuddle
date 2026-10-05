@@ -90,6 +90,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const [isReady, setIsReady] = useState(false);
   // Set when the profile can't be shown at all: forbidden vs. doesn't exist.
   const [unavailable, setUnavailable] = useState<NoAccessKind | null>(null);
+  // A load that failed for some other reason (offline, backend down). Separate
+  // from `unavailable`, because this one is worth retrying.
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   // Avatar upload/crop modal state
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
   const [avatarImage, setAvatarImage] = useState<string | null>(null);
@@ -108,6 +112,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   useEffect(() => {
     setIsReady(false);
     setUnavailable(null);
+    setLoadError(false);
     const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
     fetch
       .then((p) => {
@@ -117,11 +122,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       .catch((err) => {
         // By Meteor.Error code: wormhole sends them all as HTTP 500.
         const kind = classifyLoadError(err);
-        if (kind !== 'error') setUnavailable(kind);
+        if (kind === 'error') setLoadError(true);
+        else setUnavailable(kind);
         setProfile(null);
       })
       .finally(() => setIsReady(true));
-  }, [userId, username]);
+  }, [userId, username, reloadKey]);
 
   useRefresh(
     React.useCallback(async () => {
@@ -147,6 +153,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
   if (unavailable) {
     return <NoAccessState kind={unavailable} resource="profile" />;
+  }
+
+  // Without this the failed load would fall through and render the page as
+  // "Unknown user", which reads as a real but empty profile.
+  if (loadError) {
+    return (
+      <AppPage>
+        <div className="profile-load-error flex flex-col items-center gap-4 py-24">
+          <Text>Could not load this profile. Check your connection.</Text>
+          <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)}>
+            Try again
+          </Button>
+        </div>
+      </AppPage>
+    );
   }
 
   const nameText =
