@@ -231,13 +231,6 @@ export default function Huddle() {
     refreshMyPosts().finally(() => setMyPostsLoading(false));
   }, [scope, refreshMyPosts]);
 
-  // A post link (dashboard Recent Activity, clock-in/out and huddle-comment
-  // notifications) opens the conversation containing it once loaded. Its team
-  // comes in the link's ?team= (TeamContext switches to it); a search that
-  // would hide it is cleared when it resolves. A boolean, not `posts` itself:
-  // the array gets a fresh identity on every DDP change event.
-  const targetPostLoaded = postParam !== null && posts.some((p) => p.id === postParam);
-
   // Live session state for the inbox titles and the classic card header. The
   // posts publication only fires on post writes, so a clock-out would never
   // reach the feed on its own — `clock.liveForTeams` carries every still-open
@@ -380,6 +373,15 @@ export default function Huddle() {
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
   const activePosts = scope === 'me' ? myPosts : posts;
+
+  // A post link (dashboard Recent Activity, clock-in/out and huddle-comment
+  // notifications) opens the conversation containing it once loaded. Its team
+  // comes in the link's ?team= (TeamContext switches to it); a search that
+  // would hide it is cleared when it resolves. Against the active scope, since
+  // Personal fetches its own posts and a Personal post link can name any team.
+  // A boolean, not the array itself: that gets a fresh identity on every DDP
+  // change event.
+  const targetPostLoaded = postParam !== null && activePosts.some((p) => p.id === postParam);
 
   // Team admins (and org owners) get the extra session-title detail (hours,
   // no-wrap-up warning). Not in Personal: `isAdmin` there reflects the

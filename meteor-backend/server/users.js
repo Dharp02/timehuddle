@@ -72,13 +72,25 @@ async function resolveTeamMemberships(userId) {
  */
 async function adminsAnOrgOf(viewerId, targetUserId) {
   const db = rawDb();
-  const memberships = await db
-    .collection('org_members')
-    .find({ userId: { $in: [viewerId, targetUserId] } })
-    .toArray();
+  const [memberships, viewer] = await Promise.all([
+    db
+      .collection('org_members')
+      .find({ userId: { $in: [viewerId, targetUserId] } })
+      .toArray(),
+    db.collection('users').findOne({ _id: String(viewerId) }, { projection: { blocked: 1 } }),
+  ]);
+  // `orgs.blockMember` keeps the org_members row and its role on purpose, so a
+  // blocked former admin still reads as owner/admin here. The block record on
+  // the user is the only thing that says otherwise.
+  const blockedOrgIds = new Set((viewer?.blocked ?? []).map((b) => b.orgId));
   const runs = new Set(
     memberships
-      .filter((m) => m.userId === viewerId && (m.role === 'owner' || m.role === 'admin'))
+      .filter(
+        (m) =>
+          m.userId === viewerId &&
+          (m.role === 'owner' || m.role === 'admin') &&
+          !blockedOrgIds.has(m.orgId),
+      )
       .map((m) => m.orgId),
   );
   return memberships.some((m) => m.userId === targetUserId && runs.has(m.orgId));
