@@ -352,12 +352,7 @@ const core = createPulseVaultCore({
   },
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete called', JSON.stringify(ctx));
-    // After Pulse gets its response: a transcode shouldn't hold up the final PATCH.
-    if (ctx.kind === 'video') {
-      makeWebReady(ctx.artifactId).catch((err) =>
-        console.warn('[pulsevault] web-ready failed, keeping original:', ctx.artifactId, err.message),
-      );
-    }
+    if (ctx.kind === 'video') startWebReady(ctx.artifactId);
     const reservation = await takeReservation(ctx.artifactId);
     if (!reservation) {
       console.log('[pulsevault][hook] onUploadComplete: NO reservation context for', ctx.artifactId);
@@ -386,6 +381,17 @@ function makeWebReady(artifactId) {
   });
   webReadyQueue = run.catch(() => {});
   return run;
+}
+
+/**
+ * Start making a finished video web-playable, in the background: a transcode
+ * shouldn't hold up Pulse's final PATCH. The original bytes keep serving
+ * meanwhile, and on failure.
+ */
+function startWebReady(artifactId) {
+  makeWebReady(artifactId).catch((err) =>
+    console.warn('[pulsevault] web-ready failed, keeping original:', artifactId, err.message),
+  );
 }
 
 /** Decode a TUS Upload-Metadata header into a plain object (values are base64). */
@@ -528,8 +534,9 @@ Wormhole.use({
       // A retried TUS create (POST) whose earlier attempt never finished (the
       // app killed or the stream aborted mid-upload, so no TUS DELETE was
       // sent; a DELETE removes the artifact since PulseVault 0.4) leaves a
-      // stale "uploading" sidecar behind. pulsevault's reserveUpload uses exclusive file create,
-      // so every retry with the same artifactId would 409 forever. If the
+      // stale "uploading" sidecar behind. pulsevault's reserveUpload uses
+      // exclusive file create, so every retry with the same artifactId would
+      // 409 forever. If the
       // artifact isn't `ready` (resolve() returns null), remove the stale state
       // so the retry can succeed. If it IS `ready` but still has an unconsumed
       // reservation, the upload finished but `onUploadComplete` never ran (e.g.
@@ -573,6 +580,7 @@ Wormhole.use({
           const reservation = await takeReservation(artifactId);
           if (reservation) {
             console.log('[pulsevault] finalizing orphaned ready upload:', artifactId);
+            startWebReady(artifactId);
             await attachUploadedVideo(artifactId, reservation);
           }
           notifySseClients(artifactId, ready);
