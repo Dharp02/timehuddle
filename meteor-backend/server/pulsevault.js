@@ -91,10 +91,13 @@ export async function artifactBelongsTo(artifactId, userId) {
     .findOne({ videoid: artifactId }, { projection: { userId: 1 } });
   if (media) return media.userId === userId;
 
-  // getPulse describes whatever artifact the id names, so a thumbnail's or
-  // captions' id would pass on its owner's context without the kind check.
-  const { video } = await core.getPulse(artifactId).catch(() => ({ video: null }));
-  return video?.kind === 'video' && video.context?.userId === userId;
+  // The status describes whatever artifact the id names (a thumbnail's or
+  // captions' id carries its owner's context too), and exists from the moment
+  // the upload was created — so it must be a video, and bytes must have
+  // arrived: a reservation that was never used is not evidence.
+  const status = await core.getStatus(artifactId).catch(() => null);
+  if (!status || status.kind !== 'video' || status.context?.userId !== userId) return false;
+  return status.state === 'ready' || status.state === 'processing' || (status.bytesReceived ?? 0) > 0;
 }
 
 /**
@@ -177,9 +180,10 @@ async function attachUploadedVideo({ artifactId, ext, size }, { userId, target, 
   const note = `Attached to ${attachedTo.kind} ${ticketId}`;
   if (existing) return note; // a replay
   if (attachedTo.kind === 'ticket') {
+    // `tickets.delete` soft-deletes (status: 'deleted'), so a deleted ticket still has a document.
     const ticket = await rawDb()
       .collection('tickets')
-      .findOne({ _id: new ObjectId(ticketId) }, { projection: { _id: 1 } });
+      .findOne({ _id: new ObjectId(ticketId), status: { $ne: 'deleted' } }, { projection: { _id: 1 } });
     if (!ticket) throw destinationGone(`Ticket ${ticketId} was deleted while the video was uploading`);
   }
   await createAttachment({ url: videoUrl, type: 'video', title, attachedTo, addedBy: userId });
@@ -453,7 +457,9 @@ Meteor.methods({
       await resolveTicketRef(identity.userId, REDMINE, ticketId);
       reservation = { userId: identity.userId, target: REDMINE, ticketId };
     } else {
-      const ticket = await rawDb().collection('tickets').findOne({ _id: new ObjectId(ticketId) });
+      const ticket = await rawDb()
+        .collection('tickets')
+        .findOne({ _id: new ObjectId(ticketId), status: { $ne: 'deleted' } });
       if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
       reservation = { userId: identity.userId, target: 'ticket', ticketId };
     }

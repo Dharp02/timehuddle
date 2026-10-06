@@ -27,7 +27,19 @@ async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void
       },
       onSuccess() {
         // The media item exists only once the backend has filed the video.
-        void videoApi.waitUntilFiled(videoid, uploadToken).then(resolve);
+        void videoApi.waitUntilFiled(videoid, uploadToken).then((filed) => {
+          if (filed.state === 'done') resolve();
+          else
+            reject(
+              new Error(
+                filed.state === 'kept'
+                  ? `Uploaded, but not added: ${filed.reason ?? 'its destination is gone'}.`
+                  : filed.state === 'forbidden'
+                    ? 'Uploaded, but this link has expired. Refresh to see it.'
+                    : 'Uploaded; still being processed. Refresh in a minute.',
+              ),
+            );
+        });
       },
       onError(err) {
         reject(err);

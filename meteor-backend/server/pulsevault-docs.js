@@ -289,7 +289,13 @@ export const pulsevaultOpenApiSpec = {
         tags: ['pulsevault'],
         parameters: [ARTIFACT_ID_PARAM],
         responses: {
-          200: { description: 'The poster image.', content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } } } },
+          200: {
+            description: 'The poster image, in the type it was uploaded as.',
+            content: {
+              'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+              'image/png': { schema: { type: 'string', format: 'binary' } },
+            },
+          },
           404: { description: 'The video has no finished poster frame.' },
         },
       },

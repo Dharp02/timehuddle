@@ -212,11 +212,23 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       },
       onSuccess() {
         // The attachment exists only once the backend has filed the video.
-        void videoApi.waitUntilFiled(videoid, uploadToken).then(() => {
-          clearStoredVideoid(videoidKey);
+        void videoApi.waitUntilFiled(videoid, uploadToken).then((filed) => {
           setUploadToken(null);
           setProgress(null);
-          onUploadComplete();
+          if (filed.state === 'done') {
+            clearStoredVideoid(videoidKey);
+            onUploadComplete();
+            return;
+          }
+          // The upload itself finished; only the filing didn't, or couldn't be
+          // confirmed. Keep the stored videoid so a retry resumes the same one.
+          setError(
+            filed.state === 'kept'
+              ? `Uploaded, but not attached: ${filed.reason ?? 'its destination is gone'}.`
+              : filed.state === 'forbidden'
+                ? 'Uploaded, but this link has expired. Refresh the ticket to see it.'
+                : 'Uploaded; still being processed. Refresh the ticket in a minute.',
+          );
         });
       },
       onError(err) {
