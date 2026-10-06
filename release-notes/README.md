@@ -37,8 +37,10 @@ release-notes/
    change is published — check
    [`.github/workflows/ota-publish.yml`](../.github/workflows/ota-publish.yml):
    a push to `main` publishes a bundle at the current `package.json` version.
-   If a note for that version already exists, **add to it** rather than creating
-   a second file.
+   If a note for that version already exists and the version is **not yet
+   tagged**, add to it rather than creating a second file. If it is tagged,
+   usually bump the version and start a new note — see
+   [Amending a note after its release](#amending-a-note-after-its-release).
 2. Copy the template below to `release-notes/<version>.md`.
 3. Put any screenshots in `release-notes/assets/<version>/` — the PRs going
    into the release usually have them already; see
@@ -90,6 +92,39 @@ Required frontmatter fields — all three, no others are read:
 | `version` | semver (`1.0.3`) | Must equal the filename                                |
 | `date`    | `YYYY-MM-DD`     | The day it ships, not the day you wrote it             |
 | `title`   | plain text       | Shown as the release headline; keep it under ~60 chars |
+
+## Amending a note after its release
+
+**Lean towards a new note rather than a rewrite — but it is a judgment call.**
+
+Before the version's tag exists, the note is still a draft; keep adding to it
+freely. After the tag, the question is whether a reader would want to be _told_
+about the change or would simply want the page to be right.
+
+Edit the note in place when the fix is beneath anyone's notice — a typo, a
+broken link or image path, a clumsy sentence, the **Pull requests in this
+release** list, a screenshot of something the note already describes. Nobody
+needs an announcement that a comma moved.
+
+Write a new note instead when the change tells a reader something they did not
+already know: a feature the note never mentioned, a section that belongs to a
+different version, a claim that was simply wrong. Say the correction plainly —
+_"Sending time to Redmine arrived in 1.0.5, not 1.0.3 as that note said."_ A
+reader who saw the original gets told; a reader who did not loses nothing.
+
+Two things push the borderline cases towards a new note:
+
+- **An edit reaches nobody on its own.** The OTA updater ships a bundle only
+  when its version is strictly newer ([`ota.js`](../meteor-backend/server/ota.js)),
+  and `unseenReleaseNotes` only flags versions newer than the one a reader has
+  seen. A correction with no bump behind it never leaves the repo, and an edit
+  to an old note lands silently even when it does.
+- **The published GitHub Release does not follow.** Anything you change in a
+  tagged note leaves that Release saying the old thing until you edit it too
+  (see [Shipping a release](#shipping-a-release)).
+
+If you do edit in place, keep it small enough that the Release body only needs
+the same small edit.
 
 ## Assets
 
@@ -197,8 +232,10 @@ When the bump to `1.0.7` merges, ship `1.0.6`:
 Publishing a Release notifies everyone watching the repo. Do not publish one to
 try things out — step 4 drafts the PR list without publishing anything.
 
-If a note is corrected after its release is published, update the Release to
-match: `gh release edit 1.0.6 --notes-file body.md`.
+If one of the small fixes above lands on a note whose Release is already
+published, update the Release to match: `gh release edit 1.0.6 --notes-file body.md`.
+If the change was big enough to need its own note instead, the old Release stays
+as it was — see [Amending a note after its release](#amending-a-note-after-its-release).
 
 ## How a note reaches the user
 
