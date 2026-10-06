@@ -150,7 +150,7 @@ Apply the new template to the notes already on the page.
   git tag -fa 1.0.5 ba086ece -m "1.0.5 — Your Redmine issues, inside TimeHuddle"
   git push --force origin 1.0.5
   ```
-- [ ] Create a GitHub Release for each, oldest first so `1.0.5` stays **Latest**. Title and body come from each note, as in the README's "Shipping a release" steps 3–5. Pass `--latest=false` for the older ones.
+- [ ] Create a GitHub Release for each, oldest first so `1.0.5` stays **Latest**. Title and body come from each note, as in the README's "Shipping a release" steps 2–4. Pass `--latest=false` for the older ones.
 - [ ] **Fix `1.0.5`**: `gh release edit 1.0.5 --title "Your Redmine issues, inside TimeHuddle" --notes-file <file>` with the current `1.0.5.md` body + PR list + screens
 - [ ] Open https://github.com/mieweb/timehuddle/releases and confirm: four releases, newest is Latest, titles match the in-app page, and images and videos play
 
@@ -163,6 +163,6 @@ Apply the new template to the notes already on the page.
 
 ## Out of Scope (for Now)
 
-- Automating tags or Releases from the `ota-publish.yml` workflow (a good follow-up once the manual steps have been done a few times)
+- Publishing Releases automatically. Tags and draft Releases were brought in scope (tracking commit hashes by hand was error-prone): [`tag-release.yml`](../workflows/tag-release.yml) runs [`scripts/tag-previous-version.sh`](../../scripts/tag-previous-version.sh) and [`scripts/draft-release.sh`](../../scripts/draft-release.sh) on every push to `main`. Publishing stays a person's click because it notifies everyone watching the repo.
 - Writing the missing `notes.test.ts` validator
 - Re-hosting PR videos on YouTube (needs a decision on whose channel)

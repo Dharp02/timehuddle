@@ -190,26 +190,40 @@ Every push to `main` republishes the bundle under the current `package.json`
 version (see [`ota-publish.yml`](../.github/workflows/ota-publish.yml)), so a
 version keeps picking up changes until the next bump. A version's tag goes on
 the **last** commit that shipped under it, which is only known once the next
-version's bump merges. That is when you tag and release the version before it.
+version's bump merges.
 
-When the bump to `1.0.7` merges, ship `1.0.6`:
+**Tagging and drafting are automatic.** When a push to `main` changes the
+`package.json` version, [`tag-release.yml`](../.github/workflows/tag-release.yml):
 
-1. Find the last `1.0.6` commit, the one just before the bump merge on `main`:
+- **tags the old version** on the commit `main` pointed at just before that
+  push — the last one published under it. Tags are the bare version, no `v`
+  prefix. If that tag already exists on a different commit, the workflow leaves
+  it alone, warns, and drafts nothing; moving a published tag is a decision for
+  a person.
+- **drafts its GitHub Release** from the note as it was at the tag: the note's
+  `title:` as the title, everything below the frontmatter as the body, and
+  `assets/…` images pointed at that tag on `raw.githubusercontent.com` so they
+  load on GitHub. A draft notifies nobody. If a Release for the tag already
+  exists, draft or published, it is left alone.
+
+Publishing stays with a person. When the bump to `1.0.7` merges, ship `1.0.6`:
+
+1. Open https://github.com/mieweb/timehuddle/releases and find the **1.0.6**
+   draft. If it is missing, the **Tag Release** run failed or warned; run the
+   same scripts by hand, dry run first. `<before>` is the `main` commit just
+   before the bump merge — the run's log shows both SHAs:
    ```bash
-   git fetch origin
-   git log origin/main --first-parent -2 --format='%h %s'   # bump merge, then the one to tag
-   git show <sha>:package.json | grep '"version"'          # must say 1.0.6
+   git fetch --tags origin
+   DRY_RUN=1 scripts/tag-previous-version.sh <before> <bump-merge>
+   scripts/tag-previous-version.sh <before> <bump-merge>
+   DRY_RUN=1 scripts/draft-release.sh 1.0.6
+   scripts/draft-release.sh 1.0.6
    ```
-2. Tag it and push the tag. Tags are the bare version, no `v` prefix:
-   ```bash
-   git tag -a 1.0.6 <sha> -m "1.0.6 — <title from the note>"
-   git push origin 1.0.6
-   ```
-3. Write the Release body in a scratch file: the note's body (everything below
-   the frontmatter, including its **Pull requests in this release** list), with
-   `user-attachments` URLs in place of `assets/…` paths so the images show on
-   GitHub, and any PR screenshots or videos that did not make it into the note.
-4. Optionally, append the full PR list as a footer. This saves nothing; it
+2. Edit the draft and read it as a visitor would: the title matches the note,
+   images load. Add any PR screenshots or videos that did not make it into the
+   note — paste their `user-attachments` URLs (see
+   [Collecting screens from PRs](#collecting-screens-from-prs)).
+3. Optionally, append the full PR list as a footer. This saves nothing; it
    returns the text GitHub's **Generate release notes** button would produce,
    shaped by [`.github/release.yml`](../.github/release.yml):
    ```bash
@@ -220,17 +234,12 @@ When the bump to `1.0.7` merges, ship `1.0.6`:
    list, which covers what the note describes.
    GitHub reads `release.yml` from the **tagged commit**, so a tag on a commit
    older than that file gets GitHub's default list, Dependabot PRs included.
-5. Publish it. **The title is the note's `title:`**, word for word:
-   ```bash
-   gh release create 1.0.6 --title "<title from the note>" --notes-file body.md
-   ```
-   The web form at `/releases/new` works too. Pick the tag, then paste the
-   title and body.
-6. Open https://github.com/mieweb/timehuddle/releases and check that the new
-   release is marked **Latest** and its images and videos play.
+4. Click **Publish release**.
+5. Check that the new release is marked **Latest** and its images and videos
+   play.
 
 Publishing a Release notifies everyone watching the repo. Do not publish one to
-try things out — step 4 drafts the PR list without publishing anything.
+try things out — a draft, and step 3's call, publish nothing.
 
 If one of the small fixes above lands on a note whose Release is already
 published, update the Release to match: `gh release edit 1.0.6 --notes-file body.md`.
@@ -249,8 +258,8 @@ flowchart TD
     Seen -->|yes| New["Flagged 'New',<br/>counted in the menu badge"]
     Seen -->|no| Old["Listed as history"]
     New --> Mark["Visiting the page stores<br/>the newest version on the user"]
-    Author --> Tag["Tag 1.0.3 on its last commit,<br/>once 1.0.4 is bumped"]
-    Tag --> Release["GitHub Release 1.0.3<br/>note + PR list + screens"]
+    Author --> Tag["tag-release.yml tags 1.0.3 on its last commit<br/>and drafts its Release when 1.0.4 is bumped"]
+    Tag --> Release["A person reviews the draft<br/>and publishes GitHub Release 1.0.3"]
 
     classDef authoring fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
     classDef runtime fill:#dcfce7,stroke:#16a34a,color:#14532d
