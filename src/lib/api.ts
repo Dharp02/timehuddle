@@ -1958,6 +1958,29 @@ export const videoApi = {
    */
   shouldRetryUpload: (err: DetailedError): boolean => err.originalResponse?.getStatus() !== 409,
 
+  /**
+   * Resolve once the backend has filed a finished upload — attached it to its
+   * ticket or added it to the media library — as PulseVault's status route
+   * reports it (`acknowledged`), read with the upload's own token. The video
+   * is made web-playable before it is filed, so this can come seconds after
+   * the last byte. Gives up quietly after `timeoutMs`.
+   */
+  waitUntilFiled: async (videoid: string, uploadToken: string, timeoutMs = 120_000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${METEOR_API_BASE}/pulsevault/artifacts/${videoid}/status`, {
+          headers: { Authorization: `Bearer ${uploadToken}` },
+          cache: 'no-store',
+        });
+        if (res.ok && (await res.json()).acknowledged) return;
+      } catch {
+        // A transient failure: ask again.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  },
+
   /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.

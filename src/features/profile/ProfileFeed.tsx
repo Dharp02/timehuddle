@@ -26,7 +26,8 @@ async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void
         onProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },
       onSuccess() {
-        resolve();
+        // The media item exists only once the backend has filed the video.
+        void videoApi.waitUntilFiled(videoid, uploadToken).then(resolve);
       },
       onError(err) {
         reject(err);

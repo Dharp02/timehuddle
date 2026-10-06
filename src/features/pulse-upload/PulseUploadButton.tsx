@@ -211,10 +211,13 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
         setProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },
       onSuccess() {
-        clearStoredVideoid(videoidKey);
-        setUploadToken(null);
-        setProgress(null);
-        onUploadComplete();
+        // The attachment exists only once the backend has filed the video.
+        void videoApi.waitUntilFiled(videoid, uploadToken).then(() => {
+          clearStoredVideoid(videoidKey);
+          setUploadToken(null);
+          setProgress(null);
+          onUploadComplete();
+        });
       },
       onError(err) {
         setError(err instanceof Error ? err.message : 'Upload failed. Try again.');
