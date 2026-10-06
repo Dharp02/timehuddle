@@ -30,13 +30,18 @@ async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void
         void videoApi.waitUntilFiled(videoid, uploadToken).then((filed) => {
           if (filed.state === 'done') resolve();
           else
+            // The bytes landed; only the filing didn't. Marked so the caller shows this
+            // message rather than the generic "upload failed".
             reject(
-              new Error(
-                filed.state === 'kept'
-                  ? `Uploaded, but not added: ${filed.reason ?? 'its destination is gone'}.`
-                  : filed.state === 'forbidden'
-                    ? 'Uploaded, but this link has expired. Refresh to see it.'
-                    : 'Uploaded; still being processed. Refresh in a minute.',
+              Object.assign(
+                new Error(
+                  filed.state === 'kept'
+                    ? `Uploaded, but not added: ${filed.reason ?? 'its destination is gone'}.`
+                    : filed.state === 'forbidden'
+                      ? 'Uploaded, but this link has expired. Refresh to see it.'
+                      : 'Uploaded; still being processed. Refresh in a minute.',
+                ),
+                { uploaded: true },
               ),
             );
         });
@@ -189,8 +194,12 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
 
       const created = await mediaApi.uploadImage(file);
       setItems((prev) => [created, ...prev]);
-    } catch {
-      setUploadError('Upload failed. Please try again.');
+    } catch (err) {
+      setUploadError(
+        err instanceof Error && (err as Error & { uploaded?: boolean }).uploaded
+          ? err.message
+          : 'Upload failed. Please try again.',
+      );
     } finally {
       setUploadProgress(null);
     }

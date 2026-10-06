@@ -185,6 +185,18 @@ async function attachUploadedVideo({ artifactId, ext, size }, { userId, target, 
       .collection('tickets')
       .findOne({ _id: new ObjectId(ticketId), status: { $ne: 'deleted' } }, { projection: { _id: 1 } });
     if (!ticket) throw destinationGone(`Ticket ${ticketId} was deleted while the video was uploading`);
+  } else {
+    // The Redmine issue was checked at reserve time; check again now, with the uploader's
+    // key. Gone for good → kept. Redmine unreachable, rate-limited or the key rejected → thrown,
+    // so PulseVault tries the delivery again later.
+    try {
+      await resolveTicketRef(userId, REDMINE, ticketId);
+    } catch (err) {
+      if (err?.error === 'not-found') {
+        throw destinationGone(`Redmine issue ${ticketId} was deleted while the video was uploading`);
+      }
+      throw err;
+    }
   }
   await createAttachment({ url: videoUrl, type: 'video', title, attachedTo, addedBy: userId });
   console.log('[pulsevault] created attachment for', attachedTo.kind, ticketId, 'video:', artifactId);

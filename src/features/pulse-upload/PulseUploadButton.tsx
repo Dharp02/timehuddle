@@ -301,7 +301,14 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
         onClose={() => setModalOpen(false)}
         scanLink={scanLink}
         onUploadFromDevice={handleUploadFromDevice}
-        onDone={() => {
+        onDone={async () => {
+          // The phone reports success when its last byte lands; the backend files the video
+          // seconds later, after making it web-playable. Wait for that before closing (which
+          // stops the attachment polling) and refreshing, or the ticket refreshes too early.
+          if (videoid && uploadToken) {
+            const filed = await videoApi.waitUntilFiled(videoid, uploadToken, 30_000);
+            if (filed.state === 'done') clearStoredVideoid(videoidKey);
+          }
           setModalOpen(false);
           onUploadComplete();
         }}

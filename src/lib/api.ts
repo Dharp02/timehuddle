@@ -1983,9 +1983,12 @@ export const videoApi = {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       try {
+        // Each request is bounded by what's left of the deadline (at most 10 s), so a stalled
+        // request can't keep this waiting past `timeoutMs`; an abort counts as transient.
         const res = await fetch(`${METEOR_API_BASE}/pulsevault/artifacts/${videoid}/status`, {
           headers: { Authorization: `Bearer ${uploadToken}` },
           cache: 'no-store',
+          signal: AbortSignal.timeout(Math.max(1000, Math.min(10_000, deadline - Date.now()))),
         });
         if (res.status === 401 || res.status === 403) return { state: 'forbidden' };
         if (res.ok) {
