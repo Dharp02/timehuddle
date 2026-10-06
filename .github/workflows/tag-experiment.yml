@@ -6,9 +6,9 @@ jobs:
   try:
     runs-on: ubuntu-latest
     steps:
-      - name: C) draft Release targeting 915d5ed2, no tag yet
+      - name: D) draft Release targeting main itself
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "Experiment body" | gh release create exp-draft --repo ${{ github.repository }} --draft \
-            --target 915d5ed283e22f41fe3e4f8c4908eb93ce8d0f90 --title "Experiment draft" --notes-file -
+            --target ${{ github.sha }} --title "Experiment draft" --notes-file -
