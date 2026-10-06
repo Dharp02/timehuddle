@@ -475,8 +475,9 @@ Meteor.methods({
         .findOne({ _id: new ObjectId(ticketId), status: { $ne: 'deleted' } });
       if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
       // Only someone who can see the ticket's team may mint an upload for it — the same
-      // check as reading the ticket. A token is a capability to attach to this ticket.
-      if (ticket.teamId) await requireTeamMembership(identity.userId, String(ticket.teamId));
+      // check as reading the ticket, unconditional like there: a ticket without a valid team
+      // is refused, not open to everyone. A token is a capability to attach to this ticket.
+      await requireTeamMembership(identity.userId, String(ticket.teamId ?? ''));
       reservation = { userId: identity.userId, target: 'ticket', ticketId };
     }
 
