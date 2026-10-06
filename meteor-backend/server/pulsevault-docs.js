@@ -132,7 +132,17 @@ export const pulsevaultOpenApiSpec = {
             },
           },
           401: { description: 'Missing credential', content: { 'application/json': { schema: ERROR_RESPONSE_SCHEMA } } },
-          403: { description: 'Invalid/expired token', content: { 'application/json': { schema: ERROR_RESPONSE_SCHEMA } } },
+          403: {
+            description:
+              'Invalid/expired token, or not the shape of a pulse: a video under any id but the ' +
+              "token's, or a thumbnail/manifest/captions not under its own id `relatedTo` the video.",
+            content: { 'application/json': { schema: ERROR_RESPONSE_SCHEMA } },
+          },
+          409: {
+            description:
+              'An artifact already exists under this id: finished, or still uploading and not idle ' +
+              'for 5 minutes (an idle unfinished upload of the same kind is taken over).',
+          },
         },
       },
     },
@@ -186,7 +196,10 @@ export const pulsevaultOpenApiSpec = {
         operationId: 'pulsevault_upload_delete',
         tags: ['pulsevault'],
         parameters: [UPLOAD_ID_PARAM, AUTH_HEADER_PARAM],
-        responses: { 204: { description: 'Upload cancelled' } },
+        responses: {
+          204: { description: 'Upload cancelled' },
+          403: { description: 'The upload has finished, or belongs to a finished video (`lockWhenReady`).' },
+        },
       },
     },
     '/artifacts/{artifactId}': {

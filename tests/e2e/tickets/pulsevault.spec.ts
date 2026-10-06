@@ -331,7 +331,7 @@ test.describe('PulseVault — API contract', () => {
     ).toBe(true);
   });
 
-  test('GET/DELETE /pulsevault/artifacts/{id} serve and remove the finished video', async ({
+  test('GET/DELETE /pulsevault/artifacts/{id} serve the finished video, which its token cannot delete', async ({
     page,
     request,
   }) => {
@@ -350,18 +350,15 @@ test.describe('PulseVault — API contract', () => {
     expect(getArtifact.status()).toBe(200);
     expect(getArtifact.headers()['content-type']).toContain('video/mp4');
 
-    // Artifact delete is authorized by the same capability token as the
-    // upload (the `authorize` hook only treats the `resolve`/GET phase as
-    // public — everything else, including delete, goes through
-    // verifyUploadToken against the artifact-scoped capability token, not a
-    // general Meteor session token).
+    // A video that landed stays (`lockWhenReady`): even the capability token
+    // it was uploaded with can't delete it.
     const del = await request.delete(`/pulsevault/artifacts/${videoid}`, {
       headers: { Authorization: `Bearer ${uploadToken}` },
     });
-    expect([200, 204]).toContain(del.status());
+    expect(del.status()).toBe(403);
 
     const getAfterDelete = await request.get(`/pulsevault/artifacts/${videoid}`);
-    expect(getAfterDelete.status()).toBe(404);
+    expect(getAfterDelete.status()).toBe(200);
   });
 
   test('GET /pulsevault/docs and /pulsevault/openapi.json serve the standalone Swagger page', async ({

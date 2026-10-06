@@ -91,8 +91,10 @@ export async function artifactBelongsTo(artifactId, userId) {
     .findOne({ videoid: artifactId }, { projection: { userId: 1 } });
   if (media) return media.userId === userId;
 
+  // getPulse describes whatever artifact the id names, so a thumbnail's or
+  // captions' id would pass on its owner's context without the kind check.
   const { video } = await core.getPulse(artifactId).catch(() => ({ video: null }));
-  return video?.context?.userId === userId;
+  return video?.kind === 'video' && video.context?.userId === userId;
 }
 
 /**
@@ -121,6 +123,17 @@ const VIDEO_CONTENT_TYPES = {
   '.m4v': 'video/x-m4v',
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The reserved destination no longer exists. The one failure that settles an
+ * upload as kept: anything else thrown from the attach is left for PulseVault
+ * to replay.
+ */
+function destinationGone(message) {
+  return Object.assign(new Error(message), { statusCode: 404 });
+}
+
 /**
  * Create the mediaitems doc / ticket attachment for a finished upload.
  * Idempotent on the video: PulseVault may fire the completion again if this
@@ -134,7 +147,7 @@ async function attachUploadedVideo({ artifactId, ext, size }, { userId, target, 
   if (target === 'library') {
     const media = rawDb().collection('mediaitems');
     const existing = await media.findOne({ videoid: artifactId }, { projection: { _id: 1 } });
-    if (existing) return 'Already in the media library';
+    if (existing) return 'Added to the media library'; // a replay
     await media.insertOne({
       _id: new ObjectId(),
       userId,
@@ -161,10 +174,17 @@ async function attachUploadedVideo({ artifactId, ext, size }, { userId, target, 
       { url: videoUrl, 'attachedTo.kind': attachedTo.kind, 'attachedTo.id': attachedTo.id },
       { projection: { _id: 1 } },
     );
-  if (existing) return `Already attached to ${attachedTo.kind} ${ticketId}`;
+  const note = `Attached to ${attachedTo.kind} ${ticketId}`;
+  if (existing) return note; // a replay
+  if (attachedTo.kind === 'ticket') {
+    const ticket = await rawDb()
+      .collection('tickets')
+      .findOne({ _id: new ObjectId(ticketId) }, { projection: { _id: 1 } });
+    if (!ticket) throw destinationGone(`Ticket ${ticketId} was deleted while the video was uploading`);
+  }
   await createAttachment({ url: videoUrl, type: 'video', title, attachedTo, addedBy: userId });
   console.log('[pulsevault] created attachment for', attachedTo.kind, ticketId, 'video:', artifactId);
-  return `Attached to ${attachedTo.kind} ${ticketId}`;
+  return note;
 }
 
 const storage = createLocalStorage({ workspaceDir: VIDEOS_DIR });
@@ -252,8 +272,17 @@ const core = createPulseVaultCore({
       await core.recordOutcome(ctx.artifactId, { state: 'kept', reason: 'No reservation on this upload' });
       return;
     }
-    const note = await attachUploadedVideo(ctx, reservation);
-    await core.recordOutcome(ctx.artifactId, { state: 'done', note });
+    try {
+      const note = await attachUploadedVideo(ctx, reservation);
+      await core.recordOutcome(ctx.artifactId, { state: 'done', note });
+    } catch (err) {
+      // Only a destination that's gone for good settles the upload as kept
+      // (the video stays in storage, and the status route says why). Anything
+      // else is thrown, so PulseVault replays the completion.
+      if (err.statusCode !== 404) throw err;
+      console.warn('[pulsevault] kept', ctx.artifactId, err.message);
+      await core.recordOutcome(ctx.artifactId, { state: 'kept', reason: err.message });
+    }
   },
   onArtifactEvent: (event) => {
     if (event.phase === 'processed' && event.webReady?.action !== 'none') {
@@ -395,21 +424,24 @@ Meteor.methods({
     // unfinished upload may only be resumed by the person who reserved it:
     // any signed-in user could otherwise pass an arbitrary in-progress
     // id and get a token minted for it. The upload's own context says who.
-    let videoid = existingVideoid ?? null;
-    if (videoid) {
+    // Only a well-formed id is reused (getStatus reports anything else as
+    // `unknown`), and only a video's: a thumbnail's id would 409 the video.
+    let videoid = null;
+    if (typeof existingVideoid === 'string' && UUID_RE.test(existingVideoid)) {
       try {
-        const status = await core.getStatus(videoid);
-        if (status.state !== 'unknown') {
-          if (status.state !== 'uploading') {
-            console.log('[pulsevault] reserve: ignoring completed existingVideoid', videoid);
-            videoid = null;
-          } else if (status.context?.userId !== identity.userId) {
-            console.warn('[pulsevault] reserve: rejecting existingVideoid owned by another user', videoid);
-            videoid = null;
-          }
+        const status = await core.getStatus(existingVideoid);
+        if (
+          status.state === 'unknown' ||
+          (status.state === 'uploading' &&
+            status.kind === 'video' &&
+            status.context?.userId === identity.userId)
+        ) {
+          videoid = existingVideoid;
+        } else {
+          console.log('[pulsevault] reserve: not reusing existingVideoid', existingVideoid, status.state);
         }
-      } catch {
-        videoid = null; // malformed id — start fresh
+      } catch (err) {
+        console.warn('[pulsevault] reserve: could not read existingVideoid', existingVideoid, err.message);
       }
     }
     videoid = videoid ?? randomUUID();
