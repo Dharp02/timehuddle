@@ -6,8 +6,8 @@
  * `notes.ts` can run the very same parser over the real folder.
  *
  * The parser is deliberately strict and throws rather than degrading: a note
- * with a mistyped version or a screenshot path that points at nothing is a
- * mistake to catch in `npm test`, not a broken image to ship to a phone.
+ * with a mistyped version or a screenshot path that points at nothing is
+ * dropped whole, not shipped to a phone with a broken image.
  */
 import { isValidVersion } from '@timehuddle/ota-version';
 

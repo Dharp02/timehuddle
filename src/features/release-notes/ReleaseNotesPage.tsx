@@ -21,10 +21,13 @@ import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { releaseNotes, unseenReleaseNotes } from './notes';
 import { ReleaseNotesList } from './ReleaseNotesList';
+import { useReleaseCelebration } from './useReleaseCelebration';
 
 export const ReleaseNotesPage: React.FC = () => {
   const { user, markReleaseNotesSeen } = useSession();
   const newest = releaseNotes[0];
+
+  useReleaseCelebration();
 
   // Captured once: which notes were unread *when the page opened*. Recomputing
   // after the marker is written would clear every flag mid-read.
