@@ -43,6 +43,7 @@ import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
 import { createAttachment } from './attachments.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
+import { requireTeamMembership } from './permissions.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
@@ -473,6 +474,9 @@ Meteor.methods({
         .collection('tickets')
         .findOne({ _id: new ObjectId(ticketId), status: { $ne: 'deleted' } });
       if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
+      // Only someone who can see the ticket's team may mint an upload for it — the same
+      // check as reading the ticket. A token is a capability to attach to this ticket.
+      if (ticket.teamId) await requireTeamMembership(identity.userId, String(ticket.teamId));
       reservation = { userId: identity.userId, target: 'ticket', ticketId };
     }
 

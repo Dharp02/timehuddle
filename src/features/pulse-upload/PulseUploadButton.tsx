@@ -305,12 +305,30 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
           // The phone reports success when its last byte lands; the backend files the video
           // seconds later, after making it web-playable. Wait for that before closing (which
           // stops the attachment polling) and refreshing, or the ticket refreshes too early.
-          if (videoid && uploadToken) {
-            const filed = await videoApi.waitUntilFiled(videoid, uploadToken, 30_000);
-            if (filed.state === 'done') clearStoredVideoid(videoidKey);
+          if (!videoid || !uploadToken) {
+            setModalOpen(false);
+            onUploadComplete();
+            return;
           }
-          setModalOpen(false);
-          onUploadComplete();
+          const filed = await videoApi.waitUntilFiled(videoid, uploadToken, 30_000);
+          if (filed.state === 'done') {
+            clearStoredVideoid(videoidKey);
+            setModalOpen(false);
+            onUploadComplete();
+          } else if (filed.state === 'timeout') {
+            // Still being made web-playable or filed: leave the modal open so the attachment
+            // polling keeps watching, and say so.
+            setError('Uploaded; still being processed. This will update when it lands.');
+          } else {
+            // The bytes landed but nothing was attached: say why, and keep the stored
+            // videoid out of the way so the next attempt starts fresh.
+            setModalOpen(false);
+            setError(
+              filed.state === 'kept'
+                ? `Uploaded, but not attached: ${filed.reason ?? 'its destination is gone'}.`
+                : 'Uploaded, but this link has expired. Refresh the ticket to see it.',
+            );
+          }
         }}
       />
     </div>
